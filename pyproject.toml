@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "proton-mail-mcp"
+version = "1.0.0"
+description = "Unofficial MCP server for Proton Mail Bridge: read mail, create drafts and run guarded cleanup. Not affiliated with or endorsed by Proton AG."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Dmitri Manajev", email = "dmitri@manajev.com" }]
+keywords = ["mcp", "model-context-protocol", "proton-mail", "proton-bridge", "email", "imap"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Communications :: Email",
+]
+dependencies = ["mcp>=1.30,<2", "pypdf>=6,<7", "uvicorn>=0.35,<1"]
+
+[project.urls]
+Homepage = "https://github.com/legalaspro/proton-mail-mcp"
+Documentation = "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/install.md"
+Repository = "https://github.com/legalaspro/proton-mail-mcp"
+Issues = "https://github.com/legalaspro/proton-mail-mcp/issues"
+Changelog = "https://github.com/legalaspro/proton-mail-mcp/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.12,<1", "cryptography>=46,<51"]
+
+[project.scripts]
+proton-mail-mcp = "proton_mail_mcp.cli:main"
+proton-mail-mcp-rules-run = "proton_mail_mcp.rules_timer:main"
+proton-mail-mcp-service = "proton_mail_mcp.service_entry:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/proton_mail_mcp"]
+
+# The example units, LaunchAgent and rules file, listed one by one so that a stray local
+# file beside them never reaches a wheel.
+[tool.hatch.build.targets.wheel.force-include]
+"examples/com.proton-mail-mcp.plist" = "proton_mail_mcp/examples/com.proton-mail-mcp.plist"
+"examples/protected-senders.example.json" = "proton_mail_mcp/examples/protected-senders.example.json"
+"examples/systemd/proton-mail-mcp-rules.service" = "proton_mail_mcp/examples/systemd/proton-mail-mcp-rules.service"
+"examples/systemd/proton-mail-mcp-rules.timer" = "proton_mail_mcp/examples/systemd/proton-mail-mcp-rules.timer"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

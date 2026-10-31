@@ -1,0 +1,9 @@
+{
+  "mode": "extend",
+  "protect_personal_domains": true,
+  "addresses": ["relative@example.test", "friend@example.test"],
+  "domains": ["trusted-family.example.test"],
+  "keywords": ["Family Accountant"],
+  "domain_patterns": [],
+  "personal_domains": []
+}

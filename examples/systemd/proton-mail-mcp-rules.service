@@ -1,0 +1,16 @@
+# Optional user unit. Installing/enabling this timer needs the owner's OK.
+# Rules sources: exact INBOX only; Drafts, Sent and all other sources are refused.
+# LIST special-use flags are checked before SELECT; refusal exits nonzero.
+[Unit]
+Description=Apply reviewed folder rules to new local Bridge mail
+
+[Service]
+Type=oneshot
+# Set this to the installed CLI path and supply the existing Bridge environment.
+ExecStart=%h/.local/bin/proton-mail-mcp-rules-run
+EnvironmentFile=%h/.config/proton-mail-mcp/rules.env
+UMask=0077
+NoNewPrivileges=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost

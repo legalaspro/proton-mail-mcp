@@ -1,0 +1,15 @@
+# ${MARKER}; rerun the installer instead of editing.
+[Unit]
+Description=Proton Mail Bridge (noninteractive) for proton-mail-mcp
+Documentation=https://proton.me/support/bridge-cli-guide
+
+[Service]
+Type=simple
+ExecStart=${BRIDGE_EXE} --noninteractive
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="@VIEW_CSP@">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proton Mail thread</title>
+<style>
+/*@BASE_CSS@*/
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.details {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--pmm-radius-sm);
+  background: var(--pmm-bg-soft);
+}
+.details div {
+  margin: 2px 0;
+}
+.empty {
+  padding: 24px 16px;
+  color: var(--pmm-text-soft);
+}
+.message-body .link-confirm {
+  margin: 10px 0 0;
+}
+.link-confirm .link-title,
+.link-confirm .link-host {
+  font-weight: 600;
+}
+.link-confirm .link-host {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--pmm-text);
+}
+.link-confirm .mono {
+  margin-top: 2px;
+}
+.link-confirm .link-error {
+  margin-top: 6px;
+  color: var(--pmm-danger-text);
+}
+.link-confirm .message-actions {
+  margin-top: 8px;
+}
+</style>
+</head>
+<body>
+<main id="app">
+  <article class="card">
+    <div class="brand"><span class="mark"></span><span class="title">Proton Mail</span><span id="count">Thread</span><span class="spacer"></span><span class="toolbar"><button type="button" class="ghost hidden" id="expand">Expand</button></span></div>
+    <h1 class="subject" id="subject">Loading thread…</h1>
+    <div id="banners"></div>
+    <section id="messages"></section>
+    <div class="actions">
+      <span class="hint">Read-only view. Scripts, forms and remote images or styles in messages are blocked; attachments are never downloaded.</span>
+    </div>
+  </article>
+</main>
+<script>
+/*@BRIDGE_JS@*/
+(function () {
+  var el = PMM.el;
+  var data = null;
+  var expanded = new Set();
+  var plainMode = new Set();
+  var URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+
+  // The link confirmation currently shown: { panel, origin }.
+  var shown = null;
+
+  function destination(url) {
+    // What a link's text and title cannot fake: the host it opens, or the address it mails.
+    var parsed = new URL(url);
+    if (parsed.protocol === "mailto:") return "Email to: " + (parsed.pathname || "(no address)");
+    return "Site: " + parsed.host;
+  }
+
+  function closeLink(restoreFocus) {
+    var current = shown;
+    if (!current) return;
+    shown = null;
+    PMM.clear(current.panel).classList.add("hidden");
+    if (restoreFocus && current.origin && current.origin.isConnected) current.origin.focus();
+  }
+
+  function confirmLink(panel, url, origin) {
+    // Nothing opens until the user has seen the exact address and chosen to open it.
+    var safe = PMM.safeUrl(url);
+    if (!safe) return;
+    closeLink(false);
+    var entry = { panel: panel, origin: origin };
+    shown = entry;
+    var canOpen = PMM.can("openLinks");
+    PMM.clear(panel);
+    panel.appendChild(el("div", "link-title", canOpen ? "Open this link?" : "This host cannot open links from views."));
+    panel.appendChild(el("div", "link-host", destination(safe)));
+    panel.appendChild(el("div", "mono", safe));
+    var problem = el("div", "link-error hidden");
+    panel.appendChild(problem);
+    var buttons = el("div", "message-actions");
+    var cancel = el("button", null, canOpen ? "Cancel" : "Close");
+    cancel.type = "button";
+    cancel.addEventListener("click", function () {
+      if (shown === entry) closeLink(true);
+    });
+    buttons.appendChild(cancel);
+    if (canOpen) {
+      var open = el("button", "primary", "Open link");
+      open.type = "button";
+      open.addEventListener("click", function () {
+        open.disabled = true;
+        // Exactly the address shown above.
+        PMM.openLink(safe).then(
+          function () {
+            if (shown === entry) closeLink(true);
+          },
+          function (error) {
+            if (shown !== entry) return;
+            open.disabled = false;
+            problem.textContent = "The host did not open the link: " + error.message;
+            problem.classList.remove("hidden");
+          }
+        );
+      });
+      buttons.appendChild(open);
+    }
+    panel.appendChild(buttons);
+    panel.classList.remove("hidden");
+    // The safe choice takes focus, so a repeated key never opens the link.
+    cancel.focus();
+  }
+
+  function activates(event) {
+    // Enter or Space activates a focused link; a held key does not repeat it.
+    return (event.key === "Enter" || event.key === " ") && !event.repeat;
+  }
+
+  function linkTarget(event) {
+    var target = event.target;
+    return target && target.closest ? target.closest("[data-pmm-href]") : null;
+  }
+
+  function linkify(container, text, ask) {
+    var last = 0;
+    String(text).replace(URL_PATTERN, function (match, offset) {
+      if (offset > last) container.appendChild(document.createTextNode(text.slice(last, offset)));
+      var link = el("a", "linkish", match);
+      link.setAttribute("role", "link");
+      link.setAttribute("tabindex", "0");
+      link.title = match;
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        ask(match, link);
+      });
+      link.addEventListener("keydown", function (event) {
+        if (!activates(event)) return;
+        event.preventDefault();
+        ask(match, link);
+      });
+      container.appendChild(link);
+      last = offset + match.length;
+      return match;
+    });
+    if (last < text.length) container.appendChild(document.createTextNode(text.slice(last)));
+    return container;
+  }
+
+  function blockedSummary(counts) {
+    if (!counts) return "";
+    var parts = [];
+    var images = (counts.images || 0) + (counts.inline_images || 0);
+    if (images) parts.push(images + (images === 1 ? " image" : " images"));
+    if (counts.styles) parts.push(counts.styles + (counts.styles === 1 ? " style" : " styles"));
+    if (counts.other) parts.push(counts.other + " other");
+    return parts.join(", ");
+  }
+
+  function htmlFrame(body, ask) {
+    var paper = el("div", "paper");
+    var frame = document.createElement("iframe");
+    // Without script permission nothing in a message can run. Same origin only lets
+    // this view measure the frame and route link clicks through the host.
+    frame.setAttribute("sandbox", "allow-same-origin");
+    frame.setAttribute("referrerpolicy", "no-referrer");
+    frame.setAttribute("title", "Message body");
+    frame.srcdoc = body.document;
+    frame.addEventListener("load", function () {
+      var doc = null;
+      try {
+        doc = frame.contentDocument;
+      } catch (error) {
+        doc = null;
+      }
+      if (!doc || !doc.documentElement) {
+        frame.style.height = "480px";
+        return;
+      }
+      var root = doc.documentElement;
+      var measure = function () {
+        // The document box, not scrollHeight: that never drops below the frame's viewport.
+        return Math.ceil(Math.max(root.getBoundingClientRect().height, doc.body ? doc.body.scrollHeight : 0));
+      };
+      // After the last fit: the height the frame wanted before the limits below, and its
+      // content and viewport heights.
+      var fitted = null;
+      var fit = function () {
+        var content = measure();
+        var wanted = content;
+        if (fitted && root.clientHeight === fitted.viewport) {
+          if (content === fitted.content) return;
+          // Only the content changed, so the frame changes by as much. Content sized by
+          // the frame itself (such as height:100vh) never fits; it keeps scrolling inside
+          // the frame instead of growing it on every fit.
+          wanted = Math.min(content, fitted.wanted + content - fitted.content);
+        }
+        frame.style.height = Math.min(Math.max(wanted, 40), 30000) + "px";
+        // Measured again at the new size: growth that this fit caused is not a change.
+        fitted = { wanted: wanted, content: measure(), viewport: root.clientHeight };
+      };
+      fit();
+      if (typeof ResizeObserver === "function") new ResizeObserver(fit).observe(root);
+      // A resized frame also tells its window; without new content that fit changes nothing.
+      doc.defaultView.addEventListener("resize", fit);
+      doc.addEventListener("click", function (event) {
+        var target = linkTarget(event);
+        if (!target) return;
+        event.preventDefault();
+        ask(target.getAttribute("data-pmm-href"), target);
+      });
+      // The sanitizer makes each link focusable; keys reach the frame's document.
+      doc.addEventListener("keydown", function (event) {
+        var target = activates(event) ? linkTarget(event) : null;
+        if (!target) return;
+        event.preventDefault();
+        ask(target.getAttribute("data-pmm-href"), target);
+      });
+    });
+    paper.appendChild(frame);
+    return paper;
+  }
+
+  var REF = /^msg-[0-9a-f]{12}$/;
+
+  function messageTarget(message) {
+    // Only the server's hexadecimal reference and a number: no text from the message.
+    var target = "message " + message.index + " of the Proton Mail thread view";
+    if (REF.test(message.view_ref)) target += " (view_ref " + message.view_ref + ")";
+    return target;
+  }
+
+  function replyText(message, all) {
+    return "Draft a reply to " + messageTarget(message) + " with compose_reply" + (all ? ", replying to all recipients." : ".");
+  }
+
+  function forwardText(message) {
+    return "Forward " + messageTarget(message) + " with forward_message; ask me for the recipients and which attachments to include.";
+  }
+
+  function renderBody(container, message) {
+    var body = message.body || { kind: "text", text: "" };
+    if (message.truncated) {
+      container.appendChild(
+        el("div", "banner warn", "This message is longer than the view's read limit; only the beginning is shown.")
+      );
+    }
+    var blocked = blockedSummary(body.remote_blocked);
+    if (blocked || body.removed_active) {
+      var text = [];
+      if (blocked) text.push("Remote content blocked: " + blocked + ".");
+      if (body.removed_active) text.push("Removed " + body.removed_active + " active element(s).");
+      container.appendChild(el("div", "banner", text.join(" ")));
+    }
+    if (body.html_omitted) {
+      container.appendChild(el("div", "banner", "Older message shown as text."));
+    }
+    // Links in this message ask here, below its body, before anything opens.
+    var panel = el("div", "banner link-confirm hidden");
+    panel.setAttribute("role", "group");
+    panel.setAttribute("aria-label", "Link destination");
+    panel.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeLink(true);
+    });
+    var ask = function (url, origin) {
+      confirmLink(panel, url, origin);
+    };
+    // The formatted frame or the text. The toggle below swaps only this node.
+    var content = null;
+    var showContent = function () {
+      var showHtml = body.kind === "html" && !plainMode.has(message.index);
+      var next = showHtml
+        ? htmlFrame(body, ask)
+        : linkify(el("p", "plain"), body.text || "(no text)", ask);
+      if (content) container.replaceChild(next, content);
+      else container.appendChild(next);
+      content = next;
+      return showHtml;
+    };
+    var showHtml = showContent();
+    container.appendChild(panel);
+    var attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    if (attachments.length) {
+      var chips = el("div", "chips");
+      attachments.forEach(function (item) {
+        var chip = el("span", "chip");
+        chip.title = "Not downloaded";
+        chip.appendChild(el("span", "label", item.filename || "(unnamed)"));
+        chip.appendChild(el("span", "meta", PMM.fileDetails(item)));
+        chips.appendChild(chip);
+      });
+      container.appendChild(chips);
+    }
+    var actions = el("div", "message-actions");
+    if (body.kind === "html") {
+      var toggle = el("button", "ghost", showHtml ? "Show plain text" : "Show formatted");
+      toggle.type = "button";
+      toggle.addEventListener("click", function () {
+        if (plainMode.has(message.index)) plainMode.delete(message.index);
+        else plainMode.add(message.index);
+        // A confirmation for a link in the replaced body has nothing left to point at.
+        if (shown && shown.panel === panel) closeLink(false);
+        // Updated in place, so this button keeps the keyboard focus.
+        toggle.textContent = showContent() ? "Show plain text" : "Show formatted";
+      });
+      actions.appendChild(toggle);
+    }
+    var detailsButton = el("button", "ghost", "Details");
+    detailsButton.type = "button";
+    var details = el("div", "details mono hidden");
+    details.appendChild(el("div", null, "Message-ID: " + (message.message_id || "unknown")));
+    details.appendChild(
+      el("div", null, "Folder: " + (message.folder || "unknown") + "  UID: " + (message.uid || "?") +
+        "  UIDVALIDITY: " + (message.uidvalidity || "?"))
+    );
+    if (message.alias && message.alias.folder) {
+      details.appendChild(el("div", null, "Read from: " + message.alias.folder + "  UID: " + (message.alias.uid || "?")));
+    }
+    if (message.reply_to) details.appendChild(el("div", null, "Reply-To: " + message.reply_to));
+    detailsButton.addEventListener("click", function () {
+      details.classList.toggle("hidden");
+    });
+    actions.appendChild(detailsButton);
+    if (PMM.can("message")) {
+      [
+        ["Reply", replyText(message, false)],
+        ["Reply all", replyText(message, true)],
+        ["Forward", forwardText(message)],
+      ].forEach(function (entry) {
+        var button = el("button", null, entry[0]);
+        button.type = "button";
+        button.addEventListener("click", function () {
+          button.disabled = true;
+          PMM.sendMessage(entry[1]).then(
+            function () {
+              button.textContent = "Asked the assistant";
+            },
+            function () {
+              button.disabled = false;
+              button.textContent = entry[0] + " (failed)";
+            }
+          );
+        });
+        actions.appendChild(button);
+      });
+    }
+    container.appendChild(actions);
+    container.appendChild(details);
+  }
+
+  function renderMessage(message) {
+    var section = el("section", "message");
+    var head = el("div", "message-head collapsible");
+    head.setAttribute("role", "button");
+    head.setAttribute("tabindex", "0");
+    head.appendChild(PMM.avatar(message.from));
+    var who = el("div", "who");
+    var sender = PMM.splitAddress(message.from);
+    var line = el("div");
+    line.appendChild(el("span", "name", sender.name));
+    if (sender.address && sender.address !== sender.name) {
+      line.appendChild(el("span", "address", "<" + sender.address + ">"));
+    }
+    who.appendChild(line);
+    head.appendChild(who);
+    var when = el("div", "when", PMM.formatDate(message.date));
+    if (message.attachments && message.attachments.length) when.textContent += "  📎";
+    head.appendChild(when);
+    section.appendChild(head);
+    // The recipients line or snippet under the sender, and the body when open.
+    var summary = null;
+    var body = null;
+    var update = function () {
+      var open = expanded.has(message.index);
+      head.setAttribute("aria-expanded", open ? "true" : "false");
+      var next;
+      if (open) {
+        var recipients = "to " + (message.to || "(no recipients)");
+        if (message.cc) recipients += ", cc " + message.cc;
+        next = el("div", "line", recipients);
+      } else {
+        var snippet = (message.body && message.body.text) || "";
+        next = el("div", "snippet", snippet.replace(/\s+/g, " ").slice(0, 160));
+      }
+      if (summary) who.replaceChild(next, summary);
+      else who.appendChild(next);
+      summary = next;
+      if (body) {
+        // A link confirmation in the closed body goes with it.
+        if (shown && body.contains(shown.panel)) shown = null;
+        section.removeChild(body);
+        body = null;
+      }
+      if (open) {
+        body = el("div", "message-body");
+        renderBody(body, message);
+        section.appendChild(body);
+      }
+    };
+    var toggle = function () {
+      if (expanded.has(message.index)) expanded.delete(message.index);
+      else expanded.add(message.index);
+      // Only this message changes, so its head keeps the keyboard focus.
+      update();
+    };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      // A held key toggles once.
+      if (!event.repeat) toggle();
+    });
+    update();
+    return section;
+  }
+
+  function render() {
+    // Rebuilding the messages drops any open link confirmation.
+    shown = null;
+    var banners = PMM.clear(document.getElementById("banners"));
+    var list = PMM.clear(document.getElementById("messages"));
+    if (!data) return;
+    var messages = Array.isArray(data.messages) ? data.messages : [];
+    document.getElementById("subject").textContent = data.subject || (messages.length ? "(no subject)" : "Thread");
+    document.getElementById("count").textContent =
+      messages.length === 1 ? "1 message" : messages.length + " messages";
+    if (data.timed_out || data.partial) {
+      banners.appendChild(
+        el(
+          "div",
+          "banner warn",
+          data.partial_reason || data.error || "Part of this thread could not be read within the server's limits."
+        )
+      );
+    }
+    if (!data.found && messages.length) {
+      banners.appendChild(el("div", "banner warn", "The requested message itself was not found; related messages are shown."));
+    }
+    var blocked = blockedSummary(data.remote_blocked);
+    if (blocked) {
+      banners.appendChild(el("div", "banner", "Remote content blocked in this thread: " + blocked + "."));
+    }
+    if (!messages.length) {
+      list.appendChild(el("div", "empty", "No message with this Message-ID was found."));
+      return;
+    }
+    messages.forEach(function (message) {
+      list.appendChild(renderMessage(message));
+    });
+  }
+
+  function show(structured) {
+    if (!structured || structured.view !== "thread") return;
+    data = structured;
+    expanded.clear();
+    var messages = Array.isArray(data.messages) ? data.messages : [];
+    messages.forEach(function (message, index) {
+      if (message.requested || index === messages.length - 1) expanded.add(message.index);
+    });
+    render();
+  }
+
+  var expand = document.getElementById("expand");
+  expand.addEventListener("click", function () {
+    var mode = PMM.state.hostContext.displayMode === "fullscreen" ? "inline" : "fullscreen";
+    PMM.requestDisplayMode(mode).then(function (result) {
+      expand.textContent = result && result.mode === "fullscreen" ? "Exit full screen" : "Expand";
+    });
+  });
+
+  PMM.connect(
+    { name: "proton-mail-thread", version: "1" },
+    {
+      on: {
+        toolResult: function (result) {
+          if (result && result.isError) {
+            document.getElementById("subject").textContent = "The thread could not be read";
+            var content = Array.isArray(result.content) ? result.content : [];
+            if (content.length && typeof content[0].text === "string") {
+              PMM.clear(document.getElementById("banners")).appendChild(el("div", "banner error", content[0].text));
+            }
+            return;
+          }
+          show(PMM.viewData(result));
+        },
+        toolCancelled: function () {
+          document.getElementById("subject").textContent = "The thread read was cancelled";
+        },
+        context: function (context) {
+          var modes = Array.isArray(context.availableDisplayModes) ? context.availableDisplayModes : [];
+          expand.classList.toggle("hidden", modes.indexOf("fullscreen") < 0);
+          expand.textContent = context.displayMode === "fullscreen" ? "Exit full screen" : "Expand";
+        },
+      },
+      displayModes: ["inline", "fullscreen"],
+    }
+  ).then(
+    function () {
+      render();
+    },
+    function () {
+      document.getElementById("subject").textContent = "This view needs an MCP Apps host";
+    }
+  );
+})();
+</script>
+</body>
+</html>

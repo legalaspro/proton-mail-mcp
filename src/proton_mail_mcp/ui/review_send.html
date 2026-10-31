@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="@VIEW_CSP@">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proton Mail send review</title>
+<style>
+/*@BASE_CSS@*/
+.hash {
+  font-family: var(--pmm-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.hash strong {
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.preview-body {
+  margin: 0 16px;
+  padding: 10px 12px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--pmm-border-soft);
+  border-radius: var(--pmm-radius-sm);
+  background: var(--pmm-bg-soft);
+}
+.bcc {
+  color: var(--pmm-warn-text);
+}
+.section-title {
+  margin: 14px 16px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pmm-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.gate {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: var(--pmm-radius-sm);
+  border: 1px solid var(--pmm-border);
+  font-size: 12px;
+}
+.gate ol {
+  margin: 6px 0 0 18px;
+  padding: 0;
+}
+</style>
+</head>
+<body>
+<main id="app">
+  <article class="card">
+    <div class="brand"><span class="mark"></span><span class="title">Proton Mail</span><span>Review before sending</span><span class="spacer"></span><span class="muted">No token in this view</span></div>
+    <h1 class="subject" id="subject">Loading the send preview…</h1>
+    <div id="banners"></div>
+    <div class="fields" id="fields"></div>
+    <div class="section-title">Message</div>
+    <div class="preview-body"><p class="plain" id="body"></p></div>
+    <div class="section-title">Exact-draft fingerprint</div>
+    <div class="fields"><div class="field"><span class="key">SHA-256</span><span class="value hash" id="hash"></span></div></div>
+    <div class="gate" id="gate"></div>
+    <div class="actions">
+      <span class="hint" id="hint">Sending happens only through the assistant's preview_send and send_draft tools, with your confirmation.</span>
+      <button type="button" id="refresh" class="hidden">Refresh…</button>
+      <button type="button" id="edit" class="hidden">Edit draft</button>
+      <button type="button" class="primary" id="send" disabled>Send…</button>
+    </div>
+  </article>
+</main>
+<script>
+/*@BRIDGE_JS@*/
+(function () {
+  var el = PMM.el;
+  var data = null;
+  var HEX = /^[0-9a-f]{64}$/;
+
+  function field(container, key, value, className) {
+    var row = el("div", "field");
+    row.appendChild(el("span", "key", key));
+    var cell = el("span", "value" + (className ? " " + className : ""));
+    if (value instanceof Node) cell.appendChild(value);
+    else cell.textContent = value;
+    row.appendChild(cell);
+    container.appendChild(row);
+  }
+
+  function addresses(list) {
+    return Array.isArray(list) && list.length ? list.join(", ") : "—";
+  }
+
+  function render() {
+    var fields = PMM.clear(document.getElementById("fields"));
+    var banners = PMM.clear(document.getElementById("banners"));
+    var gate = PMM.clear(document.getElementById("gate"));
+    if (!data) return;
+    var preview = data.preview || {};
+    var caps = preview.caps || {};
+    document.getElementById("subject").textContent = preview.subject || "(no subject)";
+    field(fields, "From", (preview.from || "") + (preview.from_alias ? " (alias)" : ""));
+    field(fields, "To", addresses(preview.to));
+    field(fields, "Cc", addresses(preview.cc));
+    if (Array.isArray(preview.bcc) && preview.bcc.length) {
+      field(fields, "Bcc", addresses(preview.bcc) + " (hidden from other recipients)", "bcc");
+    }
+    var attachments = Array.isArray(preview.attachments) ? preview.attachments : [];
+    var chips = el("div", "chips");
+    chips.style.marginTop = "0";
+    attachments.forEach(function (item) {
+      var chip = el("span", "chip");
+      chip.title = "SHA-256 " + (item.sha256 || "");
+      chip.appendChild(el("span", "label", item.name || "(unnamed)"));
+      chip.appendChild(el("span", "meta", PMM.fileDetails(item)));
+      chips.appendChild(chip);
+    });
+    // Always said, so an empty row can be told from a view that left it out.
+    field(fields, "Attached", attachments.length ? chips : "None");
+    field(
+      fields,
+      "Limits",
+      (caps.remaining_daily_sends !== undefined ? caps.remaining_daily_sends + " of " + caps.daily_sends +
+        " sends left in " + caps.window_hours + " h" : "") +
+        (caps.recipients_per_message ? " · at most " + caps.recipients_per_message + " recipients" : "")
+    );
+    var bodyPreview = preview.body_preview || {};
+    var body = document.getElementById("body");
+    body.textContent = bodyPreview.available === false ? "(The body could not be decoded for preview.)" :
+      bodyPreview.text || "(empty body)";
+    if (bodyPreview.truncated) {
+      banners.appendChild(el("div", "banner", "The message preview below is shortened; the full draft is what would be sent."));
+    }
+    var hash = PMM.clear(document.getElementById("hash"));
+    var digest = typeof preview.draft_hash === "string" ? preview.draft_hash : "";
+    hash.appendChild(el("strong", null, digest.slice(0, 16)));
+    hash.appendChild(document.createTextNode(digest.slice(16)));
+    var steps = el("ol");
+    steps.appendChild(el("li", null, "The assistant requests a fresh single-use token with preview_send and checks that its fingerprint still starts with " + digest.slice(0, 16) + "."));
+    if (preview.approval === "host_confirmation") {
+      steps.appendChild(el("li", null, "Your client shows its own confirmation form for send_draft. Compare the fingerprint there, then accept or decline."));
+    } else if (preview.approval === "typed_ok") {
+      steps.appendChild(el("li", null, "Your client cannot show a confirmation form. The assistant shows you a summary and may send only after you type OK in the chat. The server cannot prove that you typed it."));
+    } else {
+      steps.appendChild(el("li", null, "Own-address token approval is enabled for this draft: send_draft sends without a separate confirmation form."));
+    }
+    steps.appendChild(el("li", null, "The draft is checked again immediately before delivery; any change refuses the send."));
+    gate.appendChild(el("strong", null, "How sending works"));
+    gate.appendChild(steps);
+    var sendButton = document.getElementById("send");
+    var canAsk = PMM.can("message") && !!data.quotable_draft_id && HEX.test(digest);
+    sendButton.disabled = !canAsk;
+    sendButton.textContent = "Send…";
+    var canAskAbout = PMM.can("message") && !!data.quotable_draft_id;
+    document.getElementById("edit").classList.toggle("hidden", !canAskAbout);
+    document.getElementById("refresh").classList.toggle("hidden", !canAskAbout);
+    if (!canAsk) {
+      document.getElementById("hint").textContent =
+        "To send, ask the assistant to send draft " + (preview.draft_id || "") +
+        " after checking this preview; you will confirm in your client.";
+    }
+  }
+
+  function show(result) {
+    if (result && result.isError) {
+      document.getElementById("subject").textContent = "This draft cannot be sent as it is";
+      var banners = PMM.clear(document.getElementById("banners"));
+      var content = Array.isArray(result.content) ? result.content : [];
+      banners.appendChild(el("div", "banner error", content.length && content[0].text ? content[0].text : "Preview failed."));
+      return;
+    }
+    var view = PMM.viewData(result);
+    if (view && view.view === "review_send" && view.preview) {
+      data = view;
+      render();
+    }
+  }
+
+  document.getElementById("send").addEventListener("click", function () {
+    if (!data) return;
+    var button = this;
+    var digest = data.preview.draft_hash;
+    button.disabled = true;
+    PMM.sendMessage(
+      "Send my reviewed draft " + data.quotable_draft_id + ": call preview_send for it, check that its draft_hash starts with " +
+        digest.slice(0, 16) + (data.preview.approval === "typed_ok" ?
+          ", show me its summary, and call send_draft with that preview's token and this draft_id only after I type OK." :
+          ", then call send_draft with that preview's token so I can confirm.")
+    ).then(
+      function () {
+        button.textContent = "Asked the assistant";
+      },
+      function () {
+        button.disabled = false;
+        button.textContent = "Send… (failed)";
+      }
+    );
+  });
+
+  document.getElementById("edit").addEventListener("click", function () {
+    if (!data) return;
+    PMM.sendMessage("Reopen my draft " + data.quotable_draft_id + " in the reply composer with compose_reply.").catch(
+      function () {}
+    );
+  });
+
+  // review_send is model-only: views cannot read drafts, so the assistant refreshes.
+  document.getElementById("refresh").addEventListener("click", function () {
+    if (!data || !data.quotable_draft_id) return;
+    var button = this;
+    button.disabled = true;
+    PMM.sendMessage("Refresh the send review of my draft " + data.quotable_draft_id + " with review_send.").then(
+      function () {
+        button.textContent = "Asked the assistant";
+      },
+      function () {
+        button.disabled = false;
+        button.textContent = "Refresh… (failed)";
+      }
+    );
+  });
+
+  PMM.connect(
+    { name: "proton-mail-review-send", version: "1" },
+    { on: { toolResult: show }, displayModes: ["inline"] }
+  ).then(
+    function () {
+      render();
+    },
+    function () {
+      document.getElementById("subject").textContent = "This view needs an MCP Apps host";
+    }
+  );
+})();
+</script>
+</body>
+</html>

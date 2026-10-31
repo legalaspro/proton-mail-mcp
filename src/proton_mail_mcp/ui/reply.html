@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="@VIEW_CSP@">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proton Mail reply</title>
+<style>
+/*@BASE_CSS@*/
+.original {
+  margin: 4px 16px 0;
+  padding: 10px 12px;
+  border-radius: var(--pmm-radius-sm);
+  background: var(--pmm-bg-soft);
+  font-size: 12px;
+  color: var(--pmm-text-soft);
+}
+.original .who {
+  color: var(--pmm-text);
+  font-weight: 600;
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.saved {
+  margin: 0 16px 12px;
+}
+.saved .mono {
+  margin-top: 4px;
+}
+.saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.actions .hint.warn {
+  color: var(--pmm-warn-text);
+}
+#from-select {
+  max-width: 100%;
+  font: inherit;
+  color: var(--pmm-text);
+  background: transparent;
+  border: 0;
+  padding: 2px 0;
+}
+#attached {
+  margin-top: 0;
+}
+#attached .chip {
+  cursor: pointer;
+}
+#attached .chip input {
+  width: auto;
+  margin: 0;
+  vertical-align: middle;
+}
+</style>
+</head>
+<body>
+<main id="app">
+  <article class="card">
+    <div class="brand"><span class="mark"></span><span class="title">Proton Mail</span><span id="mode">Reply</span><span class="spacer"></span><span class="muted">Draft only · nothing is sent from here</span></div>
+    <h1 class="subject" id="heading">Preparing reply…</h1>
+    <div class="original hidden" id="original"></div>
+    <div id="warnings"></div>
+    <div class="fields" id="form">
+      <div class="field hidden" id="from-row"><label class="key" for="from-select">From</label><span class="value"><span id="from"></span><select id="from-select" class="hidden"></select></span></div>
+      <div class="field"><label class="key" for="to">To</label><span class="value"><input id="to" type="text" spellcheck="false" autocomplete="off"></span></div>
+      <div class="field"><label class="key" for="cc">Cc</label><span class="value"><input id="cc" type="text" spellcheck="false" autocomplete="off"></span><label class="toggle hidden" id="all-toggle"><input type="checkbox" id="all"> Reply all</label></div>
+      <div class="field"><label class="key" for="subject">Subject</label><span class="value"><input id="subject" type="text" autocomplete="off"></span></div>
+      <div class="field hidden" id="attached-row"><span class="key">Attached</span><span class="value"><div class="chips" id="attached"></div></span></div>
+    </div>
+    <textarea id="body" aria-label="Message"></textarea>
+    <div class="banner warn hidden" id="no-tools">This host does not let views call tools, so the draft cannot be saved from here.</div>
+    <div class="banner hidden" id="status"></div>
+    <div class="saved hidden" id="saved"></div>
+    <div class="actions">
+      <span class="hint" id="hint">Saving creates an unsent draft in Drafts with In-Reply-To and References. Sending needs a separate review and your confirmation.</span>
+      <button type="button" id="reset">Reset</button>
+      <button type="button" class="primary" id="save" disabled>Save draft</button>
+    </div>
+  </article>
+</main>
+<script>
+/*@BRIDGE_JS@*/
+(function () {
+  var el = PMM.el;
+  var data = null;
+  var saving = false;
+  // Edit generation: every change to the fields bumps it, so a save can tell
+  // whether the user kept editing while it was in flight.
+  var edits = 0;
+  // The exact create_draft arguments of the last saved draft (JSON), or null.
+  var savedContent = null;
+  var saved = [];
+  // The attachment rows and their checkboxes, in the order the server listed them.
+  var rows = [];
+  var PLAIN_ID = /^<[A-Za-z0-9!#$%&'*+\/=?^_`{|}~.-]{1,200}@[A-Za-z0-9.-]{1,200}>$/;
+  var fields = {
+    to: document.getElementById("to"),
+    cc: document.getElementById("cc"),
+    subject: document.getElementById("subject"),
+    body: document.getElementById("body"),
+  };
+  var saveButton = document.getElementById("save");
+  var fromSelect = document.getElementById("from-select");
+
+  function list(value) {
+    return value
+      .split(/[,;\n]/)
+      .map(function (entry) {
+        return entry.trim();
+      })
+      .filter(Boolean);
+  }
+
+  function status(text, kind) {
+    var node = document.getElementById("status");
+    node.textContent = text;
+    node.className = "banner" + (kind ? " " + kind : "") + (text ? "" : " hidden");
+  }
+
+  function fill(draft) {
+    fields.to.value = (draft.to || []).join(", ");
+    fields.cc.value = (draft.cc || []).join(", ");
+    fields.subject.value = draft.subject || "";
+    fields.body.value = draft.body || "";
+    refresh();
+  }
+
+  function renderAttached() {
+    var box = PMM.clear(document.getElementById("attached"));
+    rows = Array.isArray(data.attached) ? data.attached : [];
+    document.getElementById("attached-row").classList.toggle("hidden", rows.length === 0);
+    rows = rows.map(function (item) {
+      var chip = el("label", "chip");
+      var check = el("input");
+      check.type = "checkbox";
+      check.checked = !!item.checked;
+      check.addEventListener("change", edited);
+      chip.appendChild(check);
+      chip.appendChild(el("span", "label", item.name || "(unnamed)"));
+      chip.appendChild(el("span", "meta", PMM.fileDetails(item)));
+      box.appendChild(chip);
+      return { item: item, check: check };
+    });
+  }
+
+  function renderFrom() {
+    // Who the draft comes from is on screen, like its attachments, before anything is saved.
+    var choices = Array.isArray(data.from_choices) ? data.from_choices : [];
+    PMM.clear(fromSelect);
+    choices.forEach(function (address) {
+      var option = el("option", null, address);
+      option.value = address;
+      fromSelect.appendChild(option);
+    });
+    fromSelect.value = data.from || "";
+    fromSelect.classList.toggle("hidden", choices.length < 2);
+    var plain = document.getElementById("from");
+    plain.textContent = data.from || "";
+    plain.classList.toggle("hidden", choices.length > 1);
+    document.getElementById("from-row").classList.toggle("hidden", !data.from);
+  }
+
+  function restore() {
+    // The prefilled fields together with the Reply all choice they were built with.
+    document.getElementById("all").checked = !!data.reply_all;
+    renderFrom();
+    renderAttached();
+    fill(data.draft);
+  }
+
+  function draftArguments() {
+    var cc = list(fields.cc.value);
+    var args = {
+      to: list(fields.to.value),
+      cc: cc.length ? cc : null,
+      subject: fields.subject.value,
+      body: fields.body.value,
+    };
+    if (data && data.draft.in_reply_to) args.in_reply_to = data.draft.in_reply_to;
+    var ticked = rows.filter(function (row) {
+      return row.check.checked;
+    });
+    var local = ticked.filter(function (row) {
+      return row.item.source === "local";
+    });
+    var kept = ticked.filter(function (row) {
+      return row.item.source === "message";
+    });
+    if (local.length) {
+      args.attachments = local.map(function (row) {
+        return row.item.name;
+      });
+    }
+    if (kept.length) {
+      args.attachments_from = data.attachments_source;
+      args.attachment_indexes = kept.map(function (row) {
+        return row.item.index;
+      });
+    }
+    // Only a choice other than the account's own address is passed on.
+    var chosen = data && !fromSelect.classList.contains("hidden") ? fromSelect.value : data && data.from;
+    if (data && chosen && chosen !== data.default_from) args.from_address = chosen;
+    return args;
+  }
+
+  function unsaved() {
+    // Compared with what was saved, however the fields got their current text.
+    return savedContent === null || JSON.stringify(draftArguments()) !== savedContent;
+  }
+
+  function canSave() {
+    // create_draft runs through the host, so a host without tool calls gets no save.
+    return !!data && !saving && PMM.can("serverTools");
+  }
+
+  function refresh() {
+    var ready = canSave() && list(fields.to.value).length > 0;
+    saveButton.disabled = !ready || !unsaved();
+    saveButton.textContent = saved.length ? "Save as new draft" : "Save draft";
+  }
+
+  function edited() {
+    edits += 1;
+    refresh();
+  }
+
+  function render() {
+    var original = PMM.clear(document.getElementById("original"));
+    var warnings = PMM.clear(document.getElementById("warnings"));
+    if (!data) return;
+    var editing = data.mode === "edit";
+    var fresh = data.mode === "new";
+    document.getElementById("mode").textContent = editing ? "Edit draft" : fresh ? "New draft" : data.reply_all ? "Reply all" : "Reply";
+    document.getElementById("heading").textContent = data.draft.subject || (fresh ? "New message" : "(no subject)");
+    if (data.original) {
+      var from = PMM.splitAddress(data.original.from || "");
+      original.appendChild(el("span", null, editing ? "Editing draft " : "Replying to "));
+      original.appendChild(el("span", "who", editing ? data.original.message_id || "" : from.name));
+      if (!editing && data.original.date) original.appendChild(el("span", null, " · " + PMM.formatDate(data.original.date)));
+      original.classList.remove("hidden");
+    }
+    (data.warnings || []).forEach(function (text) {
+      warnings.appendChild(el("div", "banner warn", text));
+    });
+    var toggle = document.getElementById("all-toggle");
+    var others = Array.isArray(data.reply_all_cc) ? data.reply_all_cc : [];
+    toggle.classList.toggle("hidden", editing || others.length === 0);
+    restore();
+    if (editing) {
+      // What the new draft leaves out is said again next to Save, before anyone saves.
+      var missing = data.not_copied || {};
+      var lost = Array.isArray(missing.bcc) && missing.bcc.length > 0;
+      var hint = document.getElementById("hint");
+      hint.classList.toggle("warn", lost);
+      var saves = "Saving creates a new draft with only these fields" +
+        (rows.length ? " and the ticked attachments" : "") + ", as plain text from the address above";
+      hint.textContent = lost
+        ? saves + ", so it leaves out the original's Bcc recipients" +
+          "; the original draft stays in Drafts, unchanged, until you delete it."
+        : saves + "; the original draft stays in Drafts until you delete it.";
+    }
+    if (fresh) {
+      document.getElementById("hint").textContent =
+        "Saving creates an unsent draft in Drafts. Sending needs a separate review and your confirmation.";
+    }
+  }
+
+  function renderSaved() {
+    var box = PMM.clear(document.getElementById("saved"));
+    if (!saved.length) {
+      box.classList.add("hidden");
+      return;
+    }
+    var latest = saved[saved.length - 1];
+    box.appendChild(el("div", "banner ok", "Draft saved in Drafts. It has not been sent."));
+    box.appendChild(el("div", "mono muted", "Message-ID: " + latest));
+    var actions = el("div", "saved-actions");
+    var quotable = PLAIN_ID.test(latest);
+    if (data && data.send_enabled && PMM.can("message") && quotable) {
+      var review = el("button", "primary", "Review & send…");
+      review.type = "button";
+      review.addEventListener("click", function () {
+        review.disabled = true;
+        PMM.sendMessage("Open the send review for my draft " + latest + " with review_send.").then(
+          function () {
+            review.textContent = "Asked the assistant";
+          },
+          function () {
+            review.disabled = false;
+            review.textContent = "Review & send… (failed)";
+          }
+        );
+      });
+      actions.appendChild(review);
+    }
+    var earlier = saved.slice(0, -1).filter(function (id) {
+      return PLAIN_ID.test(id);
+    });
+    if (earlier.length) {
+      box.appendChild(
+        el("div", "muted", "Earlier versions remain in Drafts: " + earlier.join(", ") + ". Nothing was deleted.")
+      );
+      if (PMM.can("message")) {
+        var cleanup = el("button", null, "Ask to delete earlier versions…");
+        cleanup.type = "button";
+        cleanup.addEventListener("click", function () {
+          cleanup.disabled = true;
+          PMM.sendMessage(
+            "Preview deleting my superseded draft versions " + earlier.join(", ") +
+              " with preview_action delete_draft; I will confirm before anything is deleted."
+          ).then(
+            function () {
+              cleanup.textContent = "Asked the assistant";
+            },
+            function () {
+              cleanup.disabled = false;
+            }
+          );
+        });
+        actions.appendChild(cleanup);
+      }
+    }
+    if (actions.firstChild) box.appendChild(actions);
+    box.classList.remove("hidden");
+  }
+
+  function savedId(result) {
+    var structured = PMM.structured(result);
+    if (structured && typeof structured.result === "string") return structured.result;
+    var content = result && Array.isArray(result.content) ? result.content : [];
+    var text = content.length && content[0].type === "text" ? content[0].text : "";
+    return typeof text === "string" ? text.trim() : "";
+  }
+
+  function save() {
+    // The same check as the button: never a call the host cannot make.
+    if (!canSave()) return;
+    var args = draftArguments();
+    if (!args.to.length) {
+      status("Add at least one recipient.", "warn");
+      return;
+    }
+    // The fields stay editable while saving: remember what this save carries.
+    var submitted = JSON.stringify(args);
+    var generation = edits;
+    saving = true;
+    refresh();
+    status("Saving the draft…");
+    PMM.callTool("create_draft", args).then(
+      function (result) {
+        var id = savedId(result);
+        saved.push(id || "(unknown Message-ID)");
+        savedContent = submitted;
+        if (edits !== generation && unsaved()) {
+          status("Draft saved without the edits you made while it was saving. Save again to keep them.", "warn");
+        } else {
+          status("");
+        }
+        renderSaved();
+        if (PMM.can("updateModelContext") && PLAIN_ID.test(id)) {
+          var kind = data.mode === "new" ? "new" : "reply";
+          PMM.updateModelContext("The user saved an unsent " + kind + " draft in the composer: " + id + ".", {
+            saved_draft_id: id,
+          }).catch(function () {});
+        }
+      },
+      function (error) {
+        status("The draft was not saved: " + error.message, "error");
+      }
+    ).then(function () {
+      saving = false;
+      refresh();
+    });
+  }
+
+  Object.keys(fields).forEach(function (name) {
+    fields[name].addEventListener("input", edited);
+  });
+  document.getElementById("all").addEventListener("change", function () {
+    var others = Array.isArray(data && data.reply_all_cc) ? data.reply_all_cc : [];
+    var current = list(fields.cc.value);
+    if (this.checked) {
+      others.forEach(function (address) {
+        if (current.indexOf(address) < 0) current.push(address);
+      });
+    } else {
+      current = current.filter(function (address) {
+        return others.indexOf(address) < 0;
+      });
+    }
+    fields.cc.value = current.join(", ");
+    edited();
+  });
+  fromSelect.addEventListener("change", edited);
+  saveButton.addEventListener("click", save);
+  document.getElementById("reset").addEventListener("click", function () {
+    if (data) {
+      restore();
+      edits += 1;
+    }
+    status("");
+  });
+
+  PMM.connect(
+    { name: "proton-mail-reply", version: "1" },
+    {
+      on: {
+        toolResult: function (result) {
+          if (result && result.isError) {
+            document.getElementById("heading").textContent = "The reply could not be prepared";
+            var content = Array.isArray(result.content) ? result.content : [];
+            if (content.length && typeof content[0].text === "string") status(content[0].text, "error");
+            return;
+          }
+          var view = PMM.viewData(result);
+          if (view && view.view === "reply" && view.draft) {
+            data = view;
+            render();
+          }
+        },
+      },
+      displayModes: ["inline"],
+    }
+  ).then(
+    function () {
+      // Kept apart from the status line, which Reset clears: this reason stays.
+      document.getElementById("no-tools").classList.toggle("hidden", PMM.can("serverTools"));
+      refresh();
+    },
+    function () {
+      document.getElementById("heading").textContent = "This view needs an MCP Apps host";
+    }
+  );
+})();
+</script>
+</body>
+</html>

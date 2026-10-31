@@ -1,0 +1,9 @@
+{
+  "protect_personal_domains": true,
+  "personal_provider_allowlist": [],
+  "addresses": [],
+  "domains": [],
+  "domain_patterns": [],
+  "keywords": [],
+  "personal_domains": []
+}

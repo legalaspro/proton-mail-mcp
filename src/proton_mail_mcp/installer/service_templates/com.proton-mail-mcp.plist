@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>${LABEL}</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>${SERVICE_EXE}</string>
+		<string>--env-file</string>
+		<string>${ENV_FILE}</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>${LOG_DIR}/stderr.log</string>
+	<key>StandardOutPath</key>
+	<string>${LOG_DIR}/stdout.log</string>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>Umask</key>
+	<integer>63</integer>
+	<key>WorkingDirectory</key>
+	<string>${WORKDIR}</string>
+</dict>
+</plist>

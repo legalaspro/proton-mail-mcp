@@ -1,0 +1,2 @@
+# Keep shell scripts runnable from Windows checkouts (core.autocrlf).
+*.sh text eol=lf

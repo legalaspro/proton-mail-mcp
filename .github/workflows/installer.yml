@@ -1,0 +1,209 @@
+name: Installer
+
+# Dry runs and installer unit tests on GitHub-hosted runners. Nothing here installs
+# Bridge, stores credentials or starts services: every installer call uses --dry-run
+# (or -DryRun), and the containers only add Python and the tools the plan probes.
+# Every native dry run goes through the service preflight: on Ubuntu with a systemd
+# user manager (the plan sets up units), in the containers without systemd (the plan
+# says so and sets up none). None of them passes --skip-services. The Linux ones pass
+# --skip-credentials: secret-tool cannot show there that no credential is stored yet,
+# and the plan stops rather than store over one it cannot see.
+# The wheel job alone applies the installer, against stand-ins in a scratch HOME.
+# Windows is not yet supported (the server needs POSIX fcntl): its job runs the
+# platform-independent tests and checks that the installer refuses Windows.
+# Hosted-runner billing may block these jobs; docs/install.md describes UTM VMs as
+# the manual fallback.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  INSTALLER_TESTS: >-
+    tests/test_installer_detect.py tests/test_installer_plan.py
+    tests/test_installer_execute.py tests/test_installer_cli.py
+    tests/test_installer_upgrade.py tests/test_installer_setup.py tests/test_cli_dispatch.py
+    tests/test_credential_store.py tests/test_service_entry.py
+  CI_BRIDGE_USER: ci-bridge-user@example.invalid
+
+jobs:
+  ubuntu:
+    name: Ubuntu (dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-tools shellcheck
+      - run: shellcheck --shell=bash scripts/install.sh
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      - run: PMM_PYTHON="$(command -v python)" scripts/install.sh detect --json
+      - name: Start a systemd user manager for the runner user (the preflight needs one)
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for _ in $(seq 30); do
+            XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user show-environment >/dev/null 2>&1 && break
+            sleep 1
+          done
+          XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user show-environment >/dev/null
+      - name: Dry run with systemd (the plan sets up the user units)
+        run: |
+          output="$(PMM_PYTHON="$(command -v python)" scripts/install.sh install --dry-run --skip-credentials --bridge-user "$CI_BRIDGE_USER")"
+          printf '%s\n' "$output"
+          grep -q "systemctl --user enable" <<<"$output"
+      - run: PMM_PYTHON="$(command -v python)" scripts/install.sh uninstall --dry-run
+      - name: Simulated plans for every supported platform
+        run: |
+          for family in debian fedora arch macos; do
+            PMM_PYTHON="$(command -v python)" scripts/install.sh install --dry-run \
+              --simulate "$family" --bridge-user "$CI_BRIDGE_USER"
+          done
+      - name: Simulated Windows plans are refused
+        run: |
+          set +e
+          output="$(PMM_PYTHON="$(command -v python)" scripts/install.sh install --dry-run \
+            --simulate windows --bridge-user "$CI_BRIDGE_USER" 2>&1)"
+          code=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$code" -eq 2
+          grep -q "Windows is not yet supported" <<<"$output"
+
+  wheel:
+    # Builds the wheel and runs the quick start from it with stand-ins for systemctl,
+    # secret-tool and Bridge: no unit, keyring or Bridge is touched, and nothing is uploaded.
+    name: Wheel smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install uv
+      - run: python scripts/wheel_smoke.py --python 3.12
+
+  rpm-family:
+    name: ${{ matrix.image }} (dry run)
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: fedora:latest
+            python: python3
+          - image: almalinux:9
+            python: python3.12
+    steps:
+      - run: dnf -y install ${{ matrix.python }} ${{ matrix.python }}-pip git libsecret gnupg2 util-linux shadow-utils
+      - uses: actions/checkout@v4
+      - run: ${{ matrix.python }} -m venv /opt/venv && /opt/venv/bin/python -m pip install -e '.[dev]'
+      - run: /opt/venv/bin/python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      - name: Dry run as an unprivileged user (the installer refuses root)
+        shell: bash
+        run: |
+          useradd -m ci
+          as_ci() { runuser -u ci -- env PMM_PYTHON=/opt/venv/bin/python bash scripts/install.sh "$@"; }
+          as_ci detect
+          # The container runs no systemd: the preflight must say so and plan no unit.
+          output="$(as_ci install --dry-run --skip-credentials --bridge-user "$CI_BRIDGE_USER")"
+          printf '%s\n' "$output"
+          grep -q "so the installer sets up no service, as with --skip-services" <<<"$output"
+          if grep -q "systemctl --user" <<<"$output"; then echo "a unit was planned" >&2; exit 1; fi
+          output="$(as_ci uninstall --dry-run)"
+          printf '%s\n' "$output"
+          grep -q "so only files are removed" <<<"$output"
+
+  arch:
+    name: Arch Linux (dry run)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - run: pacman -Syu --noconfirm python git libsecret gnupg util-linux
+      - uses: actions/checkout@v4
+      - run: python -m venv /opt/venv && /opt/venv/bin/python -m pip install -e '.[dev]'
+      - run: /opt/venv/bin/python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      - name: Dry run as an unprivileged user (the installer refuses root)
+        shell: bash
+        run: |
+          useradd -m ci
+          as_ci() { runuser -u ci -- env PMM_PYTHON=/opt/venv/bin/python bash scripts/install.sh "$@"; }
+          as_ci detect
+          # The container runs no systemd: the preflight must say so and plan no unit.
+          output="$(as_ci install --dry-run --skip-credentials --bridge-user "$CI_BRIDGE_USER")"
+          printf '%s\n' "$output"
+          grep -q "so the installer sets up no service, as with --skip-services" <<<"$output"
+          if grep -q "systemctl --user" <<<"$output"; then echo "a unit was planned" >&2; exit 1; fi
+          output="$(as_ci uninstall --dry-run)"
+          printf '%s\n' "$output"
+          grep -q "so only files are removed" <<<"$output"
+
+  macos:
+    name: macOS (dry run)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      # /bin/bash is bash 3.2 on macOS; the script must stay compatible with it.
+      - run: /bin/bash -n scripts/install.sh
+      - run: PMM_PYTHON="$(command -v python)" /bin/bash scripts/install.sh detect --json
+      - run: PMM_PYTHON="$(command -v python)" /bin/bash scripts/install.sh install --dry-run --bridge-user "$CI_BRIDGE_USER"
+      - run: PMM_PYTHON="$(command -v python)" /bin/bash scripts/install.sh uninstall --dry-run
+
+  windows:
+    name: Windows (refused; unit tests)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev]'
+      # Tests that start the server skip on Windows; the rest never import it.
+      - run: python -m pytest -q -p no:cacheprovider $env:INSTALLER_TESTS.Split(' ')
+      - name: Parse install.ps1
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD\scripts\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+      - name: Detect reports Windows as not yet supported
+        run: |
+          $report = .\scripts\install.ps1 -Action detect -Json | ConvertFrom-Json
+          if ($report.supported -or $report.refusal -notmatch 'not yet supported') {
+            Write-Error "unexpected report: $($report | ConvertTo-Json)"; exit 1
+          }
+      - name: Install and uninstall refuse Windows (PowerShell 7 and 5.1)
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Assert-Refused([string]$Shell, [string[]]$Arguments) {
+            $output = & $Shell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1 @Arguments 2>&1 |
+              Out-String
+            $code = $LASTEXITCODE
+            Write-Host "$Shell $($Arguments -join ' '): exit $code"
+            Write-Host $output
+            if ($code -ne 2 -or $output -notmatch 'Windows is not yet supported') { exit 1 }
+          }
+          foreach ($shell in 'pwsh', 'powershell') {
+            Assert-Refused $shell @('-DryRun', '-BridgeUser', $env:CI_BRIDGE_USER)
+            Assert-Refused $shell @('-Action', 'uninstall', '-DryRun')
+          }
+          exit 0

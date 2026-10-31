@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.proton-mail-mcp</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/YOUR_USER/proton-mail-mcp/.venv/bin/proton-mail-mcp</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USER/proton-mail-mcp</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PROTON_MCP_HOST</key>
+        <string>127.0.0.1</string>
+        <key>PROTON_MCP_PORT</key>
+        <string>8765</string>
+        <!-- For Tailscale Serve, uncomment and set the exact hostname from
+             tailscale serve status; do not include a scheme, port, or path.
+        <key>PROTON_MCP_PUBLIC_HOST</key>
+        <string>your-mac.your-tailnet.ts.net</string>
+        -->
+        <key>PROTON_MCP_TOKEN</key>
+        <string>REPLACE_WITH_SECRET</string>
+        <key>PROTON_BRIDGE_HOST</key>
+        <string>127.0.0.1</string>
+        <key>PROTON_BRIDGE_IMAP_PORT</key>
+        <string>1143</string>
+        <key>PROTON_BRIDGE_USER</key>
+        <string>REPLACE_WITH_YOUR_BRIDGE_USERNAME</string>
+        <key>PROTON_BRIDGE_DRAFTS_FOLDER</key>
+        <string>Drafts</string>
+        <key>PROTON_BRIDGE_TIMEOUT</key>
+        <string>30</string>
+        <!-- Match the MCP client's tool-call timeout to this execution budget. -->
+        <key>PROTON_MCP_EXECUTE_TIMEOUT</key>
+        <string>300</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>Umask</key>
+    <integer>63</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/Library/Logs/proton-mail-mcp/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/Library/Logs/proton-mail-mcp/stderr.log</string>
+</dict>
+</plist>

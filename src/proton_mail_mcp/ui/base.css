@@ -1,0 +1,450 @@
+/* Shared Proton Mail MCP view styles. Host theme variables win; fallbacks follow. */
+:root {
+  color-scheme: light;
+  --pmm-bg: var(--color-background-primary, #ffffff);
+  --pmm-bg-soft: var(--color-background-secondary, #f6f7f9);
+  --pmm-bg-hover: var(--color-background-tertiary, #eef0f4);
+  --pmm-text: var(--color-text-primary, #1c1b22);
+  --pmm-text-soft: var(--color-text-secondary, #5c5f6b);
+  --pmm-text-faint: var(--color-text-tertiary, #8a8d98);
+  --pmm-border: var(--color-border-primary, #dfe1e7);
+  --pmm-border-soft: var(--color-border-secondary, #eceef2);
+  --pmm-accent: #6d4aff;
+  --pmm-accent-text: #ffffff;
+  --pmm-accent-soft: rgba(109, 74, 255, 0.1);
+  --pmm-info-bg: var(--color-background-info, #eef2ff);
+  --pmm-info-text: var(--color-text-info, #3b3f99);
+  --pmm-warn-bg: var(--color-background-warning, #fff5db);
+  --pmm-warn-text: var(--color-text-warning, #7a5300);
+  --pmm-danger-bg: var(--color-background-danger, #fdecec);
+  --pmm-danger-text: var(--color-text-danger, #b3261e);
+  --pmm-ok-text: var(--color-text-success, #1e7d45);
+  --pmm-font: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  --pmm-mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  --pmm-radius: var(--border-radius-lg, 12px);
+  --pmm-radius-sm: var(--border-radius-sm, 6px);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --pmm-bg: var(--color-background-primary, #1f1e24);
+  --pmm-bg-soft: var(--color-background-secondary, #28272e);
+  --pmm-bg-hover: var(--color-background-tertiary, #312f38);
+  --pmm-text: var(--color-text-primary, #f1f0f5);
+  --pmm-text-soft: var(--color-text-secondary, #b6b4c0);
+  --pmm-text-faint: var(--color-text-tertiary, #8b8996);
+  --pmm-border: var(--color-border-primary, #3a3842);
+  --pmm-border-soft: var(--color-border-secondary, #312f38);
+  --pmm-accent: #8a6dff;
+  --pmm-accent-soft: rgba(138, 109, 255, 0.18);
+  --pmm-info-bg: var(--color-background-info, #262a4a);
+  --pmm-info-text: var(--color-text-info, #c3c7ff);
+  --pmm-warn-bg: var(--color-background-warning, #3a2f12);
+  --pmm-warn-text: var(--color-text-warning, #f3d389);
+  --pmm-danger-bg: var(--color-background-danger, #3d1f1f);
+  --pmm-danger-text: var(--color-text-danger, #ffb4ab);
+  --pmm-ok-text: var(--color-text-success, #7ed6a0);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+body {
+  font: 14px/1.45 var(--pmm-font);
+  color: var(--pmm-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  padding: 12px;
+}
+
+.card {
+  background: var(--pmm-bg);
+  border: 1px solid var(--pmm-border);
+  border-radius: var(--pmm-radius);
+  overflow: hidden;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--pmm-border-soft);
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.brand .mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #6d4aff, #a48bff);
+  flex: none;
+}
+
+.brand .title {
+  font-weight: 600;
+  color: var(--pmm-text);
+}
+
+.brand .spacer {
+  flex: 1;
+}
+
+.subject {
+  margin: 0;
+  padding: 14px 16px 4px;
+  font-size: 18px;
+  line-height: 1.3;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.message {
+  border-top: 1px solid var(--pmm-border-soft);
+}
+
+.message:first-of-type {
+  border-top: 0;
+}
+
+.message-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+}
+
+.message-head.collapsible {
+  cursor: pointer;
+}
+
+.message-head.collapsible:hover {
+  background: var(--pmm-bg-hover);
+}
+
+.avatar {
+  --avatar-hue: 260;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+  color: #fff;
+  background: hsl(var(--avatar-hue), 52%, 52%);
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+}
+
+.who .name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.who .address {
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+  margin-left: 4px;
+  overflow-wrap: anywhere;
+}
+
+.who .line {
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.who .snippet {
+  color: var(--pmm-text-faint);
+  font-size: 13px;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.when {
+  flex: none;
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.message-body {
+  padding: 0 16px 14px 62px;
+}
+
+.plain {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  font: inherit;
+}
+
+.plain a,
+.linkish {
+  color: var(--pmm-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.paper {
+  background: #ffffff;
+  border: 1px solid var(--pmm-border-soft);
+  border-radius: var(--pmm-radius-sm);
+  overflow: hidden;
+}
+
+.paper iframe {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  border: 0;
+  background: #ffffff;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Plain text flow: a long file name wraps across the chip's whole width, so all of it and
+   its real extension stay on screen, and a long type cannot squeeze it into a column. */
+.chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--pmm-border);
+  border-radius: 15px;
+  background: var(--pmm-bg-soft);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.chip > * + * {
+  margin-left: 6px;
+}
+
+.chip .meta {
+  color: var(--pmm-text-soft);
+}
+
+.banner {
+  margin: 10px 16px 0;
+  padding: 8px 12px;
+  border-radius: var(--pmm-radius-sm);
+  font-size: 12px;
+  background: var(--pmm-info-bg);
+  color: var(--pmm-info-text);
+  overflow-wrap: anywhere;
+}
+
+.banner.warn {
+  background: var(--pmm-warn-bg);
+  color: var(--pmm-warn-text);
+}
+
+.banner.error {
+  background: var(--pmm-danger-bg);
+  color: var(--pmm-danger-text);
+}
+
+.banner.ok {
+  background: var(--pmm-bg-soft);
+  color: var(--pmm-ok-text);
+}
+
+.message-body .banner {
+  margin: 0 0 10px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--pmm-border-soft);
+}
+
+.actions .hint {
+  flex: 1 1 200px;
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  border: 1px solid var(--pmm-border);
+  background: var(--pmm-bg);
+  color: var(--pmm-text);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--pmm-bg-hover);
+}
+
+button.primary {
+  background: var(--pmm-accent);
+  border-color: var(--pmm-accent);
+  color: var(--pmm-accent-text);
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--pmm-accent);
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--pmm-text-soft);
+  padding: 4px 8px;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+.linkish:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--pmm-accent);
+  outline-offset: 1px;
+}
+
+.fields {
+  padding: 4px 16px 0;
+}
+
+.field {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--pmm-border-soft);
+}
+
+.field > .key {
+  flex: none;
+  width: 64px;
+  color: var(--pmm-text-soft);
+  font-size: 12px;
+}
+
+.field > .value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.field input,
+textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--pmm-text);
+  background: transparent;
+  border: 0;
+  padding: 2px 0;
+}
+
+textarea {
+  display: block;
+  min-height: 180px;
+  resize: vertical;
+  padding: 12px 16px;
+  line-height: 1.5;
+}
+
+.mono {
+  font-family: var(--pmm-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--pmm-text-soft);
+}
+
+.diag {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.diag table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diag th,
+.diag td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 10px;
+  border-top: 1px solid var(--pmm-border-soft);
+  overflow-wrap: anywhere;
+}
+
+.diag th {
+  width: 34%;
+  color: var(--pmm-text-soft);
+  font-weight: 500;
+}
+
+.status-ok {
+  color: var(--pmm-ok-text);
+}
+
+.status-bad {
+  color: var(--pmm-danger-text);
+}
+
+.status-wait {
+  color: var(--pmm-text-soft);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.toolbar {
+  display: flex;
+  gap: 4px;
+}
+
+@media (max-width: 520px) {
+  .message-body {
+    padding-left: 16px;
+  }
+  .when {
+    display: none;
+  }
+}

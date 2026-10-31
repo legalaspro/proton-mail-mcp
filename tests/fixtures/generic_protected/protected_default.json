@@ -1,0 +1,23 @@
+{
+  "protect_personal_domains": true,
+  "personal_provider_allowlist": [],
+  "addresses": [],
+  "domains": [],
+  "domain_patterns": [
+    "*bank*", "*broker*", "*insurance*", "*versicherung*", "*assurance*",
+    "*steueramt*", "*steuerverwaltung*", "*finanzamt*", "*.gov", "*.gov.*", "*.gouv.*",
+    "*.gob.*", "*.gv.*"
+  ],
+  "keywords": [
+    "bank", "broker", "insurance", "versicherung",
+    "assurance", "steueramt", "steuerverwaltung", "finanzamt", "tax authority",
+    "tax administration", "internal revenue", "government", "bundesamt", "canton", "kanton",
+    "confederation", "confédération", "federal office", "gemeinde", "municipality"
+  ],
+  "personal_domains": [
+    "gmail.com", "googlemail.com", "proton.me", "protonmail.com", "protonmail.ch", "pm.me",
+    "icloud.com", "me.com", "mac.com", "outlook.com", "hotmail.com", "hotmail.fr", "live.com",
+    "msn.com", "gmx.com", "gmx.de", "gmx.ch", "gmx.net", "gmx.at", "bluewin.ch",
+    "yahoo.com", "yahoo.fr", "yahoo.co.uk", "aol.com", "mail.com", "tuta.com", "tutanota.com"
+  ]
+}

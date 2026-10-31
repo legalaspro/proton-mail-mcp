@@ -1,0 +1,17 @@
+# ${MARKER}; rerun the installer instead of editing.
+[Unit]
+Description=proton-mail-mcp MCP server on http://127.0.0.1:${PORT}/mcp${BRIDGE_ORDERING}
+
+[Service]
+Type=simple
+ExecStart=${SERVICE_EXE} --env-file ${ENV_FILE}
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=default.target
