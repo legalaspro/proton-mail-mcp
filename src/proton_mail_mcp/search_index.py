@@ -7,7 +7,6 @@ predicates stay with Bridge; this index stores no body or snippet text.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import logging
@@ -15,6 +14,7 @@ import math
 import os
 import sqlite3
 import stat
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
@@ -22,7 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from .sender_matching import _parsed_sender
+from . import localfs
+from .sender_matching import _sender_text
 
 _LOG = logging.getLogger(__name__)
 _VERSION = 2
@@ -100,10 +101,16 @@ def _private(info: os.stat_result, *, directory: bool = False) -> None:
     kind = stat.S_ISDIR if directory else stat.S_ISREG
     if (
         not kind(info.st_mode)
-        or info.st_uid != os.getuid()
-        or info.st_mode & 0o077
+        or not localfs.owned(info)
+        or not localfs.mode_private(info)
         or (not directory and info.st_nlink != 1)
     ):
+        raise _Unavailable("unsafe_permissions")
+
+
+def _private_open(descriptor: int, *, directory: bool = False) -> None:
+    _private(os.fstat(descriptor), directory=directory)
+    if localfs.acl_refusal(descriptor):
         raise _Unavailable("unsafe_permissions")
 
 
@@ -165,7 +172,7 @@ class SearchIndex:
             existing = self._check_files(directory)
             if rebuild:
                 for name in existing:
-                    os.unlink(name, dir_fd=directory)
+                    localfs.unlink(name, dir_fd=directory)
                 existing = set()
             missing = self.path.name not in existing
             if missing and existing:
@@ -209,15 +216,15 @@ class SearchIndex:
                     # Close SQLite before unlinking, then check again: closing
                     # can remove sidecars. Keep the exclusive file lock held.
                     for name in self._check_files(directory):
-                        os.unlink(name, dir_fd=directory)
+                        localfs.unlink(name, dir_fd=directory)
                     _LOG.warning("Old search index cache discarded; rebuilding from scratch")
                     missing = create = True
             if missing:
                 if not create:
                     return
-                descriptor = os.open(
+                descriptor = localfs.open(
                     self.path.name,
-                    os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    os.O_RDWR | os.O_CREAT | os.O_EXCL | localfs.O_NOFOLLOW,
                     0o600,
                     dir_fd=directory,
                 )
@@ -264,23 +271,25 @@ class SearchIndex:
     def _locked(
         self, *, exclusive: bool = False, create: bool = False, retain: bool = False
     ) -> Iterator[int]:
-        directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        directory = localfs.open(
+            self.path.parent, os.O_RDONLY | localfs.O_DIRECTORY | localfs.O_NOFOLLOW
+        )
         lock = None
         try:
-            _private(os.fstat(directory), directory=True)
+            _private_open(directory, directory=True)
             if self._candidate_lock is not None:
                 # The worker retains this exclusive lease across batches, so a
                 # different process's startup sweep cannot reclaim its files.
                 yield directory
                 return
-            lock = os.open(
+            lock = localfs.open(
                 self.path.name + ".lock",
-                os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_CREAT if create else 0),
+                os.O_RDWR | localfs.O_NOFOLLOW | localfs.O_NONBLOCK | (os.O_CREAT if create else 0),
                 0o600,
                 dir_fd=directory,
             )
-            _private(os.fstat(lock))
-            fcntl.flock(lock, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+            _private_open(lock)
+            localfs.lock(lock, exclusive=exclusive)
             if retain:
                 self._candidate_lock = lock
             yield directory
@@ -294,10 +303,12 @@ class SearchIndex:
         for suffix in ("", "-journal", "-wal", "-shm"):
             name = self.path.name + suffix
             try:
-                info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                info = localfs.stat_at(name, dir_fd=directory, follow_symlinks=False)
             except FileNotFoundError:
                 continue
             _private(info)
+            if localfs.name_refusal(name, dir_fd=directory):
+                raise _Unavailable("unsafe_permissions")
             found.add(name)
         return found
 
@@ -310,6 +321,9 @@ class SearchIndex:
             # evidence. Avoid an fsync for every observed header batch;
             # SQLite errors reject interrupted/corrupt cache writes.
             database.execute("PRAGMA synchronous = OFF")
+            if sys.platform == "win32":
+                # SQLite spills to %TEMP% there, which may lie outside the private profile.
+                database.execute("PRAGMA temp_store = MEMORY")
             return database
         except sqlite3.Error:
             database.close()
@@ -667,8 +681,10 @@ class SearchIndex:
             return None
         directory = None
         try:
-            directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            _private(os.fstat(directory), directory=True)
+            directory = localfs.open(
+                self.path.parent, os.O_RDONLY | localfs.O_DIRECTORY | localfs.O_NOFOLLOW
+            )
+            _private_open(directory, directory=True)
             # A read-only WAL connection can create a missing shared-memory
             # sidecar. Decline active journals instead of changing cache files.
             if self._check_files(directory) != {self.path.name}:
@@ -1180,18 +1196,20 @@ class SearchIndex:
         if self.reason == "repository_path":
             raise _Unavailable("repository_path")
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        directory = localfs.open(
+            self.path.parent, os.O_RDONLY | localfs.O_DIRECTORY | localfs.O_NOFOLLOW
+        )
         descriptor = None
         try:
-            _private(os.fstat(directory), directory=True)
-            descriptor = os.open(
+            _private_open(directory, directory=True)
+            descriptor = localfs.open(
                 self.path.name + ".reindex.lock",
-                os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                os.O_RDWR | os.O_CREAT | localfs.O_NOFOLLOW | localfs.O_NONBLOCK,
                 0o600,
                 dir_fd=directory,
             )
-            _private(os.fstat(descriptor))
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _private_open(descriptor)
+            localfs.lock(descriptor)
             return descriptor
         except Exception:
             if descriptor is not None:
@@ -1254,7 +1272,7 @@ class SearchIndex:
                 with self._locked(exclusive=True, create=True) as target:
                     if self._check_files(target) - {self.path.name}:
                         raise _Unavailable("live_sidecars")
-                    os.replace(
+                    localfs.replace(
                         candidate.path.name, self.path.name, src_dir_fd=source, dst_dir_fd=target
                     )
                     self.enabled = self._initialized = True
@@ -1267,8 +1285,8 @@ class SearchIndex:
         try:
             with self._locked(exclusive=True, create=create_lock) as directory:
                 for name in self._check_files(directory):
-                    os.unlink(name, dir_fd=directory)
-                os.unlink(self.path.name + ".lock", dir_fd=directory)
+                    localfs.unlink(name, dir_fd=directory)
+                localfs.unlink(self.path.name + ".lock", dir_fd=directory)
             self.enabled = self._initialized = False
         finally:
             self.release_candidate()
@@ -1427,7 +1445,7 @@ class SearchIndex:
                     sender = ""
                 else:
                     try:
-                        sender = str(_parsed_sender(sender))
+                        sender = _sender_text(sender)
                     except (ValueError, TypeError, AttributeError, IndexError):
                         sender = str(sender)
                 fields = [

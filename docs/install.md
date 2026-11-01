@@ -1,16 +1,35 @@
-# Installer for Linux and macOS
+# Install on Linux and macOS
+
+The guided installer, then the [manual steps for a Mac](#install-and-run-on-your-mac),
+[running at login with launchd](#run-at-login-with-launchd) and
+[exposing the server through Tailscale Serve](#expose-through-tailscale-serve). Windows has its
+own [page](windows.md).
 
 ## Quick start
+
+**Not on PyPI yet:** until the first release is published, the by-name commands below do not
+install this project, and must not be run: anyone could hold that name on PyPI. Install
+from a wheel you built from this repository instead:
+
+```sh
+uv build --wheel
+uvx --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp setup
+# or, with uv's own Python: uvx --managed-python --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp setup
+# or: pipx install dist/proton_mail_mcp-1.0.0-py3-none-any.whl && proton-mail-mcp setup
+```
+
+Once it is published, [uv](https://docs.astral.sh/uv/) does it in one command. uv finds or fetches
+a compatible Python; Debian and Ubuntu may also need `python3-venv`, as below:
+
+```sh
+uvx proton-mail-mcp setup
+```
+
+Or with pipx:
 
 ```sh
 pipx install proton-mail-mcp
 proton-mail-mcp setup
-```
-
-With [uv](https://docs.astral.sh/uv/) one command does both:
-
-```sh
-uvx proton-mail-mcp setup
 ```
 
 `setup` asks for your Bridge username, prints its full plan and asks before it
@@ -36,24 +55,14 @@ the token.
 
 Python 3.12 or newer is required: `uvx` finds or fetches one, and `pipx` uses the one
 it runs on. On Debian and Ubuntu, `setup` needs `python3-venv` and stops before changing
-anything if it is missing; `uvx --managed-python proton-mail-mcp setup` uses uv's own
-Python instead.
-
-**Not on PyPI yet:** until the first release is published, the commands above do not
-install this project, and must not be run: anyone could hold that name on PyPI. Install
-from a wheel you built from this repository instead:
-
-```sh
-uv build --wheel
-uvx --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp setup
-# or: pipx install dist/proton_mail_mcp-1.0.0-py3-none-any.whl && proton-mail-mcp setup
-```
+anything if it is missing: run `sudo apt-get install python3-venv`, or add
+`--managed-python` after `uvx` to use uv's own Python.
 
 ### Commands
 
 | Command | What it does |
 | --- | --- |
-| `proton-mail-mcp` or `proton-mail-mcp serve` | Start the server from `PROTON_*` settings in the foreground, as before. |
+| `proton-mail-mcp` or `proton-mail-mcp serve` | Start the server from `PROTON_*` settings in the foreground, as before. Configure Bridge and authentication first. |
 | `proton-mail-mcp setup` | The guided install above. |
 | `proton-mail-mcp uninstall` | [Stop and remove](#uninstall) the services and settings. |
 | `proton-mail-mcp show-token` | Print the stored bearer token, to a terminal only. |
@@ -92,8 +101,9 @@ changing anything and asks for `--source`.
 
 Plain `pip` and `uvx` keep no record, so the new pip looks on its own configured index,
 which may not be where this copy came from. If it finds nothing, or anything but this
-exact copy, `setup` stops before starting or restarting any service; only the private
-environment has changed, and a rerun replaces what pip put there. For a private index or
+exact copy, `setup` stops before starting or restarting any service. By then Bridge may
+have been installed in this run, and the private environment holds what pip put there. A
+rerun with `--source <wheel>` replaces it; a rerun by name does not. For a private index or
 a wheel directory, pass the wheel instead:
 
 ```sh
@@ -119,8 +129,9 @@ safely. Bridge's own login also needs a person at a terminal; setup does not ope
 with `--yes` or without a terminal, and prints the command instead.
 
 `setup` exits 0 when it finished, warnings included; 1 when a step or the self-check
-failed, or the plan was declined; 2 when it refused before changing anything; and 130
-when interrupted.
+failed, the plan was declined, or a file the installer did not write sits at a path it
+would write (it refuses that before any change); 2 when it refused anything else before
+changing anything; and 130 when interrupted.
 
 ## Running from a checkout
 
@@ -142,7 +153,8 @@ The installer never:
 - bundles or mirrors Bridge, or pipes a download into a shell;
 - runs as root. Package steps call `sudo` themselves on Linux;
 - stops, disables, unloads or deletes a service, or removes, replaces or
-  overwrites a file or directory, that it did not create. Downloads go only into
+  overwrites a file or directory, that it did not create (except with `--force`,
+  which keeps the replaced file as a `.bak`). Downloads go only into
   new files, temporary files get fresh names, and a backup never replaces an
   earlier one;
 - deletes a directory that has content, not even a virtual environment or the
@@ -187,18 +199,15 @@ it is never deleted. The download directory's note at uninstall covers it.
 The Linux packages default to Bridge 3.27.1 (current on 28 Oct 2026); choose another
 release with `--bridge-version`. Homebrew always installs its current release.
 
-### Windows is not yet supported
+### Windows
 
-The MCP server keeps its audit, undo and index state with POSIX file locking
-(`fcntl`), so its service cannot start on Windows. `proton-mail-mcp setup`,
-`scripts/install.ps1` and the installer module therefore refuse to install or uninstall
-on Windows, including Cygwin and MSYS2, or to plan for it with `--simulate windows`.
-They exit with status 2 before changing anything, and `proton-mail-mcp serve` refuses
-the same way. `detect` still reports the platform, with `supported: false`.
-Until native support, planned for v1.1, use [WSL2](https://learn.microsoft.com/windows/wsl/install):
-run `wsl --install`, then run the quick start inside Linux. The Windows plan code
-(winget, Authenticode, Credential Manager and Task Scheduler logon tasks) stays in the
-module and its unit tests, so it is ready once the server runs on Windows.
+`proton-mail-mcp setup` and `scripts/install.ps1` plan and apply the same steps on Windows:
+winget and an Authenticode check for Bridge, Credential Manager for secrets, and Task
+Scheduler logon tasks for the services. **This has run on Windows Server runners only, not on
+Windows 10 or 11 or with a real Proton account.** Read [docs/windows.md](windows.md), which says
+what was checked and what was not.
+Python from Cygwin or MSYS2 is refused; use Python for Windows, or
+[WSL2](https://learn.microsoft.com/windows/wsl/install) and the Linux quick start.
 
 ## Prerequisites
 
@@ -341,7 +350,7 @@ is still the one the service reads. On reruns a value exported in the shell wins
 and the change is reported; existing entries are not moved.
 
 The services run `proton-mail-mcp-service --env-file <settings>`. That launcher
-reads only `PROTON_*` and `PMM_*` settings, refuses a file that contains
+accepts only `PROTON_*` and `PMM_*` settings, refuses a file that contains
 `PROTON_MCP_TOKEN` or `PROTON_BRIDGE_PASSWORD`, refuses a settings file that other
 users can write, and loads the token from the credential store named by
 `PROTON_MCP_CREDENTIAL_STORE`. The token is passed to the server directly and is
@@ -361,9 +370,9 @@ in.
 ## Reruns, changes and options
 
 Rerunning the installer is safe. It skips an installed Bridge, the virtual
-environment it created and stored credentials, rewrites a file only when its
-content changes, and restarts a service only when its definition, the installed
-code, the settings or the credentials changed. A failed run can be repeated after
+environment it created and stored credentials, and rewrites a file only when its
+content changes. It restarts the MCP service on every run, because pip always runs,
+and restarts Bridge only when its definition changed. A failed run can be repeated after
 fixing the cause.
 
 The installer reuses a virtual environment only if it created it: it writes the
@@ -436,20 +445,20 @@ uses nor shows its values, only its keys. Move it elsewhere, then rerun.
 | `--venv PATH` | Virtual environment path, new or made by the installer; saved for later runs. The previous one stays. |
 | `--source PATH` | The proton-mail-mcp checkout or wheel file to install. Default: see [where the service's copy comes from](#where-the-services-copy-comes-from). |
 | `--skip-bridge-login` | `setup` only: do not offer to open Bridge's CLI. |
-| `--attachments-dir` | `setup` only: write this folder to the settings file as `PROTON_MCP_ATTACHMENTS_DIR` and create it, mode `0700`. On a terminal, `setup` asks instead, showing the folder in use. |
+| `--attachments-dir` | `setup` only: a folder that differs from the one in use is written to the settings file as `PROTON_MCP_ATTACHMENTS_DIR` and created, mode `0700`. On a terminal, `setup` asks instead, showing the folder in use. |
 | `--skip-bridge` | Do not install or verify Bridge. |
 | `--skip-bridge-service` | Leave Bridge to its own autostart, for example the desktop app. |
 | `--skip-credentials` | Do not prompt or store credentials. |
 | `--skip-services` | Install files only; no service is written, stopped or started. Implied on a Linux host that does not run systemd. |
 | `--replace-credentials` | Prompt again and generate a new token. |
 | `--force` | Replace a file the installer did not write (not the settings file), keeping it in a new `.bak` file beside it; an earlier backup is never replaced. |
-| `--simulate FAMILY` | With `--dry-run`, print the plan for another platform (not `windows`). |
+| `--simulate FAMILY` | With `--dry-run`, print the plan for another platform. |
 
 `detect` shows the detected platform, default store and paths.
 
 ### Moving from a manual LaunchAgent
 
-The README's manual LaunchAgent also uses `com.proton-mail-mcp.plist`, with the
+The [manual LaunchAgent](#run-at-login-with-launchd) also uses `com.proton-mail-mcp.plist`, with the
 token inside. The installer refuses to overwrite a file it did not write, and
 stops before changing anything when launchd already runs that label from another
 file or without the installer's file. Unload the old agent (`launchctl bootout gui/$(id -u)/com.proton-mail-mcp`), then either
@@ -465,8 +474,9 @@ proton-mail-mcp uninstall --dry-run
 proton-mail-mcp uninstall
 ```
 
-(`uvx proton-mail-mcp uninstall` with uv, or `scripts/install.sh uninstall` from a
-checkout: all three run the same plan.)
+With uv, use `uvx proton-mail-mcp uninstall`, or until the first release
+`uvx --from <wheel> proton-mail-mcp uninstall`; from a checkout, `scripts/install.sh uninstall`.
+All of them run the same plan.
 
 Uninstall stops the installer's own services, then proves each one stopped before it
 removes anything. After `systemctl --user disable --now` systemd must report every
@@ -507,11 +517,148 @@ Uninstall keeps:
 - Bridge, unless `--remove-bridge`, which runs the package manager's removal.
   Bridge's own settings and cache always stay.
 
+## Install and run on your Mac
+
+Run it on the same Mac and under the same login account as Bridge.
+
+These are the manual steps. To automate them on macOS or Linux (Debian/Ubuntu,
+Fedora/RHEL, Arch), including Bridge, the credential store and per-user
+services, use the [quick start](#quick-start) above.
+
+Install and sign in to Proton Mail Bridge yourself. Copy its Bridge username
+and generated password from the account's IMAP settings; use the Bridge
+password, not your Proton account password. IMAP defaults to port `1143`, using
+STARTTLS. Optional guarded send uses Bridge SMTP on `1025` with STARTTLS.
+Check your account settings if Bridge uses a different port. See
+[Proton's Bridge documentation](https://proton.me/support/imap-smtp-and-pop3-setup)
+and [port guidance](https://proton.me/support/mail/bridge/common-issues-questions).
+
+As a secondary option, install in a virtual environment with Python 3.12+ from a
+checkout of this repository:
+
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+export PROTON_BRIDGE_USER='your-bridge-username'
+security add-generic-password -s proton-mail-mcp -a "$PROTON_BRIDGE_USER" -w
+export PROTON_MCP_TOKEN="$(.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+.venv/bin/proton-mail-mcp
+```
+
+The Keychain command prompts for the Bridge password. The service name must be
+`proton-mail-mcp`, and the account must equal `PROTON_BRIDGE_USER`. The server
+retrieves it with:
+
+```sh
+security find-generic-password -s proton-mail-mcp -a "$PROTON_BRIDGE_USER" -w
+```
+
+Run in the foreground first to allow any macOS Keychain access prompt. A
+LaunchAgent uses the logged-in user's Keychain, which must be unlocked. Do not
+put the Bridge password in the LaunchAgent. `PROTON_BRIDGE_PASSWORD` is an
+environment override for offline tests or environments without macOS Keychain.
+Treat it as a secret if you use it.
+
+Save the generated bearer token in your MCP client's secret storage and in your
+local LaunchAgent configuration. Keep it out of version control and logs. The
+server refuses to start without a token of at least 32 characters. Every HTTP
+request, including initialization and subsequent session requests, must include:
+
+```text
+Authorization: Bearer <your-token>
+```
+
+Missing or incorrect tokens return HTTP `401`; comparison uses
+`hmac.compare_digest`. Configure your client's Streamable HTTP server URL as
+`http://127.0.0.1:8765/mcp` for use on the Mac, or the tailnet HTTPS URL below.
+
+## Run at login with launchd
+
+Use [`examples/com.proton-mail-mcp.plist`](../examples/com.proton-mail-mcp.plist) as a
+template for a **LaunchAgent**, running as your logged-in user. It includes
+`EnvironmentVariables`, automatic restart, and stdout/stderr log paths.
+`launchd` does not expand `~`, `$HOME`, or shell substitutions in this file.
+Replace every `/Users/YOUR_USER` path with an absolute path, set the real Bridge
+username, and replace the token placeholder with your generated token. Keep the
+working directory and executable paths pointed at your checkout and its venv.
+
+Prepare the local files, edit the copy, then validate and load it:
+
+```sh
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/proton-mail-mcp"
+chmod 700 "$HOME/Library/Logs/proton-mail-mcp"
+touch "$HOME/Library/Logs/proton-mail-mcp/stdout.log" "$HOME/Library/Logs/proton-mail-mcp/stderr.log"
+chmod 600 "$HOME/Library/Logs/proton-mail-mcp/"*.log
+cp examples/com.proton-mail-mcp.plist "$HOME/Library/LaunchAgents/com.proton-mail-mcp.plist"
+chmod 600 "$HOME/Library/LaunchAgents/com.proton-mail-mcp.plist"
+# Edit the copied plist now: paths, username, and token.
+plutil -lint "$HOME/Library/LaunchAgents/com.proton-mail-mcp.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.proton-mail-mcp.plist"
+launchctl print "gui/$(id -u)/com.proton-mail-mcp"
+```
+
+The server keeps credentials and the bearer token out of application errors and
+logs. Log files may still reveal operation timing and service diagnostics; keep
+their permissions restricted. Keep Bridge running and signed in. This agent
+starts the MCP server, not Bridge. An unavailable Bridge causes read tools to
+return an error. Search, count and thread-read timeouts return `timed_out=true`,
+`partial=true` and a clear `error`, even before any mailbox data is read.
+Available results and successfully fetched text remain in the response.
+An IMAP timeout leaves the MCP session available for later requests; the failed
+IMAP connection is closed and the next mailbox call opens a fresh connection.
+When a client cancels a request, its late tool result is discarded and the MCP
+session remains available for later requests.
+
+After changing the plist, unload and reload it:
+
+```sh
+launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.proton-mail-mcp.plist"
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.proton-mail-mcp.plist"
+```
+
+Use the `bootout` command alone to stop the LaunchAgent. Rotate a token by
+updating the local plist and client secret, then reloading the agent.
+
+## Expose through Tailscale Serve
+
+With Tailscale already installed and signed in on the Mac:
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:8765
+tailscale serve status
+```
+
+Serve terminates HTTPS and forwards to the loopback HTTP server. Get the exact
+HTTPS hostname from `tailscale serve status`, for example
+`your-mac.your-tailnet.ts.net`. Set `PROTON_MCP_PUBLIC_HOST` to that hostname,
+without `https://`, a port, or a path, and restart the MCP server. For launchd,
+enable the commented `PROTON_MCP_PUBLIC_HOST` entry in your local plist, replace
+its value, then use the `bootout` and `bootstrap` commands above. For a
+foreground process, export the variable before starting the server:
+
+```sh
+export PROTON_MCP_PUBLIC_HOST='your-mac.your-tailnet.ts.net'
+.venv/bin/proton-mail-mcp
+```
+
+The SDK's DNS rebinding protection allows only local HTTP hosts by default;
+`PROTON_MCP_PUBLIC_HOST` adds the exact Serve hostname and its HTTPS origin to
+that allowlist. The server remains bound to `127.0.0.1`. Use the HTTPS hostname
+with `/mcp` appended as your client's URL, for example
+`https://your-mac.your-tailnet.ts.net/mcp`. The client must still send the bearer
+header on every request. Restrict access to the Mac through your tailnet policy.
+This setup uses Serve for tailnet access; do not enable public Funnel exposure.
+
+The `--bg` configuration persists across Tailscale restarts. To stop this
+endpoint, use `tailscale serve --https=443 off`. See the current
+[Tailscale Serve CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve)
+for prerequisites, HTTPS setup, and configuration behavior.
+
 ## Tests and CI
 
 `make check` runs the installer's unit tests on Linux without network access:
-detection, the plans for every platform (built from simulated hosts, including
-the Windows plan kept for later), the executor against temporary directories,
+detection, the plans for every platform (built from simulated hosts), the executor
+against temporary directories,
 the credential stores against a fake `subprocess.run`, the service launcher, the
 `proton-mail-mcp` command and `setup`, the self-check against the real server app in
 memory, and `install.sh` itself through bash, plus `shellcheck` and PowerShell when they
@@ -528,17 +675,21 @@ argument list or service environment, a rerun, a login around the running Bridge
 and `uninstall`. It also installs by name from a local index with pipx, `uv tool`, plain
 `pip` and `uvx`, and proves what each one's `setup` does with that copy.
 
-[`.github/workflows/installer.yml`](../.github/workflows/installer.yml) runs the
-same tests and real-host dry runs on GitHub-hosted `ubuntu-latest` and
-`macos-latest` (including the bash 3.2 in `/bin/bash`), and in Fedora,
-AlmaLinux 9 and Arch containers. Every Linux dry run goes through the service
-preflight without `--skip-services`: Ubuntu starts a user manager for the runner
-(`loginctl enable-linger`) and checks that the plan sets up the units; the
-containers run no systemd and check that the plan says so and sets up none. The `windows-latest` job runs the tests that do
-not start the server (those that do are skipped there), round-trips a throwaway
-entry through Credential Manager, and checks that `install.ps1` refuses install
-and uninstall with status 2 under PowerShell 7 and Windows PowerShell 5.1. Dry
+[`.github/workflows/check.yml`](../.github/workflows/check.yml) runs these tests and
+real-host dry runs on GitHub-hosted `ubuntu-latest` and `windows-latest` on every pull request.
+[`.github/workflows/installer.yml`](../.github/workflows/installer.yml) adds the wheel smoke and
+Fedora, AlmaLinux 9 and Arch containers. In the public release repo only, it also runs the wheel
+smoke and dry runs on `macos-latest` (including the bash 3.2 in `/bin/bash`). Until that repo is
+public, no GitHub runner checks macOS, so test it by hand as described below.
+
+Every Linux dry run goes through the service preflight without `--skip-services`: Ubuntu starts a
+user manager for the runner (`loginctl enable-linger`) and checks that the plan sets up the units;
+the containers run no systemd and check that the plan says so and sets up none. The
+`windows-latest` job round-trips a throwaway entry through Credential Manager and dry-runs
+`install.ps1` under PowerShell 7 and Windows PowerShell 5.1. Dry
 runs install nothing.
+
+[ci.md](ci.md) says what runs when.
 
 ### UTM virtual machines when hosted runners are unavailable
 

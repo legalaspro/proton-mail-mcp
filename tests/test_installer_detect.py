@@ -4,7 +4,6 @@ import pytest
 
 from proton_mail_mcp.installer.detect import (
     FAMILIES,
-    NOT_YET_SUPPORTED,
     detect,
     linux_family,
     normalize_machine,
@@ -95,18 +94,16 @@ def test_missing_os_release_is_unsupported_linux():
 def test_non_linux_systems(system, family):
     platform = detect(system, "arm64", None, "15.1")
     assert platform.family == family
-    assert platform.supported is (family == "macos")
+    assert platform.supported is (family != "unsupported")
     if family == "unsupported":
         assert platform.refusal.startswith("Unsupported platform")
 
 
-def test_windows_is_detected_but_not_yet_supported():
+def test_windows_is_detected_and_supported():
     platform = detect("Windows", "AMD64", None, "10.0.26100")
     assert (platform.family, platform.system, platform.machine) == ("windows", "windows", "x86_64")
-    assert not platform.supported
-    assert platform.refusal == NOT_YET_SUPPORTED["windows"]
-    assert platform.refusal.startswith("Windows is not yet supported:")
-    assert "fcntl" in platform.refusal
+    assert platform.supported
+    assert platform.refusal is None
 
 
 @pytest.mark.parametrize(
@@ -129,5 +126,5 @@ def test_machine_names_are_normalized(machine, expected):
 def test_every_family_can_be_simulated(family):
     platform = simulated(family)
     assert platform.family == family
-    assert platform.supported is (family not in NOT_YET_SUPPORTED)
+    assert platform.supported
     assert "simulated" in platform.name

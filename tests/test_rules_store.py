@@ -1,12 +1,12 @@
 """The saved rules store: strict reads, private atomic appends, nothing ever replaced."""
 
-import fcntl
 import json
 import os
 
 import pytest
+from windows_skips import has_mode
 
-from proton_mail_mcp import rules_store
+from proton_mail_mcp import localfs, rules_store
 from proton_mail_mcp.config import ConfigError, Settings
 from proton_mail_mcp.mail import MailValidationError
 from proton_mail_mcp.rules_store import (
@@ -18,6 +18,8 @@ from proton_mail_mcp.rules_store import (
     store_path,
 )
 from proton_mail_mcp.sieve import filter_spec, render_script
+
+pytestmark = pytest.mark.real_fsync
 
 GITHUB = [{"field": "from", "contains": "notifications@github.com"}]
 TOKEN = "store-test-token-" + "x" * 32
@@ -93,9 +95,9 @@ def test_appends_exactly_each_reviewed_rule_privately_and_keeps_every_earlier_ru
     # Every write kept the earlier rules exactly, in order, and only appended one.
     assert all(later[: len(earlier)] == earlier for earlier, later in zip(snapshots, snapshots[1:]))
     assert json.loads(store.read_text()) == stored(rules)
-    assert store.stat().st_mode & 0o777 == 0o600
-    assert store.parent.stat().st_mode & 0o777 == 0o700
-    assert (store.with_name(store.name + ".lock").stat().st_mode & 0o777) == 0o600
+    assert has_mode(store, 0o600)
+    assert has_mode(store.parent, 0o700)
+    assert has_mode(store.with_name(store.name + ".lock"), 0o600)
     assert leftovers(store) == []
     assert backend.filter_names(timeout=5) == {"GitHub", "Receipts", "Any"}
 
@@ -293,7 +295,7 @@ def test_a_held_lock_refuses_a_concurrent_writer(store):
     before = store.read_bytes()
     descriptor = os.open(backend.lock_path, os.O_RDWR)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        localfs.lock(descriptor)
         with pytest.raises(MailValidationError, match="busy"):
             save(backend, spec(name="New"))
     finally:
@@ -314,11 +316,13 @@ def test_a_lock_that_is_not_the_stores_own_is_refused_and_left_unchanged(store, 
         lock.symlink_to(other)
     else:
         os.mkfifo(lock, 0o644)
+    # A symlink's own mode is 0777 on Linux and follows the umask on macOS.
+    before = lock.lstat().st_mode
     with pytest.raises((SavedRulesError, OSError)):
         save(LocalRulesBackend(store), spec())
     # Checked before any chmod: neither the linked file nor the FIFO became 0600.
     assert other.stat().st_mode & 0o777 == 0o644
-    assert lock.lstat().st_mode & 0o777 == (0o777 if kind == "symlink" else 0o644)
+    assert lock.lstat().st_mode == before
     assert not store.exists()
 
 
@@ -326,7 +330,7 @@ def test_a_lock_of_its_own_readable_by_others_is_made_private(store):
     lock = store.with_name(store.name + ".lock")
     write(lock, b"", 0o644)
     save(LocalRulesBackend(store), spec())
-    assert lock.stat().st_mode & 0o777 == 0o600 and load_saved(store)[0] == (spec(),)
+    assert has_mode(lock, 0o600) and load_saved(store)[0] == (spec(),)
 
 
 def test_store_target_identity_is_a_digest_that_hides_the_path(store, tmp_path):
@@ -441,7 +445,7 @@ def test_a_directory_missing_at_preview_binds_the_deepest_existing_one_and_savin
         assert backend.filter_names(timeout=5) == set()
         save(backend, spec())
     assert load_saved(store)[0] == (spec(),)
-    assert store.parent.stat().st_mode & 0o777 == 0o700
+    assert has_mode(store.parent, 0o700)
     # Bindings made now name the store's own directory; one made while it was
     # missing still names tmp_path, as a second rule previewed before the first save.
     assert backend.store_id != bound

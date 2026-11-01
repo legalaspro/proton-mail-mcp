@@ -42,7 +42,8 @@ PASSWORD = "smoke-bridge-password-Xq7"
 NOT_AN_ADDRESS = "pasted-by-mistake-Zk3"
 TOKEN_SERVICE = "proton-mail-mcp-token"
 BRIDGE_SERVICE = "proton-mail-mcp"
-STEP_TIMEOUT = 900
+# Well under the CI job's 10 minutes, so a hang still prints the transcript.
+STEP_TIMEOUT = 300
 
 SYSTEMCTL = r"""#!PYTHON
 # Stand-in for `systemctl --user`: runs what the installed units name.
@@ -474,13 +475,9 @@ class Smoke:
         self.check(service in output, f"{label}: the plan writes the service")
         after = sorted(self.home.rglob("proton-mail-mcp*"))
         self.check(before == after, f"{label}: the dry run created nothing named for the package")
-        for family in ("debian", "fedora", "arch", "macos"):
+        for family in ("debian", "fedora", "arch", "macos", "windows"):
             output = self.run(*tool, "setup", "--dry-run", "--simulate", family)
             self.check("Dry run: nothing was changed." in output, f"{label}: simulated {family}")
-        refused = self.run(*tool, "setup", "--dry-run", "--simulate", "windows", expect=2)
-        self.check(
-            "WSL2" in refused and "v1.1" in refused, f"{label}: Windows points at WSL2, v1.1"
-        )
         output = self.run(*tool, "uninstall", "--dry-run")
         self.check("Dry run: nothing was changed." in output, f"{label}: uninstall --dry-run")
         refused = self.run(*tool, "show-token", "--bridge-user", ACCOUNT, expect=2)
@@ -538,6 +535,7 @@ class Smoke:
             script=[
                 ("Bridge IMAP username", NOT_AN_ADDRESS),
                 ("Bridge IMAP username", ACCOUNT),
+                ("Folder for attachment files", ""),
                 ("Store new ones", "y"),
                 ("Apply these steps?", "y"),
                 ("Open Bridge's CLI here", ""),
@@ -648,7 +646,11 @@ class Smoke:
             *tool,
             "setup",
             *common,
-            script=[("Apply these steps?", "y"), ("A Bridge password is stored", "")],
+            script=[
+                ("Folder for attachment files", ""),
+                ("Apply these steps?", "y"),
+                ("A Bridge password is stored", ""),
+            ],
             log="setup-rerun-enter",
         )
         self.check(code == 0, "a rerun on a terminal exits 0")
@@ -667,6 +669,7 @@ class Smoke:
             "setup",
             *common,
             script=[
+                ("Folder for attachment files", ""),
                 ("Store new ones", "y"),
                 ("Apply these steps?", "y"),
                 ("No Bridge password is stored yet", ""),

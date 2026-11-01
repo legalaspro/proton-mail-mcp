@@ -3,6 +3,7 @@
 import socket
 import sqlite3
 import threading
+from contextlib import closing
 from dataclasses import replace
 
 from test_mail import FakeImap, client, message
@@ -62,7 +63,7 @@ class ScriptedStop:
 
 
 def rows(index):
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         return set(database.execute("SELECT folder, uidvalidity, uid, subject FROM messages"))
 
 

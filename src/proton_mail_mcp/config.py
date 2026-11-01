@@ -2,11 +2,14 @@
 
 import json
 import math
+import ntpath
 import os
 import re
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from . import localfs
 from .send_address import is_bare_address
 
 
@@ -24,15 +27,25 @@ CREDENTIAL_STORES = ("keychain", "libsecret", "pass", "wincred")
 CREDENTIAL_LOCATION_KEYS = ("PROTON_MCP_PASSWORD_STORE_DIR", "PROTON_MCP_GNUPGHOME")
 
 
-def valid_attachments_dir(value: str) -> bool:
+def valid_attachments_dir(value: str, flavor=os.path) -> bool:
     """A normalized absolute path below the filesystem root, with no trailing slash."""
     return (
-        os.path.isabs(value)
+        flavor.isabs(value)
         # "/." and "/srv/.." open the root, and a trailing slash follows a link.
-        and os.path.normpath(value) == value
-        and os.path.dirname(value) != value
+        and flavor.normpath(value) == value
+        and flavor.dirname(value) != value
         and not any(ord(char) < 32 or ord(char) == 127 for char in value)
     )
+
+
+def windows_attachments_dir(env: Mapping[str, str]) -> str | None:
+    """The default folder on Windows, in LOCALAPPDATA as the rest of this server's files are."""
+    data = env.get("LOCALAPPDATA", "")
+    if not ntpath.isabs(data):
+        home = env.get("USERPROFILE") or env.get("HOME") or os.path.expanduser("~")
+        data = ntpath.join(home, "AppData", "Local")
+    path = ntpath.normpath(ntpath.join(data, "proton-mail-mcp", "attachments"))
+    return path if valid_attachments_dir(path, ntpath) else None
 
 
 def default_attachments_dir(env: Mapping[str, str]) -> str | None:
@@ -40,12 +53,19 @@ def default_attachments_dir(env: Mapping[str, str]) -> str | None:
 
     None when there is no usable home, and attachment tools then refuse.
     """
+    if sys.platform == "win32":
+        return windows_attachments_dir(env)
     # The XDG specification ignores relative values.
     data = env.get("XDG_DATA_HOME", "")
     if not os.path.isabs(data):
         data = os.path.join(env.get("HOME") or os.path.expanduser("~"), ".local", "share")
     path = os.path.normpath(os.path.join(data, "proton-mail-mcp", "attachments"))
     return path if valid_attachments_dir(path) else None
+
+
+def default_credential_store() -> str:
+    """Credential Manager on Windows; keychain everywhere else, as it always was."""
+    return "wincred" if sys.platform == "win32" else "keychain"
 
 
 def _flag(values: Mapping[str, str], name: str) -> bool:
@@ -130,7 +150,7 @@ class Settings:
     send_typed_ok_clients: tuple[str, ...] = ()
     send_confirm_timeout: float = 120.0
     # Where the Bridge password lives when PROTON_BRIDGE_PASSWORD is unset.
-    credential_store: str = "keychain"
+    credential_store: str = field(default_factory=default_credential_store)
     # (setting, absolute path) pairs that locate a pass store and its GnuPG home.
     credential_locations: tuple[tuple[str, str], ...] = ()
 
@@ -284,6 +304,20 @@ class Settings:
                 "PROTON_MCP_ATTACHMENTS_DIR must be a normalized absolute path below the "
                 "filesystem root, with no trailing slash"
             )
+        # Windows stat shows no owner or mode bits, so this reads the real access rules, of
+        # the default state folder too when any path falls back to it: LOCALAPPDATA proves nothing.
+        if sys.platform == "win32":
+            defaulted = None in (self.action_log_path, self.identity_index_dir)
+            for name, value in (
+                ("PROTON_MCP_ACTION_LOG", self.action_log_path),
+                ("PROTON_MCP_SAVED_RULES", self.saved_rules_path),
+                ("PROTON_MCP_IDENTITY_INDEX_DIR", self.identity_index_dir),
+                ("PROTON_MCP_ATTACHMENTS_DIR", self.attachments_dir),
+                ("The default state folder", localfs.state_home() if defaulted else None),
+            ):
+                refusal = localfs.path_refusal(value) if value else None
+                if refusal:
+                    raise ConfigError(f"{name} {refusal}")
         for port in (self.port, self.imap_port, self.smtp_port):
             if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
                 raise ConfigError("Ports must be integers between 1 and 65535")
@@ -421,7 +455,9 @@ class Settings:
                     if entry.strip()
                 ),
                 send_confirm_timeout=float(values.get("PROTON_MCP_SEND_CONFIRM_TIMEOUT", "120")),
-                credential_store=values.get("PROTON_MCP_CREDENTIAL_STORE", "keychain"),
+                credential_store=values.get(
+                    "PROTON_MCP_CREDENTIAL_STORE", default_credential_store()
+                ),
                 credential_locations=tuple(
                     (key, values[key]) for key in CREDENTIAL_LOCATION_KEYS if values.get(key)
                 ),

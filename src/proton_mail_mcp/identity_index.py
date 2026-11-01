@@ -17,7 +17,6 @@ about CONDSTORE, violate the contract and cannot support certified reuse.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import imaplib
 import json
@@ -29,7 +28,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from . import mail
+from . import localfs, mail
 from .mail import CallDeadlineExceeded, MailError, _encode_folder, _ImapValues, _mailbox
 from .rules_store import _unique_object
 
@@ -48,9 +47,7 @@ class _Uncertified(Exception):
 
 
 def default_index_dir() -> Path:
-    state = os.environ.get("XDG_STATE_HOME")
-    root = Path(state) if state else Path.home() / ".local" / "state"
-    return root / "proton-mail-mcp" / "identity-index"
+    return localfs.state_home() / "identity-index"
 
 
 def _scope(settings: Any, folder: str) -> str:
@@ -62,7 +59,9 @@ def _scope(settings: Any, folder: str) -> str:
 def _private(descriptor: int, *, directory: bool = False) -> None:
     info = os.fstat(descriptor)
     kind = stat.S_ISDIR if directory else stat.S_ISREG
-    if not kind(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+    if not kind(info.st_mode) or not localfs.owned(info) or not localfs.mode_private(info):
+        raise _Uncertified
+    if localfs.acl_refusal(descriptor):
         raise _Uncertified
 
 
@@ -70,15 +69,15 @@ def _private(descriptor: int, *, directory: bool = False) -> None:
 def _storage(path: Path, key: str, *, create: bool = True):
     if create:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    directory = localfs.open(path, os.O_RDONLY | localfs.O_DIRECTORY | localfs.O_NOFOLLOW)
     lock = None
     try:
         _private(directory, directory=True)
-        flags = os.O_RDWR | os.O_NOFOLLOW | (os.O_CREAT if create else 0)
-        lock = os.open(key + ".lock", flags, 0o600, dir_fd=directory)
+        flags = os.O_RDWR | localfs.O_NOFOLLOW | (os.O_CREAT if create else 0)
+        lock = localfs.open(key + ".lock", flags, 0o600, dir_fd=directory)
         _private(lock)
         # Another refresh must not consume this request's bounded call budget.
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        localfs.lock(lock)
         yield directory
     finally:
         if lock is not None:
@@ -201,8 +200,8 @@ def _load(directory: int, key: str):
     try:
         # A corrupt path may name a FIFO. Nonblocking open reaches the type
         # check without waiting for a writer outside the call deadline.
-        descriptor = os.open(
-            key + ".json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+        descriptor = localfs.open(
+            key + ".json", os.O_RDONLY | localfs.O_NOFOLLOW | localfs.O_NONBLOCK, dir_fd=directory
         )
     except FileNotFoundError:
         return None
@@ -243,19 +242,22 @@ def _write(directory: int, key: str, state: dict, rows: dict) -> None:
     value = {"version": _VERSION, "scope": key, "state": state, "rows": rows}
     sealed = {"inventory": value, "sha256": hashlib.sha256(_payload(value)).hexdigest()}
     temporary = key + "." + secrets.token_hex(12) + ".tmp"
-    descriptor = os.open(
-        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory
+    descriptor = localfs.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | localfs.O_NOFOLLOW,
+        0o600,
+        dir_fd=directory,
     )
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(_payload(sealed))
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, key + ".json", src_dir_fd=directory, dst_dir_fd=directory)
-        os.fsync(directory)
+        localfs.replace(temporary, key + ".json", src_dir_fd=directory, dst_dir_fd=directory)
+        localfs.fsync_directory(directory)
     finally:
         try:
-            os.unlink(temporary, dir_fd=directory)
+            localfs.unlink(temporary, dir_fd=directory)
         except FileNotFoundError:
             pass
 

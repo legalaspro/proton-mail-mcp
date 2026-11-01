@@ -195,7 +195,7 @@ def assert_refuses(client, service, *, rules=False):
     assert result["blocked"] or result["partial"] or result.get("reason")
 
 
-@pytest.mark.parametrize("filler", [20, 3000])
+@pytest.mark.parametrize("filler", [20, pytest.param(3000, marks=pytest.mark.slow)])
 def test_certified_warm_memberships_keep_candidate_proportional_fetch_cost(indexed_mailbox, filler):
     sim, client, service, clock, _ = indexed_mailbox(filler=filler)
     cold = indexed_preview(client, service)
@@ -228,7 +228,7 @@ def test_certified_warm_memberships_keep_candidate_proportional_fetch_cost(index
     assert_no_mutations_or_header_search(sim)
 
 
-@pytest.mark.parametrize("filler", [20, 3000])
+@pytest.mark.parametrize("filler", [20, pytest.param(3000, marks=pytest.mark.slow)])
 def test_rules_preview_cold_audits_resume_and_warm_index_is_read_only(indexed_mailbox, filler):
     sim, client, service, clock, _ = indexed_mailbox(filler=filler)
     cursor, facts, batches = None, [], []
@@ -303,6 +303,7 @@ def test_rules_preview_cold_audits_resume_and_warm_index_is_read_only(indexed_ma
     assert_no_mutations_or_header_search(sim)
 
 
+@pytest.mark.slow
 def test_certified_warm_live45_bounds_memberships_and_explicit_source_scan(indexed_mailbox):
     sim, client, service, clock, _ = indexed_mailbox(count=45, filler=3000, latency=0.1)
     assert indexed_preview(client, service)["token"]

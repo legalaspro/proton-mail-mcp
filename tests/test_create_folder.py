@@ -293,7 +293,7 @@ def test_journal_progress_failure_never_hides_creation_outcome(case, monkeypatch
 def test_package_has_no_mailbox_delete_or_rename_commands():
     package = Path(__file__).resolve().parents[1] / "src" / "proton_mail_mcp"
     for source in package.rglob("*.py"):
-        for node in ast.walk(ast.parse(source.read_text())):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Attribute):
                 assert node.attr.casefold() not in {"delete", "rename"}, source.name
             if isinstance(node, ast.Constant) and isinstance(node.value, str):

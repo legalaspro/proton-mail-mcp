@@ -1,15 +1,12 @@
 <#
 .SYNOPSIS
-Windows entry point of the proton-mail-mcp installer; Windows is not yet supported.
+Windows entry point of the proton-mail-mcp installer.
 
 .DESCRIPTION
-Windows is not yet supported: the MCP server keeps its audit, undo and index
-state with POSIX file locking (fcntl), so its service cannot start on Windows.
-Install, uninstall and show-token therefore stop with exit status 2 before
-anything is changed; use WSL2 until native support, planned for v1.1. -Action
-detect, and -DryRun -Simulate plans for Linux or macOS, still run the
-standard-library installer module proton_mail_mcp.installer from this checkout.
-Linux and macOS use scripts/install.sh. See docs/install.md.
+Finds Python 3.12 or newer, then runs the standard-library installer module
+proton_mail_mcp.installer from this checkout. Linux and macOS use
+scripts/install.sh. Windows support has run on Windows Server runners only; see
+docs/windows.md and docs/install.md.
 
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Action detect
@@ -43,16 +40,6 @@ param(
 Set-StrictMode -Version 3.0
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-# Same text as NOT_YET_SUPPORTED in proton_mail_mcp/installer/detect.py.
-$refusal = 'Windows is not yet supported: the MCP server keeps its audit, undo and index ' +
-    'state with POSIX file locking (fcntl), so its service cannot start on Windows. ' +
-    'Use WSL2 (run `wsl --install`, then run this command inside Linux); native ' +
-    'Windows support is planned for v1.1. See docs/install.md.'
-if ($Action -ne 'detect' -and (-not $Simulate -or $Simulate -eq 'windows')) {
-    # Refuse before looking for Python, so nobody installs it for nothing.
-    [Console]::Error.WriteLine("install.ps1: $refusal")
-    exit 2
-}
 
 function Test-Python([string[]]$Command) {
     $exe = $Command[0]

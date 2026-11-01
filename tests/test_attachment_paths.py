@@ -1,6 +1,7 @@
 """No arbitrary local paths: the allowed folder holds, against traversal and links."""
 
 import os
+import sys
 from dataclasses import replace
 
 import pytest
@@ -261,7 +262,8 @@ def test_a_directory_or_a_fifo_refuses_and_a_fifo_does_not_hang(settings, layout
 def test_the_upload_cap_refuses_without_reading_a_huge_file(settings, layout, monkeypatch):
     folder, _ = layout
     with open(folder / "sparse.bin", "wb") as stream:
-        stream.truncate(50 * 1024 * 1024 * 1024)
+        # NTFS allocates a file's whole size where a POSIX filesystem leaves it sparse.
+        stream.truncate((64 if sys.platform == "win32" else 50 * 1024) * 1024 * 1024)
     mail, fake = drafter(settings, folder)
     with pytest.raises(MailValidationError, match="7 MiB limit"):
         attach(mail, "sparse.bin")

@@ -183,7 +183,7 @@ assistant to open `compose_reply` for that message, such as "Draft a reply to
 message 2 of the Proton Mail thread view (view_ref msg-…) with compose_reply."
 **Forward** posts one asking for `forward_message`, in the same form, and asks the
 assistant to ask you for the recipients and which attachments to include.
-`view_ref` is a hexadecimal reference derived from the message's identity; each
+`view_ref` is `msg-` and 12 hexadecimal digits derived from the message's identity; each
 message in the text result carries the same `view_ref`, so the assistant resolves
 it to the Message-ID. A sender can choose a Message-ID, so it is never quoted;
 neither is a subject, name or other text from the message. The thread view calls
@@ -286,7 +286,7 @@ the view can be redeemed.
 
 Sending keeps the existing gate, except that a client whose `initialize` omits elicitation,
 or that `PROTON_MCP_SEND_TYPED_OK_CLIENTS` names,
-takes a [typed OK](../README.md#typed-ok-when-the-client-has-no-form) instead of the form,
+takes a [typed OK](sending.md#typed-ok-when-the-client-has-no-form) instead of the form,
 unless the operator set `PROTON_MCP_SEND_TYPED_OK=0`:
 
 1. The user presses **Send…** in the view. The view posts a chat message
@@ -308,7 +308,7 @@ unless the operator set `PROTON_MCP_SEND_TYPED_OK=0`:
    checked again before SMTP. On a client whose `initialize` omits elicitation, or that
    `PROTON_MCP_SEND_TYPED_OK_CLIENTS` lists, the assistant shows the preview's `summary` and
    calls `send_draft` only after the user types OK in chat, which
-   [the server cannot prove](../README.md#typed-ok-when-the-client-has-no-form).
+   [the server cannot prove](sending.md#typed-ok-when-the-client-has-no-form).
 
 **Edit draft** and **Refresh…** post chat messages asking the assistant to
 reopen the draft in `compose_reply` or to run `review_send` again; like every

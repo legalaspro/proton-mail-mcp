@@ -2,6 +2,7 @@
 
 import sqlite3
 import threading
+from contextlib import closing
 
 import pytest
 from test_mail import settings as settings
@@ -177,7 +178,7 @@ def test_legacy_writer_cannot_leave_certified_coverage_after_header_count_change
 ):
     index = complete_index(settings)
     # Older processes mutate message rows without knowing the coverage table.
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         if mutation == "downgrade":
             database.execute("UPDATE messages SET headers_known = 0 WHERE uid = '2'")
         elif mutation == "remove":

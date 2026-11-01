@@ -9,6 +9,8 @@ import pytest
 from proton_mail_mcp.action_log import ActionLog, replay_records
 from proton_mail_mcp.mail import MailError
 
+pytestmark = pytest.mark.real_fsync
+
 
 def read(log):
     with log.transaction(readonly=True) as transaction:

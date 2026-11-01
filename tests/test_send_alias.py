@@ -115,11 +115,11 @@ def test_an_alias_changed_after_the_preview_refuses_delivery(rig, monkeypatch):
     assert rig.smtp.sent == []
 
 
-def test_an_alias_to_a_pin_off_the_own_list_keeps_the_form(own_rig, monkeypatch):
+def test_mail_to_an_address_off_the_own_list_keeps_the_form(own_rig, monkeypatch):
     rig = allow_alias(own_rig)
     mail, _, service = sending_client(rig, monkeypatch)
     mail.create_draft(RECIPIENT, subject="Note", body="B")
-    assert service.preview_send(DRAFT_ID)["approval"] == "token"
+    assert service.preview_send(DRAFT_ID)["approval"] == "host_confirmation"
     mail.create_draft(RECIPIENT, subject="Note", body="B", from_address=ALIAS)
     preview = service.preview_send(DRAFT_ID)
     assert preview["approval"] == "host_confirmation"
@@ -129,8 +129,8 @@ def test_an_alias_to_a_pin_off_the_own_list_keeps_the_form(own_rig, monkeypatch)
 
 
 @pytest.mark.parametrize("allowed", [(ALIAS,), (RECIPIENT, ALIAS)], ids=["alias", "both"])
-def test_an_alias_note_to_the_accounts_pinned_address_needs_no_form(own_rig, monkeypatch, allowed):
-    # As reported: the account is the pinned address, and the host has no form.
+def test_an_alias_note_to_the_account_needs_no_form(own_rig, monkeypatch, allowed):
+    # As reported: the account is the recipient, and the host has no form.
     rig = own_rig
     rig.settings = replace(rig.settings, bridge_user=RECIPIENT, send_from_allowlist=allowed)
     rig.service.settings = rig.client.settings = rig.settings

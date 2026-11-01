@@ -11,7 +11,6 @@ reorders or removes one. An unreadable or invalid store refuses (fails closed).
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -23,6 +22,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
+from . import localfs
 from .action_log import ActionLog
 from .config import ConfigError
 from .mail import MailValidationError
@@ -39,7 +39,12 @@ _INVALID = "Cannot load valid saved rules; fix or move the saved rules store"
 _CHANGED = "Saved rules store changed after preview; preview again"
 # One step down a resolved directory: a real directory, never a link. O_PATH
 # (Linux) needs only search permission on the way, as path lookup does.
-_STEP = getattr(os, "O_PATH", os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_STEP = (
+    getattr(os, "O_PATH", os.O_RDONLY)
+    | localfs.O_DIRECTORY
+    | localfs.O_NOFOLLOW
+    | localfs.O_CLOEXEC
+)
 
 
 class SavedRulesError(ConfigError, MailValidationError):
@@ -78,13 +83,16 @@ def name_key(name: str) -> str:
 def _owned(descriptor: int, what: str) -> os.stat_result:
     """This user's regular file without other links, checked before it is trusted or changed."""
     info = os.fstat(descriptor)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+    if not stat.S_ISREG(info.st_mode) or not localfs.owned(info) or info.st_nlink != 1:
         raise SavedRulesError(f"{what} must be a private regular file (mode 0600)")
+    refusal = localfs.acl_refusal(descriptor)
+    if refusal:
+        raise SavedRulesError(f"{what} {refusal}")
     return info
 
 
 def _private(descriptor: int, what: str) -> None:
-    if _owned(descriptor, what).st_mode & 0o077:
+    if not localfs.mode_private(_owned(descriptor, what)):
         raise SavedRulesError(f"{what} must be a private regular file (mode 0600)")
 
 
@@ -113,18 +121,20 @@ def _descend(directory: int, parts: Sequence[str], *, create: bool = False) -> i
     try:
         for depth, part in enumerate(parts, start=1):
             try:
-                step = os.open(part, _STEP, dir_fd=descriptor)
+                step = localfs.open(part, _STEP, dir_fd=descriptor)
             except FileNotFoundError:
                 if not create:
                     raise
                 with suppress(FileExistsError):
-                    os.mkdir(part, 0o700 if depth == len(parts) else 0o777, dir_fd=descriptor)
-                step = os.open(part, _STEP, dir_fd=descriptor)
+                    localfs.mkdir(part, 0o700 if depth == len(parts) else 0o777, dir_fd=descriptor)
+                step = localfs.open(part, _STEP, dir_fd=descriptor)
             if descriptor != directory:
                 os.close(descriptor)
             descriptor = step
         # Readable, unlike an O_PATH step: each save fsyncs the directory.
-        return os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC, dir_fd=descriptor)
+        return localfs.open(
+            ".", os.O_RDONLY | localfs.O_DIRECTORY | localfs.O_CLOEXEC, dir_fd=descriptor
+        )
     finally:
         if descriptor != directory:
             os.close(descriptor)
@@ -133,7 +143,7 @@ def _descend(directory: int, parts: Sequence[str], *, create: bool = False) -> i
 def _open_directory(directory: str, *, create: bool = False) -> int:
     """Open a resolved directory from the root down, as _descend does."""
     root, *parts = Path(directory).parts
-    descriptor = os.open(root, _STEP)
+    descriptor = localfs.open(root, _STEP)
     try:
         return _descend(descriptor, parts, create=create)
     finally:
@@ -147,11 +157,11 @@ def _existing(directory: str) -> list[int]:
     caller closes the descriptors.
     """
     root, *parts = Path(directory).parts
-    opened = [os.open(root, _STEP)]
+    opened = [localfs.open(root, _STEP)]
     try:
         for part in parts:
             try:
-                opened.append(os.open(part, _STEP, dir_fd=opened[-1]))
+                opened.append(localfs.open(part, _STEP, dir_fd=opened[-1]))
             except FileNotFoundError:
                 break
     except BaseException:
@@ -181,8 +191,10 @@ def load_saved(
     With dir_fd, path is the store's file name in that open directory.
     """
     try:
-        descriptor = os.open(
-            path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=dir_fd
+        descriptor = localfs.open(
+            path,
+            os.O_RDONLY | localfs.O_NOFOLLOW | localfs.O_CLOEXEC | localfs.O_NONBLOCK,
+            dir_fd=dir_fd,
         )
     except FileNotFoundError:
         return (), None
@@ -320,6 +332,9 @@ class LocalRulesBackend:
         except OSError:
             raise SavedRulesError(_INVALID) from None
         try:
+            refusal = None if descriptor is None else localfs.acl_refusal(descriptor)
+            if refusal:
+                raise SavedRulesError(f"Saved rules folder {refusal}")
             yield descriptor
         finally:
             if descriptor is not None:
@@ -371,18 +386,18 @@ class LocalRulesBackend:
     @contextmanager
     def _lock(self, directory: int) -> Iterator[None]:
         """Serialize writers across processes; readers rely on the atomic rename."""
-        descriptor = os.open(
+        descriptor = localfs.open(
             self.path.name + ".lock",
-            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+            os.O_RDWR | os.O_CREAT | localfs.O_NOFOLLOW | localfs.O_CLOEXEC | localfs.O_NONBLOCK,
             0o600,
             dir_fd=directory,
         )
         try:
             # Only ever make this store's own lock private: check the file first.
             _owned(descriptor, "Saved rules lock")
-            os.fchmod(descriptor, 0o600)
+            localfs.fchmod(descriptor, 0o600)
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                localfs.lock(descriptor)
             except BlockingIOError:
                 raise MailValidationError("Saved rules store is busy; retry") from None
             yield
@@ -392,20 +407,20 @@ class LocalRulesBackend:
     def _replace(self, directory: int, payload: bytes) -> None:
         """Write a private temporary file, then rename it over the store in one step."""
         name = f".saved-rules-{secrets.token_hex(8)}"
-        descriptor = os.open(
+        descriptor = localfs.open(
             name,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | localfs.O_NOFOLLOW | localfs.O_CLOEXEC,
             0o600,
             dir_fd=directory,
         )
         try:
             with os.fdopen(descriptor, "wb") as stream:
-                os.fchmod(stream.fileno(), 0o600)
+                localfs.fchmod(stream.fileno(), 0o600)
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(name, self.path.name, src_dir_fd=directory, dst_dir_fd=directory)
-            os.fsync(directory)
+            localfs.replace(name, self.path.name, src_dir_fd=directory, dst_dir_fd=directory)
+            localfs.fsync_directory(directory)
         finally:
             with suppress(FileNotFoundError):
-                os.unlink(name, dir_fd=directory)
+                localfs.unlink(name, dir_fd=directory)

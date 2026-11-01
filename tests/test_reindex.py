@@ -4,6 +4,7 @@ import hashlib
 import sqlite3
 import threading
 import time
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime
 
@@ -11,6 +12,7 @@ import pytest
 from test_mail import FakeImap, client, message
 from test_mail import settings as settings
 
+from proton_mail_mcp import localfs
 from proton_mail_mcp.action_log import ActionLog, new_record
 from proton_mail_mcp.mail import MailValidationError
 from proton_mail_mcp.reindex import ReindexService
@@ -560,7 +562,7 @@ def test_status_reports_known_counts_without_inventing_missing_inventory_metadat
     reader, service = service_for(settings, fake)
     service.execute(service.preview()["token"])
     finished = completed(service)
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         database.execute("DELETE FROM index_sync")
     calls = list(fake.calls)
     original = reader.search_index.path.read_bytes()
@@ -599,15 +601,13 @@ def test_status_does_not_restore_another_accounts_last_run(settings):
 def test_live_reader_lock_refuses_swap_and_candidate_can_replace_corrupt_cache(
     settings, monkeypatch
 ):
-    import fcntl
-
     fake = ReindexImap()
     monkeypatch.setattr("proton_mail_mcp.reindex._SWAP_WAIT_SECONDS", 0.01)
     reader, service = service_for(settings, fake)
     original = seed_old(reader)
     lock = reader.search_index.path.with_name(reader.search_index.path.name + ".lock")
     with lock.open("rb") as stream:
-        fcntl.flock(stream, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        localfs.lock(stream.fileno(), exclusive=False)
         service.execute(service.preview()["token"])
         status = completed(service)
     assert status["state"] == "failed" and status["swap_outcome"] == "kept_old"

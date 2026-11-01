@@ -325,27 +325,27 @@ def bridge_unit(*lines: str) -> str:
 
 @pytest.mark.parametrize(
     "case",
-    ["sol1-xdg-specifier", "sol2-relative-argument", "sol2-relative-variable", "sol3-escape"],
+    ["xdg-specifier", "relative-argument", "relative-variable", "escape"],
 )
-def test_r7_sol_unit_values_never_cost_the_old_venv_on_disk(tmp_path, case):
-    # Sol r6 #1-#3, on disk: a Bridge unit left in place runs a script from the old
+def test_r7_unit_values_never_cost_the_old_venv_on_disk(tmp_path, case):
+    # On disk: a Bridge unit left in place runs a script from the old
     # venv through %C resolved from the shell's XDG_CACHE_HOME, a relative argument or
     # variable, or a \uNNNN escape. Nothing parses it now, and nothing is deleted.
     home = tmp_path / "home"
     old = {
-        "sol1-xdg-specifier": home / ".cache" / "old-venv",
-        "sol2-relative-argument": home / "venv",
-        "sol2-relative-variable": home / "venv",
-        "sol3-escape": tmp_path / "old-venv",
+        "xdg-specifier": home / ".cache" / "old-venv",
+        "relative-argument": home / "venv",
+        "relative-variable": home / "venv",
+        "escape": tmp_path / "old-venv",
     }[case]
     host = installed(tmp_path, old=old, data_in_venv=False)
     lines = {
-        "sol1-xdg-specifier": ["ExecStart=/bin/sh %C/old-venv/start.sh"],
-        "sol2-relative-argument": ["ExecStart=/bin/sh venv/start-bridge.sh"],
-        "sol2-relative-variable": ["Environment=X=venv", "ExecStart=/bin/sh $X/start.sh"],
-        "sol3-escape": [f"ExecStart={tmp_path}/\\u006fld-venv/start.sh"],
+        "xdg-specifier": ["ExecStart=/bin/sh %C/old-venv/start.sh"],
+        "relative-argument": ["ExecStart=/bin/sh venv/start-bridge.sh"],
+        "relative-variable": ["Environment=X=venv", "ExecStart=/bin/sh $X/start.sh"],
+        "escape": [f"ExecStart={tmp_path}/\\u006fld-venv/start.sh"],
     }[case]
-    if case == "sol1-xdg-specifier":
+    if case == "xdg-specifier":
         # The installing shell's cache directory differs; the user manager's does not.
         host.probe.env["XDG_CACHE_HOME"] = str(tmp_path / "install-cache")
         host.paths = paths_for(simulated("debian"), host.probe.env, host.probe.home)
@@ -363,8 +363,8 @@ def test_r7_sol_unit_values_never_cost_the_old_venv_on_disk(tmp_path, case):
 
 
 @pytest.mark.parametrize("case", ["disable-fails-unit-active", "unit-still-activating"])
-def test_r7_sol4_uninstall_removes_nothing_until_every_stop_is_proven(tmp_path, case):
-    # Sol r6 #4: `disable --now` failed (RefuseManualStop=yes), uninstall went on, and
+def test_r7_uninstall_removes_nothing_until_every_stop_is_proven(tmp_path, case):
+    # `disable --now` failed (RefuseManualStop=yes), uninstall went on, and
     # the units, settings and venv were removed under a running service.
     host = installed(tmp_path)
     downloads(host)
@@ -401,10 +401,10 @@ def before_old(before: dict[str, object], host: Host) -> dict[str, object]:
 
 
 @pytest.mark.parametrize("answer", [(0, "state = running\n"), (1, ""), (-9, "")])
-def test_r7_sol4_a_macos_agent_still_loaded_after_bootout_keeps_everything(tmp_path, answer):
-    # Sol r6 #4 on macOS: a failed bootout was ignored. `launchctl print` must report
-    # the agent not found before any plist or the settings file goes; Sol and Astra r7
-    # #1: a query that fails otherwise, or dies of a signal, proves nothing.
+def test_r7_a_macos_agent_still_loaded_after_bootout_keeps_everything(tmp_path, answer):
+    # On macOS: a failed bootout was ignored. `launchctl print` must report
+    # the agent not found before any plist or the settings file goes; a query that
+    # fails otherwise, or dies of a signal, proves nothing.
     home = tmp_path / "home"
     home.mkdir()
     probe = DiskProbe(home)
@@ -435,10 +435,10 @@ def test_r7_sol4_a_macos_agent_still_loaded_after_bootout_keeps_everything(tmp_p
 
 
 @pytest.mark.parametrize("fragment", [f"/etc/systemd/user/{templates.MCP_UNIT}", None])
-def test_r7_sol5_a_foreign_mcp_unit_stops_uninstall_before_anything_changes(tmp_path, fragment):
-    # Sol r6 #5: /etc/systemd/user/proton-mail-mcp.service, which uninstall leaves
-    # running, runs the installer's venv; uninstall removed the venv under it. Sol r7
-    # #4: neither that nor a unit systemd does not name is stopped, and nothing goes.
+def test_r7_a_foreign_mcp_unit_stops_uninstall_before_anything_changes(tmp_path, fragment):
+    # /etc/systemd/user/proton-mail-mcp.service, which uninstall leaves
+    # running, runs the installer's venv; uninstall removed the venv under it.
+    # Neither that nor a unit systemd does not name is stopped, and nothing goes.
     host = installed(tmp_path)
     downloads(host)
     if fragment:
@@ -452,8 +452,8 @@ def test_r7_sol5_a_foreign_mcp_unit_stops_uninstall_before_anything_changes(tmp_
     assert snapshot(host.root) == before
 
 
-def test_r7_astra1_a_replaced_gnupg_home_keeps_its_linked_keys(tmp_path):
-    # Astra r6 #1: the saved GnuPG home's private-keys-v1.d links into the old venv;
+def test_r7_a_replaced_gnupg_home_keeps_its_linked_keys(tmp_path):
+    # The saved GnuPG home's private-keys-v1.d links into the old venv;
     # exporting another GNUPGHOME dropped its protection and the keys went with the
     # venv. Nothing is deleted now; the change is reported as before.
     host = installed(tmp_path, data_in_venv=False)
@@ -475,8 +475,8 @@ def test_r7_astra1_a_replaced_gnupg_home_keeps_its_linked_keys(tmp_path):
     assert "keeps data in it or links into it" in output
 
 
-def test_r7_astra2_no_secret_from_a_definition_reaches_output_or_the_log(tmp_path):
-    # Astra r6 #2: an unresolvable command reached the report whole, password and all.
+def test_r7_no_secret_from_a_definition_reaches_output_or_the_log(tmp_path):
+    # An unresolvable command reached the report whole, password and all.
     # Seeded in a unit (a quoted absolute command through a symlink loop), a drop-in,
     # an EnvironmentFile and the manager's environment, the secret reaches nothing.
     host = installed(tmp_path)
@@ -505,7 +505,7 @@ def test_r7_astra2_no_secret_from_a_definition_reaches_output_or_the_log(tmp_pat
 
 @pytest.mark.parametrize("unusable", ["no-systemctl-on-path", "no-user-manager"])
 def test_uninstall_without_a_usable_systemctl_changes_nothing(tmp_path, unusable):
-    # Sol: a restricted PATH was taken as proof the units were stopped; the units and
+    # A restricted PATH was taken as proof the units were stopped; the units and
     # the venv were removed while they might still run.
     host = installed(tmp_path)
     if unusable == "no-systemctl-on-path":

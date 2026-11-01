@@ -1,4 +1,4 @@
-# OFF by default. Enabling this timer needs the owner's OK.
+# OFF by default. Nothing enables this timer for you.
 # Applies rules to INBOX only; Drafts, Sent and all other sources are refused.
 [Unit]
 Description=Process one capped batch of reviewed folder rules every five minutes

@@ -1,10 +1,18 @@
 # Local header search index
 
-The SQLite index accelerates `search_mail` header matching. A complete index also
+The server automatically uses a private, account-specific SQLite index when
+available. It accelerates `search_mail` header matching. A complete index also
 removes the default 30-day window for All Mail searches. The mailbox remains the
 source of message membership, flags and full-message text searches. Indexed
 INTERNALDATE values accelerate chronological paging.
 `read_thread` uses fresh cached Message-ID/reply links and canonical proofs; rebuild an older index once to populate reply links, otherwise expansion retains the live header-search fallback.
+
+## Tools
+
+| Tool | Behavior |
+| --- | --- |
+| [`reindex`](tools.md#reindex) | Changes only the local index, never mail. `op="preview"` (no other argument): All Mail header coverage, missing count, estimated rebuild duration, `log_id`, and a single-use token valid for five minutes; during a rebuild, returns `state="running"` and its `run_id` without another inventory or token. `op="execute"` (`token` only): redeems that token to start one background header rebuild of All Mail and LIST-vetted real folders; returns `log_id` and `run_id`. Existing searches keep using the old index. A running rebuild refuses another start with `"already running"`, `state="running"` and its `run_id`. `op="cancel"` (`run_id` only): requests cooperative cancellation of that active rebuild; discards its candidate and preserves the old index. Any other combination refuses. Every call, including a preview, is audited. |
+| [`reindex_status`](tools.md#reindex_status) | Current indexed All Mail count/max UID, last observed All Mail inventory, incremental sync times, automatic recovery progress (`state="rebuilding"` only while queued or running), and manual `last_full_run` counters. Progress includes `indexed_count`, `target`, `percent` and observed-rate `eta_seconds` (`null` until enough rate samples). While the optional [background sync](search-index.md#background-all-mail-sync) is enabled, also its `background_sync` block. Does not start work or contact Bridge. |
 
 ## What is indexed
 
@@ -229,7 +237,7 @@ retain exact totals, `partial=false` and chronological `next_cursor` paging when
 the scan finishes. Cached decoded headers satisfy local filters without another
 literal fetch. Larger uncached sets report `partial=true`,
 `partial_reason="candidate_cap"` and a lower-bound total, following the
-[continuation rules](../README.md#search-continuation).
+[continuation rules](search.md#search-continuation).
 The sampled messages are sorted by INTERNALDATE;
 the sample may omit newer messages outside the cap, and continuation can return
 those newer messages after an earlier sample. Narrow filters or date bounds for exact
@@ -286,7 +294,7 @@ The matching `total` still describes the query; it can exceed the number of
 displayed rows when canonical resolution is incomplete. Message-ID alone never
 authorizes a canonical handle.
 
-See the [search continuation rules](../README.md#search-continuation) for bounded
+See the [search continuation rules](search.md#search-continuation) for bounded
 cursors, retries, and the explicit partial/null-cursor response when continuation
 is exhausted. Null certifies completion only when `partial=false`.
 
@@ -375,7 +383,7 @@ waiting for Bridge. The worker uses a dedicated,
 preemptible IMAP connection, read-only EXAMINE and `BODY.PEEK` header/metadata
 fetches. It fetches no bodies, changes no flags or mailbox membership, and gives
 way to user requests. `PROTON_MCP_REINDEX_BATCH_SIZE` and
-`PROTON_MCP_REINDEX_BATCH_SLEEP` bound its batches and pauses. Completed batches
+`PROTON_MCP_REINDEX_BATCH_SLEEP` bound its batches and pauses. Start, progress and finish are logged without mail content or credentials. Completed batches
 are committed directly to the serving cache, so searches can use them immediately
 and a restart resumes from saved headers rather than reading them all again.
 Within each folder, the worker fetches the highest UIDs first so recent messages
@@ -408,8 +416,8 @@ inventory. Automatic recovery also exposes `max_uid` as an alias of
 estimate from observed All Mail indexing progress; it remains `null` until enough
 progress has been observed to measure a positive rate. Real-folder warming can
 keep recovery `"rebuilding"` after All Mail reaches 100%, with ETA `null`. Active
-recovery never reports a zero ETA. Incomplete nonempty coverage cannot round up
-to 100%. `percent_done` remains available for compatibility.
+recovery never reports a zero ETA. Incomplete nonempty coverage is capped at 99.9%,
+so it cannot round up to 100%. `percent_done` remains available for compatibility.
 `last_catchup_at` advances with committed recovery
 batches and final coverage. Automatic recovery has no manual cancellation handle
 or candidate swap: `run_id` is null and `swap_outcome` is `"not_attempted"`.
@@ -561,8 +569,12 @@ live membership metadata; a rebuild also warms all real-folder copies directly.
    and the real folders.
    `last_full_run` groups the current or last full rebuild's All Mail counters:
    `old_count`, `new_count` and `all_mail_count`. It is `null` before a full run.
+   Its `all_mail_count` is the count at that full rebuild; the top-level
+   `all_mail_count` is the live count from the latest locally observed inventory.
    Run counters are restored from the account's action log after restart and
-   retain that run's values, including after incremental catch-up.
+   retain that run's values, including after incremental catch-up, failure or
+   cancellation. A run cut off by a restart reads `failed`, with counters from the serving
+   index.
    In every state, top-level `indexed_count` and `indexed_max_uid` read the
    serving index's current All Mail headers, excluding duplicate real-folder
    rows. `all_mail_count`, `all_mail_max_uid` (also exposed as `max_uid` during automatic recovery) and

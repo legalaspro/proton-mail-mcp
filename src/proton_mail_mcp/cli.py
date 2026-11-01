@@ -1,7 +1,7 @@
 """The `proton-mail-mcp` command: the MCP server by default, plus the installer.
 
-Nothing here imports the server at load: it needs POSIX fcntl, and `setup` must reach
-its Windows refusal on a host where that import fails.
+Nothing here imports the server at load, so the installer commands need only the
+standard library.
 """
 
 import sys
@@ -24,11 +24,6 @@ setup, uninstall, show-token and detect each take --help.
 
 
 def _serve() -> int:
-    if sys.platform == "win32":
-        from .installer.detect import NOT_YET_SUPPORTED
-
-        print(f"{_PROG}: {NOT_YET_SUPPORTED['windows']}", file=sys.stderr)
-        return 2
     from .server import main as serve
 
     try:

@@ -14,7 +14,7 @@ import pytest
 from proton_mail_mcp import cli
 from proton_mail_mcp.installer import cli as installer_cli
 from proton_mail_mcp.installer import templates
-from proton_mail_mcp.installer.detect import NOT_YET_SUPPORTED, detect
+from proton_mail_mcp.installer.detect import detect
 
 ROOT = Path(__file__).resolve().parents[1]
 # conftest forbids subprocess.run during tests; these tests run local Python only.
@@ -22,12 +22,6 @@ REAL_RUN = subprocess.run
 SOURCE = str(ROOT / "src")
 PYPROJECT = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 PROJECT = PYPROJECT["project"]
-
-
-@pytest.fixture(autouse=True)
-def posix_host(monkeypatch):
-    # The Windows CI job runs this file too; only the refusal tests below expect win32.
-    monkeypatch.setattr(sys, "platform", "linux")
 
 
 @pytest.fixture
@@ -141,13 +135,10 @@ def test_any_other_server_exit_passes_through_untouched(monkeypatch, capsys, cod
     assert capsys.readouterr().err == ""
 
 
-def test_serve_on_windows_refuses_instead_of_failing_on_the_fcntl_import(
-    served, monkeypatch, capsys
-):
+def test_serve_on_windows_starts_the_server(served, monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
-    assert cli.main([]) == 2
-    assert capsys.readouterr().err == f"proton-mail-mcp: {NOT_YET_SUPPORTED['windows']}\n"
-    assert served == []
+    assert cli.main([]) == 0
+    assert served == [((), {})]
 
 
 NO_FCNTL = """
@@ -162,29 +153,29 @@ raise SystemExit(code)
 """
 
 
-@pytest.mark.parametrize("system", ["Windows", "CYGWIN_NT-10.0-26100", "MSYS_NT-10.0-26100"])
+@pytest.mark.parametrize("system", ["CYGWIN_NT-10.0-26100", "MSYS_NT-10.0-26100"])
 @pytest.mark.parametrize(
     "argv", [["setup"], ["setup", "--dry-run"], ["uninstall", "--yes"], ["show-token"]]
 )
-def test_windows_refusal_reaches_the_user_where_the_server_cannot_import(system, argv):
+def test_a_windows_layer_is_refused_before_it_needs_the_server(system, argv):
     result = python(NO_FCNTL.format(system=system), *argv)
     assert result.returncode == 2, result.stderr
     assert result.stdout == ""
-    assert result.stderr.startswith("proton-mail-mcp: Windows is not yet supported")
-    assert "WSL2" in result.stderr and "v1.1" in result.stderr
+    assert result.stderr.startswith(f"proton-mail-mcp: Unsupported platform: {system}")
+    assert "Python for Windows" in result.stderr and "WSL2" in result.stderr
     assert "Traceback" not in result.stderr
 
 
 def test_detect_runs_on_windows_without_the_server():
     result = python(NO_FCNTL.format(system="Windows"), "detect", "--json")
     assert result.returncode == 0, result.stderr
-    assert '"supported": false' in result.stdout and "WSL2" in result.stdout
+    assert '"supported": true' in result.stdout and "refusal" not in result.stdout
 
 
 @pytest.mark.parametrize("system", ["CYGWIN_NT-10.0", "MSYS_NT-10.0", "MINGW64_NT-10.0"])
-def test_windows_compatibility_layers_count_as_windows(system):
+def test_windows_compatibility_layers_do_not_count_as_windows(system):
     # install.sh refuses these in shell before Python runs; a wheel has no such shell step.
-    assert detect(system, "x86_64").family == "windows"
+    assert detect(system, "x86_64").family == "unsupported"
 
 
 def test_the_console_script_is_the_dispatcher_and_the_service_entry_is_unchanged():
@@ -236,7 +227,7 @@ def test_package_metadata_is_complete():
     assert [name for name in classifiers if name.startswith("License ::")] == [
         "License :: OSI Approved :: Apache Software License"
     ]
-    # Native Windows is out of scope (fcntl), so no classifier may claim it.
+    # No classifier may claim Windows before it has run on a desktop: see docs/windows.md.
     assert not [name for name in classifiers if "Windows" in name]
 
 

@@ -1,6 +1,8 @@
 """Token approval has a strict opt-in and no recipient configuration escape hatch."""
 
 import hashlib
+import inspect
+import re
 from dataclasses import fields, replace
 from unittest.mock import Mock
 
@@ -108,28 +110,25 @@ def test_token_approval_direct_configuration_requires_boolean(value):
         replace(Settings.from_env(BASE), send_self_no_form=value)
 
 
-def test_recipient_pin_has_no_environment_or_settings_override(monkeypatch):
-    original_pin = send._OWN_ADDRESS_SHA256
-    other_pin = hashlib.sha256(b"other@example.test").hexdigest()
+def test_no_recipient_is_built_in_or_set_by_any_other_setting(monkeypatch):
+    other_digest = hashlib.sha256(b"other@example.com").hexdigest()
     overrides = {
         "PROTON_MCP_SEND_SELF_NO_FORM": "1",
-        "PMM_SEND_TOKEN_ADDRESS": "other@example.test",
-        "PMM_SEND_TOKEN_ADDRESS_SHA256": other_pin,
-        "PMM_SEND_TOKEN_RECIPIENTS": "other@example.test",
-        "PMM_SEND_TOKEN_ALLOWLIST": "other@example.test",
-        "PMM_SEND_OWN_ADDRESS_SHA256": other_pin,
-        "PROTON_MCP_SEND_FROM": "other@example.test",
-        "_OWN_ADDRESS_SHA256": other_pin,
+        "PMM_SEND_TOKEN_ADDRESS": "other@example.com",
+        "PMM_SEND_TOKEN_ADDRESS_SHA256": other_digest,
+        "PMM_SEND_TOKEN_RECIPIENTS": "other@example.com",
+        "PMM_SEND_TOKEN_ALLOWLIST": "other@example.com",
+        "PMM_SEND_OWN_ADDRESS_SHA256": other_digest,
+        "PROTON_MCP_SEND_FROM": "sender@example.com",
     }
     for name, value in overrides.items():
         monkeypatch.setenv(name, value)
     configured = Settings.from_env({**BASE, **overrides})
     assert configured.send_self_no_form is True
-    assert configured.send_from_allowlist == ("other@example.test",)
-    assert send._OWN_ADDRESS_SHA256 == original_pin
-    assert send._OWN_ADDRESS_SHA256 != other_pin
-    assert original_pin == "1632be39658c2291f7b38247c04b3ab4d009cfeb07ec24fbf7fe78762a89dca5"
-    assert send._own_address("other@example.test") is False
+    assert configured.send_from_allowlist == ("sender@example.com",)
+    source = inspect.getsource(send)
+    assert not re.search(r"\b[0-9a-fA-F]{32,}\b", source)
+    assert not re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", source)
     field_names = {field.name for field in fields(Settings)}
     assert not field_names & {
         "send_token_address",

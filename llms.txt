@@ -1,0 +1,46 @@
+# proton-mail-mcp
+
+> Unofficial MCP server for Proton Mail Bridge. It lets an AI assistant search and read mail, write drafts and tidy a mailbox, with a preview the user approves before mail is moved, deleted or sent. It runs on the user's own computer and listens only on 127.0.0.1. Not affiliated with or endorsed by Proton AG.
+
+An assistant connected to the server gets its instructions from the server itself, when it connects and in the tool list. These pages are for reading about the project, helping someone set it up, or explaining a result.
+
+Not on PyPI yet: until the first release is published, do not suggest `uvx proton-mail-mcp` or `pip install proton-mail-mcp`, because anyone could hold that name on PyPI. Install from a wheel built from the repository, as the README says.
+
+## Start here
+
+- [README](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/README.md): What the server does, its safety model and the three-step install
+- [Getting started](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/getting-started.md): A first session, from install to approving and undoing a change
+- [Documentation map](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/README.md): Every page, by what you need
+
+## Set up
+
+- [Install](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/install.md): The installer in full, manual install, launchd, Tailscale Serve, uninstall
+- [Connect an MCP client](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients.md): Settings for Claude Desktop, Claude Code, Codex, the ChatGPT Mac app and generic MCP over HTTP
+- [Configuration](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/configuration.md): Every environment variable, Bridge TLS, protected senders
+
+## Reference
+
+- [Tool reference](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/tools.md): Server instructions, every tool and every argument, generated from the server
+- [Results, refusals and limits](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/results.md): What each result field and refusal means, what to do next, and the fixed limits
+- [How approvals work](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/safety.md): Previews, tokens and forms, and what each change needs
+
+## How it works
+
+- [Searching and reading mail](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/search.md): Search, counts, threads and message handles
+- [Drafts and attachments](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/drafts.md): Drafts, replies, forwards and the allowed folder
+- [Sending mail](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/sending.md): The guarded send path, aliases and the typed OK
+- [Cleaning up mail](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/cleanup.md): Moves, read state, labels, draft deletion and unsubscribe
+- [Folder rules, Sieve filters and saved rules](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/rules.md): Beta rules, previewed filters and the saved rules store
+- [Recovery](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/RECOVERY.md): Recover from a lost response, the action log, undo and the audit trail
+
+## Optional
+
+- [Search index](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/search-index.md): Index coverage, rebuilds and background sync
+- [MCP Apps views](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/mcp-apps.md): The thread view, the composer and the send review
+- [IMAP IDLE](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/imap-idle.md): The optional new-mail watcher
+- [Windows](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/windows.md): Native Windows support, what was and was not checked, and WSL2
+- [AGENTS.md](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/AGENTS.md): Commands, layout, conventions and safety rules for changing the code
+- [Contributing](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/CONTRIBUTING.md): How to contribute
+- [Development](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/development.md): Tests and offline checks
+- [CI](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/ci.md): What GitHub Actions runs and when
+- [Changelog](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/CHANGELOG.md): What changed

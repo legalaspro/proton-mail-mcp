@@ -36,7 +36,7 @@ def hex_id(value):
 
 
 def draft_with(line):
-    """A Bridge-shaped draft to the pin with this raw header line last, in place of its namesake."""
+    """A Bridge-shaped draft to oneself with this raw header line last, in place of its namesake."""
     head, body = bridge_draft(RECIPIENT).split(b"\r\n\r\n", 1)
     prefix = line.split(b":", 1)[0] + b":"
     kept = [item for item in head.split(b"\r\n") if not item.startswith(prefix)]

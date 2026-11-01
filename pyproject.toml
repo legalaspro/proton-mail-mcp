@@ -31,13 +31,13 @@ dependencies = ["mcp>=1.30,<2", "pypdf>=6,<7", "uvicorn>=0.35,<1"]
 
 [project.urls]
 Homepage = "https://github.com/legalaspro/proton-mail-mcp"
-Documentation = "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/install.md"
+Documentation = "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/README.md"
 Repository = "https://github.com/legalaspro/proton-mail-mcp"
 Issues = "https://github.com/legalaspro/proton-mail-mcp/issues"
 Changelog = "https://github.com/legalaspro/proton-mail-mcp/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "httpx>=0.28,<1", "ruff>=0.12,<1", "cryptography>=46,<51"]
+dev = ["pytest>=8,<10", "pytest-xdist>=3.6,<4", "httpx>=0.28,<1", "ruff>=0.12,<1", "cryptography>=46,<51"]
 
 [project.scripts]
 proton-mail-mcp = "proton_mail_mcp.cli:main"
@@ -58,6 +58,10 @@ packages = ["src/proton_mail_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "slow: cost and latency regressions on large simulated mailboxes; pull requests skip them",
+    "real_fsync: flush to the disk for real; other tests skip the wait outside Windows",
+]
 
 [tool.ruff]
 target-version = "py312"

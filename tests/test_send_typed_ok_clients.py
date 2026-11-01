@@ -56,18 +56,18 @@ def parsed(value):
     return Settings.from_env({**BASE, ENV: value}).send_typed_ok_clients
 
 
-def listing(rig, value="Example Client", **changes):
+def listing(rig, value="Grok Bot", **changes):
     rig.settings = replace(rig.settings, send_typed_ok_clients=parsed(value), **changes)
     return rig
 
 
-def host(name="Example Client", *, support=True, action="accept"):
+def host(name="Grok Bot", *, support=True, action="accept"):
     made = Host(action, support=support)
     made.session.client_params.clientInfo = SimpleNamespace(name=name, version="1.2")
     return made
 
 
-async def session(rig, app, capabilities=FORM, name="Example Client", version="1.2"):
+async def session(rig, app, capabilities=FORM, name="Grok Bot", version="1.2"):
     http = _HTTP(app, rig.settings.token)
     await http.rpc(
         "initialize",
@@ -122,7 +122,7 @@ def test_a_listed_client_declaring_a_form_gets_typed_ok_and_is_never_asked(rig):
     assert [row["approval"] for row in records(rig) if row.get("budget_reserved")] == ["typed_ok"]
 
 
-@pytest.mark.parametrize("name", ["Example", "Example Client 2", "Other"])
+@pytest.mark.parametrize("name", ["Grok", "Grok Bot 2", "Other"])
 def test_an_unlisted_client_with_a_form_keeps_the_form(rig, name):
     listing(rig)
 
@@ -177,7 +177,7 @@ def test_an_empty_or_unset_list_changes_nothing(value):
     env = BASE if value is None else {**BASE, ENV: value}
     assert Settings.from_env(env).send_typed_ok_clients == ()
     assert Settings.from_env(env).no_form_clients == ()
-    for name in ("Example Client", "", " "):
+    for name in ("Grok Bot", "", " "):
         client = host(name)
         assert form_available(client, ()) is True
         assert declares_no_form(client, ()) is False
@@ -186,48 +186,37 @@ def test_an_empty_or_unset_list_changes_nothing(value):
 
 @pytest.mark.parametrize(
     "value",
-    [
-        "Example Client",
-        "example client",
-        "EXAMPLE CLIENT",
-        "  Example Client  ",
-        "other, example client ,",
-        ",,EXAMPLE client,other",
-    ],
+    ["Grok Bot", "grok bot", "GROK BOT", "  Grok Bot  ", "other, grok bot ,", ",,GROK bot,other"],
 )
-@pytest.mark.parametrize(
-    "name", ["Example Client", "example client", "EXAMPLE CLIENT", "  Example Client\t"]
-)
+@pytest.mark.parametrize("name", ["Grok Bot", "grok bot", "GROK BOT", "  Grok Bot\t"])
 def test_a_name_matches_exactly_ignoring_case_and_surrounding_space(value, name):
     client = host(name)
     assert form_available(client, parsed(value)) is False
     assert declares_no_form(client, parsed(value)) is True
 
 
-@pytest.mark.parametrize(
-    "name", ["Example", "ExampleClient", "Example  Client", "Example Client,other", "", "  "]
-)
+@pytest.mark.parametrize("name", ["Grok", "GrokBot", "Grok  Bot", "Grok Bot,other", "", "  "])
 def test_a_partial_or_empty_name_never_matches(name):
     client = host(name)
-    assert form_available(client, parsed("Example Client, ,")) is True
-    assert declares_no_form(client, parsed("Example Client, ,")) is False
+    assert form_available(client, parsed("Grok Bot, ,")) is True
+    assert declares_no_form(client, parsed("Grok Bot, ,")) is False
 
 
 @pytest.mark.parametrize("params", [None, SimpleNamespace(), SimpleNamespace(capabilities=None)])
 def test_an_unreadable_client_never_opens_the_typed_ok(params):
     client = SimpleNamespace(session=SimpleNamespace(client_params=params))
-    assert form_available(client, ("example client",)) is False
-    assert declares_no_form(client, ("example client",)) is False
+    assert form_available(client, ("grok bot",)) is False
+    assert declares_no_form(client, ("grok bot",)) is False
 
 
 def test_the_list_must_be_a_tuple():
     with pytest.raises(ConfigError, match=ENV):
-        replace(Settings.from_env(BASE), send_typed_ok_clients="example client")
+        replace(Settings.from_env(BASE), send_typed_ok_clients="grok bot")
 
 
 def test_strict_overrides_the_list(rig):
     listing(rig, send_typed_ok=False)
-    assert rig.settings.send_typed_ok_clients == ("example client",)
+    assert rig.settings.send_typed_ok_clients == ("grok bot",)
     assert rig.settings.no_form_clients == ()
 
     async def script(app):
@@ -264,7 +253,7 @@ def test_a_listed_client_is_refused_a_mailbox_form_without_being_asked(caplog):
     client = host()
     with pytest.raises(ConfirmationError) as refused:
         asyncio.run(
-            require_confirmation(client, "summary", timeout=5, no_form_clients=("example client",))
+            require_confirmation(client, "summary", timeout=5, no_form_clients=("grok bot",))
         )
     assert refused.value.result == "confirmation_unavailable"
     assert client.prompts == []
@@ -291,7 +280,7 @@ def test_a_listed_clients_mailto_unsubscribe_preview_takes_the_typed_ok(rig, mon
     assert result["drafts"][0]["send_preview"]["approval"] == "typed_ok"
     assert client.prompts == []
     assert [line for line in lines(caplog) if ENV in line] == [
-        f'Client name "Example Client", version "1.2" is on {ENV}: typed OK instead of the form'
+        f'Client name "Grok Bot", version "1.2" is on {ENV}: typed OK instead of the form'
     ]
 
 
@@ -335,9 +324,9 @@ def test_a_session_logs_its_client_once_and_the_list_each_time(rig, caplog):
         return preview["token"]
 
     token = serve(rig, script)
-    named = 'Client name "Example Client", version "1.2" is on ' + ENV
+    named = 'Client name "Grok Bot", version "1.2" is on ' + ENV
     assert lines(caplog) == [
-        'MCP client name "Example Client", version "1.2", elicitation declared: True',
+        'MCP client name "Grok Bot", version "1.2", elicitation declared: True',
         f"{named}: typed OK instead of the form",
         f"{named}: typed OK instead of the form",
     ]
@@ -355,7 +344,7 @@ def test_a_review_logs_the_list_only_for_a_listed_client(rig, caplog):
 
     serve(rig, script)
     assert [line for line in lines(caplog) if ENV in line] == [
-        f'Client name "Example Client", version "1.2" is on {ENV}: typed OK instead of the form'
+        f'Client name "Grok Bot", version "1.2" is on {ENV}: typed OK instead of the form'
     ]
 
 
@@ -371,7 +360,7 @@ def test_an_own_address_preview_on_a_listed_client_never_claims_the_typed_ok(own
 
     serve(own_rig, script)
     assert lines(caplog) == [
-        'MCP client name "Example Client", version "1.2", elicitation declared: True'
+        'MCP client name "Grok Bot", version "1.2", elicitation declared: True'
     ]
 
 
@@ -389,19 +378,19 @@ def test_a_second_session_logs_for_itself_and_no_list_line_without_a_list(rig, c
 
 
 def test_a_listed_client_with_no_form_anyway_owes_nothing_to_the_list(caplog):
-    assert declares_no_form(host(support=False), ("example client",)) is True
-    log_list_use(host(support=False), ("example client",))
+    assert declares_no_form(host(support=False), ("grok bot",)) is True
+    log_list_use(host(support=False), ("grok bot",))
     assert lines(caplog) == []
 
 
 def test_asking_which_path_applies_logs_nothing(caplog):
-    assert declares_no_form(host(), ("example client",)) is True
+    assert declares_no_form(host(), ("grok bot",)) is True
     assert lines(caplog) == []
 
 
 def test_logging_the_list_never_fails_the_call(caplog):
-    log_list_use(None, ("example client",))
-    log_list_use(SimpleNamespace(session=SimpleNamespace(client_params=None)), ("example client",))
+    log_list_use(None, ("grok bot",))
+    log_list_use(SimpleNamespace(session=SimpleNamespace(client_params=None)), ("grok bot",))
     log_list_use(host(), ())
     assert lines(caplog) == []
 
@@ -513,10 +502,10 @@ ConfirmationError("confirmation_timeout")
 
 def test_docs_say_it_is_off_self_reported_and_the_operators_choice():
     root = Path(__file__).resolve().parents[1]
-    readme = " ".join((root / "README.md").read_text(encoding="utf-8").split())
-    assert f"| `{ENV}` | empty | Off by default; an operator choice" in readme
-    assert "self-reported and unauthenticated, the same trust level as the elicitation" in readme
-    assert "a quoted name keeps its quotes and never matches" in readme
+    config = " ".join((root / "docs" / "configuration.md").read_text(encoding="utf-8").split())
+    assert f"| `{ENV}` | empty | Off by default; an operator choice" in config
+    assert "self-reported and unauthenticated, the same trust level as the elicitation" in config
+    assert "a quoted name keeps its quotes and never matches" in config
     changelog = " ".join((root / "CHANGELOG.md").read_text(encoding="utf-8").split())
     assert f"`{ENV}`, a comma list of `clientInfo.name` values, empty by default" in changelog
     assert "the name is self-reported, the same trust level as the elicitation flag" in changelog

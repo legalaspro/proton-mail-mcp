@@ -1,6 +1,5 @@
 """Off-by-default rules scheduling is exercised against synthetic IMAP only."""
 
-import fcntl
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -11,7 +10,9 @@ from bridge_sim import BridgeSim, Msg, hdr, make_client, mutations
 from test_cleanup_mutations import MUTATIONS, MutatingImap, uid_values
 from test_folder_rules import rule
 from test_mail import client, message, unquote
+from windows_skips import has_mode
 
+from proton_mail_mcp import localfs
 from proton_mail_mcp.action_log import ActionLog, LogTransaction, replay_records
 from proton_mail_mcp.config import ConfigError, Settings
 from proton_mail_mcp.guarded import MAX_BATCH
@@ -120,7 +121,7 @@ def test_first_run_drains_backlog_and_records_completed_high_water(timer_case):
     assert not case.fake.folders["INBOX"]
     assert len(case.fake.folders["Folders/Review"]) == len(changed_uids(case)) == 4
     assert len(changed(case)) == 1  # One batched MOVE for the timer's chunk.
-    assert case.state.stat().st_mode & 0o777 == 0o600
+    assert has_mode(case.state, 0o600)
 
 
 def test_new_mail_moves_old_matching_mail_never_does(timer_case):
@@ -349,7 +350,7 @@ def test_existing_lock_refuses_overlapping_run_without_mail_access(timer_case):
     before = case.state.read_bytes()
     case.fake.calls.clear()
     with case.state.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        localfs.lock(lock.fileno())
         result = case.timer.run()
     assert result["status"] == "busy" and result["count"] == 0
     assert case.fake.calls == [] and case.state.read_bytes() == before
@@ -544,7 +545,7 @@ def test_cli_first_run_and_overlapping_run_exit_successfully(timer_case, monkeyp
     assert exit_info.value.code == 0
     assert json.loads(capsys.readouterr().out)["status"] == "initialized"
     with case.state.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        localfs.lock(lock.fileno())
         with pytest.raises(SystemExit) as exit_info:
             rules_timer.main()
     assert exit_info.value.code == 0

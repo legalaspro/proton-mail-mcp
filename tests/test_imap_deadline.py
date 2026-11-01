@@ -2,6 +2,7 @@
 
 import imaplib
 import socket
+import sys
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -13,6 +14,9 @@ from proton_mail_mcp.config import Settings
 from proton_mail_mcp.mail import MailClient, _DeadlineIMAP4
 from proton_mail_mcp.search_index import SearchIndex
 from proton_mail_mcp.security import Credentials
+
+# Windows timers are coarser, and a read there ends at its own timeout, not at a shutdown.
+BOUND = 1.0 if sys.platform == "win32" else 0.65
 
 
 @contextmanager
@@ -206,7 +210,7 @@ def test_deadline_interrupts_stalls_and_trickles_inside_a_command(monkeypatch, m
         started = time.monotonic()
         result = backend.search_mail(include_snippets=False)
         assert result["partial"] is True and result["timed_out"] is True
-        assert time.monotonic() - started < 0.65
+        assert time.monotonic() - started < BOUND
         assert any(command.startswith(b"EXAMINE ") for command in commands)
         assert not any(command.startswith(b"LOGOUT") for command in commands)
 
@@ -221,7 +225,7 @@ def test_default_factory_bounds_constructor_reads_and_closes_socket(monkeypatch,
         started = time.monotonic()
         result = backend.search_mail()
         assert result["timed_out"] is True and "timed out" in result["error"]
-        assert time.monotonic() - started < 0.65
+        assert time.monotonic() - started < BOUND
         assert local.fileno() == -1
 
 
@@ -332,7 +336,7 @@ def test_deadline_interrupts_tls_handshake_after_delayed_starttls_reply(monkeypa
         started = time.monotonic()
         result = backend.search_mail()
         assert result["timed_out"] is True and result["partial"] is True
-        assert time.monotonic() - started < 0.65
+        assert time.monotonic() - started < BOUND
         assert any(command == b"STARTTLS" for command in commands)
         assert not any(command.startswith((b"LOGIN", b"LOGOUT")) for command in commands)
 
@@ -348,7 +352,7 @@ def test_stalled_setup_returns_timeout_before_mailbox_data(monkeypatch, stage, o
             result = backend.read_thread("<seed@example.test>")
         assert result["timed_out"] is True and result["partial"] is True
         assert result["messages"] == [] and "timed out" in result["error"]
-        assert time.monotonic() - started < 0.65
+        assert time.monotonic() - started < BOUND
         assert not any(command.startswith(b"LOGOUT") for command in commands)
 
 

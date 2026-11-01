@@ -2,7 +2,6 @@
 
 import copy
 import json
-import stat
 from dataclasses import replace
 
 import pytest
@@ -11,6 +10,7 @@ from action_records import execution_records as replay_records
 from mock_imap_cleanup import CleanupIMAPPeer
 from starlette.testclient import TestClient
 from test_mail import message
+from windows_skips import has_mode
 
 from proton_mail_mcp import guarded
 from proton_mail_mcp.config import Settings
@@ -104,7 +104,7 @@ def test_socket_preview_confirm_undo_roundtrip(socket_mailbox, action, params, t
     assert log_path.read_bytes().startswith(first_log)
     records = replay_records([json.loads(line) for line in log_path.read_text().splitlines()])
     assert [record["action"] for record in records] == [action, "undo_claim", "undo_action"]
-    assert stat.S_IMODE(log_path.stat().st_mode) == 0o600
+    assert has_mode(log_path, 0o600)
     assert preview["token"] not in log_path.read_text()
     for folder, command in mutations(peer.commands):
         if b"EXPUNGE" in command or b"STORE" in command:

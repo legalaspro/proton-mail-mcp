@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import credential_store
+from ..service_entry import env_file_encoding
 from . import templates
 from .detect import Platform
 from .plan import MANAGER_ENVIRONMENT, SYSTEMD_BOOTED
@@ -48,26 +49,26 @@ class HostProbe:
 
     def read_text(self, path: str) -> str | None:
         try:
-            return Path(path).read_text(encoding="utf-8")
+            return Path(path).read_text(encoding=env_file_encoding())
         except (OSError, UnicodeError):
             return None
 
     def readlink(self, path: str) -> str | None:
-        """A symbolic link's target as written; None for anything else."""
+        """A symbolic link's or Windows junction's target as written; None for anything else."""
         try:
-            return os.readlink(path) if os.path.islink(path) else None
+            return os.readlink(path) if os.path.islink(path) or os.path.isjunction(path) else None
         except (OSError, ValueError):
             return None
 
     def tree_size(self, path: str) -> int | None:
         """Bytes of the regular files at or below path; links are never followed.
 
-        None when path is a symbolic link, part of it cannot be read, or it holds more
+        None when path is a symbolic link or junction, part of it cannot be read, or it holds more
         than MAX_SIZE_ENTRIES entries.
         """
         try:
             info = os.lstat(path)
-            if stat.S_ISLNK(info.st_mode):
+            if stat.S_ISLNK(info.st_mode) or os.path.isjunction(path):
                 return None
             if not stat.S_ISDIR(info.st_mode):
                 return info.st_size if stat.S_ISREG(info.st_mode) else 0
@@ -78,6 +79,8 @@ class HostProbe:
                         seen += 1
                         if seen > MAX_SIZE_ENTRIES:
                             return None
+                        if entry.is_junction():
+                            continue
                         if entry.is_dir(follow_symlinks=False):
                             pending.append(entry.path)
                         elif entry.is_file(follow_symlinks=False):
@@ -204,7 +207,7 @@ def simulated_probe(platform: Platform) -> FakeProbe:
         return FakeProbe(
             env={
                 "LOCALAPPDATA": "C:\\Users\\you\\AppData\\Local",
-                "ProgramFiles": "C:\\Program Files",
+                "PROGRAMFILES": "C:\\Program Files",
                 "USERDOMAIN": "HOST",
                 "USERNAME": "you",
             },

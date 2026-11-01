@@ -1,6 +1,7 @@
 """Complete search pages and bounded optional header catch-up, entirely offline."""
 
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -173,7 +174,7 @@ def test_legacy_writer_header_loss_does_not_limit_the_requested_folder(settings,
 
     def downgrade():
         # Simulate an older process that leaves the new proof metadata alone.
-        with sqlite3.connect(reader.search_index.path) as database:
+        with closing(sqlite3.connect(reader.search_index.path)) as database, database:
             database.execute("UPDATE messages SET headers_known = 0 WHERE folder = 'All Mail'")
             assert database.execute("SELECT certified FROM coverage").fetchone() == (1,)
 

@@ -13,6 +13,9 @@ from proton_mail_mcp import send as send_module
 from proton_mail_mcp.mail import MailError, MailValidationError
 
 FAILURES = (MailError, MailValidationError)
+ACCOUNT = "me@example.com"
+LISTED = "alias@example.com"
+STRANGER = "stranger@example.com"
 BRIDGE_SHAPES = [
     pytest.param(f"<{RECIPIENT}>", id="shape-a-angle-only"),
     pytest.param(f'"Plain Owner" <{RECIPIENT}>', id="shape-b-quoted-display"),
@@ -107,19 +110,70 @@ def test_bridge_draft_adding_recipient_after_preview_refuses(own_rig, field):
     [
         ("Recipient@example.test", ()),
         ("recipient@EXAMPLE.test", ()),
+        (f"{RECIPIENT}, {RECIPIENT}", ()),
+        (RECIPIENT, (f"Cc: {RECIPIENT}",)),
+        (RECIPIENT, (f"Bcc: {RECIPIENT}",)),
+    ],
+)
+def test_valid_drafts_to_own_addresses_alone_receive_token(own_rig, to, extra_headers):
+    rig = own_rig
+    rig.client.raw = bridge_draft(to, extra_headers=extra_headers)
+    assert rig.service.preview_send(DRAFT_ID)["approval"] == "token"
+    assert rig.smtp.calls == []
+
+
+def login_as(rig, account, allowed):
+    rig.settings = replace(
+        rig.settings, bridge_user=account, send_from_allowlist=allowed, send_self_no_form=True
+    )
+    rig.service.settings = rig.client.settings = rig.settings
+    return rig
+
+
+@pytest.mark.parametrize(
+    "to,approval",
+    [
+        (ACCOUNT, "token"),
+        (LISTED, "token"),
+        (f"{ACCOUNT}, {LISTED}", "token"),
+        (STRANGER, "host_confirmation"),
+        (f"{ACCOUNT}, {STRANGER}", "host_confirmation"),
+    ],
+)
+def test_own_addresses_are_the_login_and_the_send_from_list(rig, to, approval):
+    rig = login_as(rig, ACCOUNT, (ACCOUNT, LISTED))
+    rig.client.raw = bridge_draft(to, sender=ACCOUNT)
+    assert rig.service.preview_send(DRAFT_ID)["approval"] == approval
+
+
+def test_the_login_counts_when_only_an_alias_is_on_the_send_from_list(rig):
+    rig = login_as(rig, ACCOUNT, (LISTED,))
+    rig.client.raw = bridge_draft(ACCOUNT, sender=LISTED)
+    assert rig.service.preview_send(DRAFT_ID)["approval"] == "token"
+
+
+@pytest.mark.parametrize("account", ["me", f"{ACCOUNT}, {STRANGER}"], ids=["bare-name", "two"])
+def test_a_login_that_is_no_single_address_adds_no_own_address(rig, account):
+    rig = login_as(rig, account, (LISTED,))
+    rig.client.raw = bridge_draft(ACCOUNT, sender=LISTED)
+    assert rig.service.preview_send(DRAFT_ID)["approval"] == "host_confirmation"
+    rig.client.raw = bridge_draft(LISTED, sender=LISTED)
+    assert rig.service.preview_send(DRAFT_ID)["approval"] == "token"
+
+
+@pytest.mark.parametrize(
+    "to,extra_headers",
+    [
         ("recipient+tag@example.test", ()),
         ("recipient@xn--exmple-cua.test", ()),
         ("other@example.test", ()),
-        (f"{RECIPIENT}, {RECIPIENT}", ()),
         (f"{RECIPIENT}, other@example.test", ()),
         (f'"Plain Owner" <{RECIPIENT}>, other@example.test', ()),
-        (RECIPIENT, (f"Cc: {RECIPIENT}",)),
-        (RECIPIENT, (f"Bcc: {RECIPIENT}",)),
         (RECIPIENT, ("Cc: other@example.test",)),
         (RECIPIENT, ("Bcc: other@example.test",)),
     ],
 )
-def test_valid_drafts_outside_single_pinned_to_require_host(own_rig, to, extra_headers):
+def test_valid_drafts_with_anyone_else_require_host(own_rig, to, extra_headers):
     rig = own_rig
     rig.client.raw = bridge_draft(to, extra_headers=extra_headers)
     preview = rig.service.preview_send(DRAFT_ID)

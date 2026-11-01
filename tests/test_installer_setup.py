@@ -374,7 +374,8 @@ def test_a_relative_source_reaches_pip_as_a_path(tmp_path, monkeypatch, capsys):
 PIN = "proton-mail-mcp==1.2.3"
 INDEX = "https://mirror.example/simple/"
 OTHER = "https://other.example/simple"
-LINKS = "/srv/wheels"
+# Windows Python 3.13 and later reads a path with no drive as relative.
+LINKS = "C:/srv/wheels" if sys.platform == "win32" else "/srv/wheels"
 SECRET_WORD = "s3cr3t-index-password"
 
 
@@ -588,6 +589,7 @@ def test_a_record_that_cannot_be_carried_changes_nothing_and_says_how(pipx_insta
     assert "plan for" not in captured.out
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="names POSIX paths")
 def test_source_replaces_whatever_was_recorded(pipx_installed, tmp_path, capsys):
     # The way out of a refused record: no record is even read.
     (pipx_installed / "pipx_metadata.json").write_text("not json")

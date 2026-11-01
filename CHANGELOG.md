@@ -6,6 +6,18 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Added
 
+- **Native Windows support, so far run only on Windows Server runners.** The server, `setup` and `uninstall`
+  now run on Windows instead of refusing it. File locks use `LockFileEx`, private state lives in
+  `%LOCALAPPDATA%\proton-mail-mcp`, and the action log, saved rules, indexes, attachments folder
+  and env file must lie inside the user's profile. Windows has no owner or mode bits to check, so
+  the server reads each one's real owner and access rules and refuses if anyone but the user,
+  SYSTEM and Administrators has access; it changes no rules itself. Those checks are tested with a
+  stand-in security API and, on real Windows, only in CI on an elevated Windows Server runner, not
+  on Windows 10 or 11, from a standard account or against a second account. On Linux, `strace`
+  shows the same file calls as before; macOS takes the same code; only its installer jobs have run.
+  On Windows it has not met
+  Windows 10 or 11, a normal account or a real Proton account. See
+  [docs/windows.md](docs/windows.md), which lists what that does not cover.
 - **Typed OK on clients with no form.** A client whose `initialize` capabilities omit
   `elicitation` used to be refused at `send_draft`. Now, with the new
   `PROTON_MCP_SEND_TYPED_OK` on, which is the default, `preview_send` reports
@@ -20,7 +32,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   elicitation always gets the form and never falls back. A client declaring an empty
   `elicitation: {}` counts as having a form, as the MCP specification says, and now gets
   one instead of a refusal, for mailbox changes too. See
-  [Typed OK](README.md#typed-ok-when-the-client-has-no-form).
+  [Typed OK](docs/sending.md#typed-ok-when-the-client-has-no-form).
 - **Typed-OK client list and confirmation logs.** The new
   `PROTON_MCP_SEND_TYPED_OK_CLIENTS`, a comma list of `clientInfo.name` values, empty by
   default, treats a listed client as having no form even if it declares elicitation, for a
@@ -40,7 +52,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   file. Local files are used only inside the folder set by the new
   `PROTON_MCP_ATTACHMENTS_DIR`, a normalized absolute path with no trailing slash: absolute
   paths, `..`, hidden names and links are refused, and nothing is overwritten. PDFs are parsed in a separate process with no environment,
-  using the new `pypdf` dependency. See [Attachments](README.md#attachments).
+  using the new `pypdf` dependency. See [Attachments](docs/drafts.md#attachments).
 - **Attachment tools work without configuration.** With `PROTON_MCP_ATTACHMENTS_DIR` unset
   they now use `$XDG_DATA_HOME/proton-mail-mcp/attachments` when `XDG_DATA_HOME` is
   absolute, else `~/.local/share/proton-mail-mcp/attachments`, instead of refusing. The
@@ -88,8 +100,8 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   directory by its path, and a copy installed by name by its pinned version, with any
   index options pipx or `uv tool` recorded. The installed files must then match the
   running copy, or `setup` stops before touching a service and asks for `--source`.
-  Service units and LaunchAgents are package data, as are the examples. On Windows, Cygwin
-  and MSYS2, `setup` and `serve` exit 2 and point to WSL2 and v1.1.
+  Service units and LaunchAgents are package data, as are the examples. On Cygwin and MSYS2,
+  `setup` exits 2 and points to Python for Windows or WSL2.
   `scripts/wheel_smoke.py` (`make wheel-smoke`) proves it all
   from a built wheel with stand-ins for `systemctl`, `pgrep`, `secret-tool` and Bridge. See the
   [installer guide](docs/install.md#quick-start).
@@ -157,9 +169,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   write is neither used nor shown, and the signature checks' scratch directories
   stay. The
   installer never enables send, never turns off confirmation, never reads the
-  Bridge password with echo and never installs the rules timer. Windows is not
-  yet supported: `scripts/install.ps1` refuses with status 2, because the
-  server's state storage needs POSIX file locking. See
+  Bridge password with echo and never installs the rules timer. See
   [the installer guide](docs/install.md).
 - `PROTON_MCP_CREDENTIAL_STORE` selects where the Bridge password is read:
   `keychain` (default and unchanged), `libsecret`, `pass` or `wincred`.
@@ -169,8 +179,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   settings file and loads the bearer token from the same store.
 - GitHub Actions `Installer` workflow: installer unit tests and dry runs on
   hosted Ubuntu and macOS runners and in Fedora, AlmaLinux 9 and Arch
-  containers; on Windows, the tests that do not start the server and a check
-  that the installer refuses Windows.
+  containers; on Windows, the installer tests and dry runs.
 
 - **MCP Apps views.** The server implements the MCP Apps extension
   (`io.modelcontextprotocol/ui`, specification `2026-01-26`). View tools link a
@@ -264,7 +273,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   headers fall through to permitted body HTTPS links. Mailto parsing accepts
   tracking addresses with literal `=` and `/`, and `/` or `?` in field values,
   while retaining field, escape and control-character checks. See
-  [Guarded unsubscribe](README.md#guarded-unsubscribe).
+  [Guarded unsubscribe](docs/cleanup.md#guarded-unsubscribe).
 
 - **Saved custom rules (backlog P-E).** `preview_add_rule(name, folder, conditions,
   match, mark_read, include_matches)` validates one folder rule with the Sieve filter
@@ -281,7 +290,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   journals the intent (digests only), claims the token and appends the rule. Results
   and audits count the rule once with `added`, `attempted` and `rule_sha256`.
   `list_rules()` lists built-in and saved rules in the order they run. See
-  [Saved custom rules](README.md#saved-custom-rules).
+  [Saved custom rules](docs/rules.md#saved-custom-rules).
 - Saved rules live in a private store of their own: `saved-rules.json` beside the action
   journal, or `PROTON_MCP_SAVED_RULES` (new setting), apart from the packaged
   `folder_rules.json`. The file must be a `0600` regular file and holds at most 20
@@ -315,7 +324,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   `limit` above 200, the 200-message cap is unchanged. Earlier releases refuse an
   action log that holds a bounded run ("Cleanup run journal has invalid
   approval"), so do not downgrade while the log holds one. See
-  [Bounded approvals](README.md#bounded-approvals).
+  [Bounded approvals](docs/cleanup.md#bounded-approvals).
 - `move_to_folder` previews accept `params.create_folder_if_missing` (JSON boolean,
   default false). For a missing `Folders/` destination the preview reports
   `folder_creation: {name, exists: false, create: true}` and creates nothing; the
@@ -327,7 +336,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   `action`, without counting it as a chunk. When no move fits beside
   the creation, the call creates the folder alone and returns a continuation.
   An existing folder is an ordinary move. See
-  [Creating the destination in the same approval](README.md#creating-the-destination-in-the-same-approval).
+  [Creating the destination in the same approval](docs/cleanup.md#creating-the-destination-in-the-same-approval).
 - Cleanup responses include `mismatched` (`mismatched_ids` in compact responses):
   rows a batched command left untouched because they changed before it, or whose
   outcome could not be verified, with a reason. They are never counted as done.
@@ -343,7 +352,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   `UID SEARCH`, with each value one escaped quoted string or the command's single
   literal, and control characters refused; a text value that cannot join that command
   costs one more `UID SEARCH`. See
-  [Unread mail, exclusions, queries and counts](README.md#unread-mail-exclusions-queries-and-counts).
+  [Unread mail, exclusions, queries and counts](docs/search.md#unread-mail-exclusions-queries-and-counts).
 - `count_mail` is a new read-only tool with `search_mail`'s filters, `unread_only`,
   exclusions and `query`. It returns `{folder, count}` from `UID SEARCH` alone and
   never fetches headers or bodies. Bridge matches every condition there, including raw
@@ -368,7 +377,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   ManageSieve, Sieve or filter interface), so `create_sieve_filter` always refuses
   with "Sieve filters cannot be applied" before any form, filter journal record or
   mailbox access, and nothing changes. The only shipped backend is this refusing one,
-  and no setting selects another. See [Sieve filters](README.md#sieve-filters).
+  and no setting selects another. See [Sieve filters](docs/rules.md#sieve-filters).
 - An interrupted `create_sieve_filter` returns `partial: true` with `created` and
   `attempted`: created (a later journal append failed), uncertain (`attempted`
   without `created`: check Proton's filter list) or never sent to the backend
@@ -430,6 +439,33 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Changed
 
+- **No address is built into the code.** The own-address path used to accept one more
+  recipient, fixed in code as a SHA-256 digest. That is gone. With
+  `PROTON_MCP_SEND_SELF_NO_FORM=1`, the addresses that skip the form are now only those the
+  server reads at run time: `PROTON_BRIDGE_USER`, the name it logs in to Bridge with, and
+  `PROTON_MCP_SEND_FROM`. Any other recipient takes the form or, on a client without one,
+  the typed OK. See Upgrade notes.
+- **Clearer guidance for the model.** The server instructions now state the workflow across
+  tools (reading, preview then redeem, what to do after a refusal), and name only the tools a
+  configuration registers. Every tool argument has a description in its input schema. Long tool
+  descriptions lead with what the tool does and fit in 2,048 characters, so a client that cuts
+  longer text loses no rule. Wrong text is fixed: a `limit` above the approved total refuses and
+  keeps the token, `unsubscribe` and `create_folder` report `partial`, and a failed send may have
+  gone out. Validation and behavior do not change.
+- **Shorter README and reorganized docs.** The README now covers what the server does, its
+  safety model and how to install it. [docs/README.md](docs/README.md) maps every page by what
+  you need: [Getting started](docs/getting-started.md) is new,
+  [docs/tools.md](docs/tools.md) is generated from the registered tools with `make docs`, and
+  [Results, refusals and limits](docs/results.md) and
+  [How approvals work](docs/safety.md) are new reference pages. The reference text moved, with
+  its section names, to [docs/search.md](docs/search.md), [docs/drafts.md](docs/drafts.md),
+  [docs/sending.md](docs/sending.md), [docs/cleanup.md](docs/cleanup.md),
+  [docs/rules.md](docs/rules.md), [docs/configuration.md](docs/configuration.md),
+  [docs/install.md](docs/install.md), [docs/RECOVERY.md](docs/RECOVERY.md),
+  [docs/search-index.md](docs/search-index.md) and [docs/development.md](docs/development.md).
+  New pages: [docs/clients.md](docs/clients.md) and [docs/windows.md](docs/windows.md).
+- **`AGENTS.md` and `llms.txt`.** [AGENTS.md](AGENTS.md) is the guide for coding agents and
+  contributors, and [llms.txt](llms.txt) indexes the docs for AI assistants.
 - **The own-address path covers all the user's own send-from addresses.** With
   `PROTON_MCP_SEND_SELF_NO_FORM=1`, a plain draft whose every To, Cc and Bcc address is the
   account's or on `PROTON_MCP_SEND_FROM`, ignoring case, now reports `approval: "token"` and
@@ -561,7 +597,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   the handle that moves, read-state changes and folder rules bind in their confirmation
   tokens. Previously `read_thread` returned the All Mail handle (for example All Mail
   47175) while `search_mail` returned INBOX 20321 for the same message. See
-  [Canonical message handles](README.md#canonical-message-handles).
+  [Canonical message handles](docs/search.md#canonical-message-handles).
 - A message read through a view (All Mail, Starred or a `Labels/` mailbox) keeps that
   view's handle only as `alias`. Canonical fields are `null` when no unique real-folder
   copy is known, including identical duplicates, mail without a real folder, or a
@@ -742,7 +778,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   and candidate fields already fetched in the call reduces repeated work.
   Single-row calls and partial replies report time by stage to help investigate
   slow previews. Live verification of the reported `limit=1` failure is pending
-  a live retest.
+  a retest.
 
 - `read_thread` verifies seed Message-ID hints from the local index with a UID
   FETCH. Only after every folder's hint misses does it fall back to bounded live
@@ -791,6 +827,9 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Upgrade notes
 
+- With `PROTON_MCP_SEND_SELF_NO_FORM=1`, an address of yours that should keep skipping the
+  form must be `PROTON_BRIDGE_USER` or on `PROTON_MCP_SEND_FROM`. Any other address now takes
+  the form, or the typed OK on a client without a form.
 - With `PROTON_MCP_ENABLE_SEND=1`, a client whose `initialize` omits elicitation used to be
   refused and can now send to any recipient on a typed OK. To keep the refusal, set
   `PROTON_MCP_SEND_TYPED_OK=0` before deploying. Any value other than `0` or `1` stops startup.
@@ -844,4 +883,4 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   the operator sets `PROTON_MCP_CONFIRM_MUTATIONS=0`. Verify form support before
   upgrading an existing install, or set the opt-out deliberately.
 - The action log also holds the audit trail and is never rotated automatically;
-  see "Location and rotation" in the README.
+  see [Location and rotation](docs/RECOVERY.md#location-and-rotation).

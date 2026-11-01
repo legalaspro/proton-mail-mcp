@@ -4,6 +4,7 @@ import http.client
 import smtplib
 import socket
 import ssl
+import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -21,6 +22,8 @@ from cryptography.x509.oid import NameOID
 from proton_mail_mcp import unsubscribe_http as unsubscribe
 
 _REAL_CONNECT = socket.socket.connect
+# Windows spends more than 0.15 s reading its certificate store for the first TLS context.
+TIGHT, TIGHT_BOUND, DRIP_PAUSE = (1.5, 4, 0.15) if sys.platform == "win32" else (0.15, 1, 0.025)
 _PUBLIC_IP = "93.184.216.34"
 
 
@@ -75,7 +78,7 @@ def endpoint(tmp_path, monkeypatch):
                     for byte in b"HTTP/1.1 200 OK\r\n":
                         self.wfile.write(bytes([byte]))
                         self.wfile.flush()
-                        time.sleep(0.025)
+                        time.sleep(DRIP_PAUSE)
                     return
                 self.send_response(state["status"])
                 if 300 <= state["status"] < 400:
@@ -700,8 +703,8 @@ def test_dripping_response_is_bounded_by_total_deadline(endpoint):
     )
     start = time.monotonic()
     with pytest.raises(unsubscribe.UnsubscribeHTTPError):
-        unsubscribe.perform(target, timeout=0.15)
-    assert time.monotonic() - start < 1
+        unsubscribe.perform(target, timeout=TIGHT)
+    assert time.monotonic() - start < TIGHT_BOUND
     assert len(requests) == 1
 
 
@@ -741,10 +744,10 @@ def test_stalled_tls_handshake_respects_total_deadline(monkeypatch):
         with pytest.raises(unsubscribe.UnsubscribeHTTPError):
             unsubscribe.perform(
                 {"url": "https://example.com/unsubscribe", "host": "example.com", "method": "GET"},
-                timeout=0.15,
+                timeout=TIGHT,
             )
         assert accepted.is_set()
-        assert time.monotonic() - start < 1
+        assert time.monotonic() - start < TIGHT_BOUND
     finally:
         done.set()
         thread.join(2)

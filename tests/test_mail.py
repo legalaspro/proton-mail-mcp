@@ -9,6 +9,7 @@ from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
+from functools import lru_cache
 
 import pytest
 
@@ -68,9 +69,15 @@ def message(
     return item
 
 
+@lru_cache(maxsize=100_000)
+def parsed_headers(raw):
+    """The fake reads each message's headers on every command; callers never change them."""
+    return BytesParser(policy=policy.default).parsebytes(raw)
+
+
 def internaldate(item):
     return item.internaldate or parsedate_to_datetime(
-        str(BytesParser(policy=policy.default).parsebytes(item.headers)["Date"])
+        str(parsed_headers(item.headers)["Date"])
     ).strftime("%d-%b-%Y %H:%M:%S %z")
 
 
@@ -179,7 +186,7 @@ class FakeImap:
                 self.literal = None
             result = []
             for uid, item in self.folders[self.current].items():
-                headers = BytesParser(policy=policy.default).parsebytes(item.headers)
+                headers = parsed_headers(item.headers)
                 remaining = list(criteria)
                 haystacks = {}
 

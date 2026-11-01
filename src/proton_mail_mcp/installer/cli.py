@@ -2,7 +2,9 @@
 
 import argparse
 import json
+import ntpath
 import os
+import posixpath
 import re
 import sys
 import tomllib
@@ -12,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
-from .. import credential_store
+from .. import credential_store, localfs
 from ..config import default_attachments_dir, valid_attachments_dir
 from ..credential_store import STORES, TOKEN_SERVICE
 from .detect import FAMILIES, Platform, detect_host, simulated
@@ -28,6 +30,7 @@ from .plan import (
     bridge_account,
     choose_store,
     credential_locations,
+    default_attachments,
     existing_settings,
     install_plan,
     is_pinned,
@@ -278,6 +281,38 @@ def _detect_report(platform: Platform) -> dict:
     return report
 
 
+def _elevated() -> bool:
+    """Whether this is an elevated Windows shell."""
+    import ctypes
+
+    return bool(ctypes.windll.shell32.IsUserAnAdmin())
+
+
+def _windows_refusal(args: argparse.Namespace) -> str | None:
+    """What stops a real run on Windows, because the service could not start afterwards."""
+    if sys.platform != "win32":
+        return None
+    if args.action in {"install", "setup"} and "\\WindowsApps\\" in sys.base_prefix:
+        return (
+            "Python from the Microsoft Store keeps %LOCALAPPDATA% in a folder of its own, where a "
+            "logon task cannot find the service; use Python from python.org or winget"
+        )
+    # The files would belong to Administrators, whose rights a normal logon task does not use.
+    if not args.dry_run and _elevated():
+        return (
+            "run in a normal PowerShell window, not as administrator; winget asks for approval "
+            "itself when Bridge needs it"
+        )
+    return None
+
+
+def _leave_current_folder() -> None:
+    """Windows looks for a program in the current folder before System32, so a powershell.exe
+    planted here would run, and would pass the check of Bridge's signature."""
+    if sys.platform == "win32":
+        os.chdir(os.environ.get("SYSTEMROOT") or os.path.expanduser("~"))
+
+
 def _options(args: argparse.Namespace) -> Options:
     common = {
         "bridge_user": args.bridge_user,
@@ -330,40 +365,48 @@ def _ask_account() -> str:
     raise PlanError("No Bridge username given. Nothing was changed; pass --bridge-user")
 
 
-def _attachments_path(value: str, home: str) -> str | None:
+def _attachments_path(value: str, home: str, flavor=os.path) -> str | None:
     """A folder as a person gave it, in the form the server requires; None if it cannot be."""
     value = value.strip()
-    if value == "~" or value.startswith("~/"):
+    if value == "~" or value.startswith("~" + flavor.sep):
         value = home + value[1:]
-    path = os.path.normpath(value)
+    path = flavor.normpath(value)
     # isprintable: other line breaks would split the env file's line, and bytes that are
     # not UTF-8 could not be written to it.
-    return path if valid_attachments_dir(path) and path.isprintable() else None
+    return path if valid_attachments_dir(path, flavor) and path.isprintable() else None
 
 
 def _choose_attachments(
-    args: argparse.Namespace, probe: Probe, settings: dict[str, str], can_ask: bool
+    args: argparse.Namespace,
+    platform: Platform,
+    probe: Probe,
+    settings: dict[str, str],
+    can_ask: bool,
 ) -> tuple[str | None, Note]:
     """The folder to write to the env file, if any, and a note naming the one in use.
 
     The service does not inherit this shell. So a folder that only this shell's settings
     give is written too, and one the service finds by itself is left to create on first save.
     """
+    windows = platform.family == "windows"
+    flavor = ntpath if windows else posixpath
     given = args.attachments_dir or probe.env.get(ATTACHMENTS_KEY, "")
-    chosen = _attachments_path(given, probe.home) if given else None
+    chosen = _attachments_path(given, probe.home, flavor) if given else None
     if given and not chosen:
         raise PlanError(
             f"{ATTACHMENTS_KEY} must be an absolute path below the filesystem root, "
             "in printable characters"
         )
     saved = settings.get(ATTACHMENTS_KEY)
-    service_default = default_attachments_dir({"HOME": probe.home})
-    shell_default = default_attachments_dir({**probe.env, "HOME": probe.home})
+    service_default = default_attachments(platform, probe)
+    shell_default = (
+        service_default if windows else default_attachments_dir({**probe.env, "HOME": probe.home})
+    )
     folder = chosen or saved or shell_default or service_default
     if can_ask and not args.attachments_dir:
         for _attempt in range(3):
             answer = input(f"Folder for attachment files ({ATTACHMENTS_KEY}) [{folder}]: ").strip()
-            typed = _attachments_path(answer, probe.home) if answer else folder
+            typed = _attachments_path(answer, probe.home, flavor) if answer else folder
             if typed:
                 folder = typed
                 break
@@ -379,6 +422,10 @@ def _choose_attachments(
     if write and probe.readlink(write) is not None:
         # The server never follows one, so every attachment call would refuse.
         raise PlanError(f"{ATTACHMENTS_KEY} must not be a symbolic link. Nothing was changed")
+    # A simulated plan has no profile of the host it would run on to check.
+    refusal = localfs.path_refusal(write) if write and not args.simulate else None
+    if refusal:
+        raise PlanError(f"{ATTACHMENTS_KEY} {refusal}. Nothing was changed")
     moved = " Files in the earlier folder are not moved." if saved and write else ""
     return write, Note(
         f"Attachments folder ({ATTACHMENTS_KEY}): {folder}. Run setup with --attachments-dir "
@@ -408,7 +455,9 @@ def _setup_plan(
             )
         elif can_ask:
             options = replace(options, bridge_user=_ask_account())
-    attachments_dir, attachments_note = _choose_attachments(args, probe, settings, can_ask)
+    attachments_dir, attachments_note = _choose_attachments(
+        args, platform, probe, settings, can_ask
+    )
     options = replace(options, attachments_dir=attachments_dir)
     notes.append(attachments_note)
     try:
@@ -472,6 +521,15 @@ def _show_token(args: argparse.Namespace, platform: Platform, prog: str = "insta
     return 0
 
 
+def _shared_folder(paths: Paths) -> str | None:
+    """What the service would refuse at every start on Windows, said before anything is written."""
+    for folder in (paths.config_dir, paths.data_dir, paths.state_dir, paths.log_dir):
+        refusal = localfs.path_refusal(folder) if folder else None
+        if refusal:
+            return f"{folder} {refusal}. Nothing was changed"
+    return None
+
+
 def main(argv: list[str] | None = None, prog: str = "install") -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or (argv[0].startswith("-") and argv[0] not in {"-h", "--help"}):
@@ -505,10 +563,23 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
             file=sys.stderr,
         )
         return 2
+    refusal = None if args.simulate else _windows_refusal(args)
+    if refusal:
+        print(f"{prog}: {refusal}", file=sys.stderr)
+        return 2
     probe = simulated_probe(platform) if args.simulate else HostProbe(platform)
     paths = paths_for(platform, probe.env, probe.home)
+    refusal = None
+    if args.action in {"install", "setup"} and platform.family == "windows" and not args.simulate:
+        refusal = _shared_folder(paths)
+    if refusal:
+        print(f"{prog}: {refusal}", file=sys.stderr)
+        return 2
     try:
+        # After _options, which makes the paths given relative to this folder absolute.
         options = _options(args)
+        if not args.simulate:
+            _leave_current_folder()
         if args.action == "setup":
             steps = _setup_plan(args, platform, options, probe, paths)
         else:

@@ -9,6 +9,8 @@ from test_rules_timer import timer_case as timer_case
 from proton_mail_mcp.folder_rules import FolderRulesService
 from proton_mail_mcp.mail import MailError, MailValidationError
 
+pytestmark = pytest.mark.real_fsync
+
 
 def test_post_move_checkpoint_failure_keeps_pending_and_blocks_retry(timer_case, monkeypatch):
     case = timer_case()

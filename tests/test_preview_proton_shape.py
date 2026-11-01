@@ -232,6 +232,7 @@ def assert_success(client, peer, clock, identifiers):
     }
 
 
+@pytest.mark.slow
 def test_proton_shape_27_id_preview_finishes(shape_mailbox, request):
     client, peer, clock = shape_mailbox(production=True)
     assert len(peer.folders["All Mail"]) >= 20_000
@@ -257,6 +258,7 @@ def test_proton_shape_optional_real_batch(shape_mailbox, request):
     request.node.user_properties.extend(assert_success(client, peer, clock, identifiers).items())
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("folder", ["INBOX", "Spam", "Trash"])
 @pytest.mark.parametrize("costs", [DEFAULT_COSTS, PESSIMISTIC_COSTS], ids=["calibrated", "db-3x"])
 def test_one_day_query_preview(shape_mailbox, folder, costs):
@@ -274,6 +276,7 @@ def test_one_day_query_preview(shape_mailbox, folder, costs):
     assert not peer.mutations
 
 
+@pytest.mark.slow
 def test_archive_preview(shape_mailbox):
     client, peer, _ = shape_mailbox()
     result = client.preview_action("archive", ids=SYNTHETIC_BATCH)
@@ -283,6 +286,7 @@ def test_archive_preview(shape_mailbox):
     assert not peer.mutations
 
 
+@pytest.mark.slow
 def test_all_mail_default_search_returns_nonzero_partial(shape_mailbox, monkeypatch):
     client, peer, clock = shape_mailbox(production=True)
     monkeypatch.setattr("proton_mail_mcp.search._default_since", lambda: "2026-09-17")
@@ -370,6 +374,7 @@ def test_colliding_uids_keep_message_and_folder_identity(shape_mailbox):
     assert not peer.mutations
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("size", [1, 2, 27])
 @pytest.mark.parametrize("costs", [DEFAULT_COSTS, PESSIMISTIC_COSTS], ids=["calibrated", "db-3x"])
 def test_id_shapes_have_bounded_header_fetches_with_budget_margin(
@@ -425,6 +430,7 @@ def test_full_preview_execute_undo_flow_fetches_only_headers(tmp_path, action):
         peer.close()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("action", ["move_to_trash", "archive", "remove_label"])
 def test_27_row_execution_reresolves_within_pessimistic_budget(shape_mailbox, action, request):
     client, peer, clock = shape_mailbox(costs=PESSIMISTIC_COSTS)
@@ -712,6 +718,7 @@ def test_archived_main_reproduces_reported_timeouts():
         assert all(row["partial"] and not row["token"] for row in summaries)
 
 
+@pytest.mark.slow
 def test_mailbox_literal_search_cost_does_not_block_identity_preview(shape_mailbox):
     # Charge whole-message decryption for any HEADER SEARCH. Identity discovery
     # must avoid that work while retaining raw PEEK evidence for candidates.

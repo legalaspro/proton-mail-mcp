@@ -11,7 +11,7 @@ from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Protocol
 
 from .. import credential_store
-from ..config import default_attachments_dir
+from ..config import default_attachments_dir, windows_attachments_dir
 from ..credential_store import BRIDGE_SERVICE, TOKEN_SERVICE
 from ..service_entry import parse_env_file
 from . import templates
@@ -39,6 +39,7 @@ from .steps import (
     StoreSecret,
     WaitForPort,
     WriteFile,
+    powershell_literal,
 )
 
 # Proton's Linux packages and signing key, from
@@ -61,7 +62,9 @@ BRIDGE_CASK = "proton-mail-bridge"
 BRIDGE_WINGET_ID = "Proton.ProtonMailBridge"
 MACOS_BRIDGE_APP = "/Applications/Proton Mail Bridge.app"
 MACOS_BRIDGE_EXE = f"{MACOS_BRIDGE_APP}/Contents/MacOS/Proton Mail Bridge"
-WINDOWS_BRIDGE_DIR = ("Proton AG", "Proton Mail Bridge", "proton-bridge.exe")
+# Bridge itself, not its launcher proton-bridge.exe: on Windows that starts Bridge and exits, so a
+# task would show nothing running, could not stop it, and --cli would not wait for the login.
+WINDOWS_BRIDGE_DIR = ("Proton AG", "Proton Mail Bridge", "bridge.exe")
 LINUX_BRIDGE_CANDIDATES = {
     "debian": ("/usr/bin/protonmail-bridge",),
     "fedora": ("/usr/bin/protonmail-bridge",),
@@ -69,9 +72,14 @@ LINUX_BRIDGE_CANDIDATES = {
 }
 DEFAULT_STORES = {"macos": "keychain", "windows": "wincred"}
 LINUX_STORES = ("libsecret", "pass")
+# A child of PowerShell 7 inherits its module path, and Windows PowerShell 5.1 then fails to load
+# even its own cmdlets, so these commands start from the machine's path.
+_POWERSHELL_MODULES = (
+    "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine'); "
+)
 # Authenticode must be valid and issued to Proton; the path arrives via the environment.
 AUTHENTICODE_CHECK = (
-    "$s = Get-AuthenticodeSignature -LiteralPath $env:PMM_VERIFY_PATH; "
+    _POWERSHELL_MODULES + "$s = Get-AuthenticodeSignature -LiteralPath $env:PMM_VERIFY_PATH; "
     "if ($s.Status -ne 'Valid' -or "
     "$s.SignerCertificate.Subject -notmatch 'O=\\W?Proton( Technologies)? AG') { exit 1 }"
 )
@@ -136,6 +144,8 @@ TASK_NOT_RUNNING = 3
 # mentions both, such as an editor or a shell's -c, does not count. Paths may hold spaces
 # (macOS's Proton Mail Bridge.app), and a space before a dash ends the program's path.
 BRIDGE_PROCESSES = r"^([^ ]| [^-])* ?[Bb]ridge([^ ]| [^-])* (.* )?--noninteractive( |$)"
+# Its launcher, its core and its window, as PowerShell's Get-Process names them.
+BRIDGE_WINDOWS_PROCESSES = "'proton-bridge','bridge','bridge-gui'"
 
 
 class PlanError(ValueError):
@@ -264,7 +274,7 @@ def paths_for(platform: Platform, env: dict[str, str], home: str) -> Paths:
             data_dir=str(base),
             **_venv_paths(platform, base / "venv"),
             cache_dir=str(base / "cache"),
-            state_dir=str(root / ".local" / "state" / "proton-mail-mcp"),
+            state_dir=str(base / "state"),
             log_dir=str(base / "logs"),
             task_dir=str(base / "tasks"),
         )
@@ -336,7 +346,11 @@ def bridge_executable(platform: Platform, options: Options, probe: Probe) -> str
     if platform.family == "macos":
         return MACOS_BRIDGE_EXE
     if platform.family == "windows":
-        program_files = probe.env.get("ProgramFiles") or "C:\\Program Files"
+        # os.environ uppercases its keys on Windows. PROGRAMW6432 is the 64-bit folder even
+        # from a 32-bit Python, whose PROGRAMFILES is Program Files (x86).
+        program_files = (
+            probe.env.get("PROGRAMW6432") or probe.env.get("PROGRAMFILES") or "C:\\Program Files"
+        )
         return _join(platform, program_files, *WINDOWS_BRIDGE_DIR)
     candidates = LINUX_BRIDGE_CANDIDATES[platform.family]
     for candidate in candidates:
@@ -894,6 +908,12 @@ def _config_steps(
     return steps
 
 
+def _in_profile(probe: Probe, value: str) -> bool:
+    """What Settings requires of a state path on Windows, by name: it sees the links."""
+    roots = (probe.home, probe.env.get("LOCALAPPDATA", ""))
+    return any(root and PureWindowsPath(value).is_relative_to(root) for root in roots)
+
+
 def _state_settings(
     platform: Platform, probe: Probe, paths: Paths, settings: dict[str, str]
 ) -> tuple[dict[str, str], dict[str, str], list[Step]]:
@@ -912,6 +932,8 @@ def _state_settings(
         if explicit:
             if not kind(explicit).is_absolute():
                 raise PlanError(f"{key} must be an absolute path")
+            if platform.family == "windows" and not _in_profile(probe, explicit):
+                raise PlanError(f"{key} must be inside your user profile on Windows")
             if saved and saved != explicit:
                 notes.append(
                     Note(
@@ -1144,7 +1166,7 @@ def _task_running_argv(name: str) -> tuple[str, ...]:
     only for a task it found not running; an error exits 1."""
     # State is an enum name, unlike the localized status text of schtasks /Query.
     leaf = name.lstrip("\\")
-    check = (
+    check = _POWERSHELL_MODULES + (
         f"if ((Get-ScheduledTask -TaskPath '\\' -TaskName '{leaf}' -ErrorAction Stop).State "
         f"-eq 'Running') {{ exit 0 }}; exit {TASK_NOT_RUNNING}"
     )
@@ -1293,7 +1315,10 @@ def _windows_update_steps(options: Options, probe: Probe) -> list[Step]:
 def _bridge_commands(
     platform: Platform, probe: Probe, paths: Paths
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """How to stop the installer's Bridge service and start it again, on Linux or macOS."""
+    """How to stop the installer's Bridge service and start it again."""
+    if platform.family == "windows":
+        task = windows_tasks(probe)[0]
+        return (("schtasks", "/End", "/TN", task), ("schtasks", "/Run", "/TN", task))
     if platform.family == "macos":
         domain = f"gui/{probe.user_id}"
         plist = f"{paths.agents_dir}/{templates.BRIDGE_LABEL}.plist"
@@ -1311,6 +1336,17 @@ def _bridge_service(platform: Platform, probe: Probe, paths: Paths) -> BridgeSer
     """The Bridge service a login may stop: only one whose definition is the installer's
     own, as for any stop (R3, R4). Any other Bridge is found by its port and process."""
     stop, start = _bridge_commands(platform, probe, paths)
+    if platform.family == "windows":
+        task = windows_tasks(probe)[0]
+        if _task_owner(probe, task) != "installer":
+            return None
+        check = CheckStopped(
+            _task_running_argv(task),
+            f"Check that {task} is not running",
+            "",
+            status=TASK_NOT_RUNNING,
+        )
+        return BridgeService(check, stop, start)
     if platform.family == "macos":
         label = templates.BRIDGE_LABEL
         path = f"{paths.agents_dir}/{label}.plist"
@@ -1335,7 +1371,7 @@ def _bridge_service(platform: Platform, probe: Probe, paths: Paths) -> BridgeSer
 def _login_note(platform: Platform, options: Options, probe: Probe, paths: Paths) -> Note:
     exe = bridge_executable(platform, options, probe)
     if platform.family == "windows":
-        cli = f'& "{exe}" --cli'
+        cli = f"& {powershell_literal(exe)} --cli"
         bridge_task = windows_tasks(probe)[0]
         stop = f'schtasks /End /TN "{bridge_task}"'
         start = f'schtasks /Run /TN "{bridge_task}"'
@@ -1369,14 +1405,14 @@ def _implicit_homes(platform: Platform, probe: Probe) -> dict[str, str]:
 
 def _removal_command(platform: Platform, *targets: str) -> str:
     if platform.family == "windows":
-        quoted = ", ".join("'" + path.replace("'", "''") + "'" for path in targets)
+        quoted = ", ".join(map(powershell_literal, targets))
         return f"Remove-Item -LiteralPath {quoted} -Recurse -Force"
     return f"rm -rf -- {shlex.join(targets)}"
 
 
 def _file_removal_command(platform: Platform, path: str) -> str:
     if platform.family == "windows":
-        return "Remove-Item -LiteralPath '{}' -Force".format(path.replace("'", "''"))
+        return f"Remove-Item -LiteralPath {powershell_literal(path)} -Force"
     return f"rm -f -- {shlex.quote(path)}"
 
 
@@ -1424,6 +1460,16 @@ def _size_text(size: int | None) -> str:
     raise AssertionError("unreachable")
 
 
+def default_attachments(platform: Platform, probe: Probe) -> str | None:
+    """The folder a service of this plan finds by itself, without this shell's settings."""
+    if platform.family == "windows":
+        # Windows gives a logon task the user's own LOCALAPPDATA.
+        return windows_attachments_dir(
+            {"LOCALAPPDATA": probe.env.get("LOCALAPPDATA", ""), "HOME": probe.home}
+        )
+    return default_attachments_dir({"HOME": probe.home})
+
+
 def _installation_paths(
     platform: Platform,
     options: Options,
@@ -1439,7 +1485,7 @@ def _installation_paths(
     here comes from a service definition, which the installer never reads.
     """
     kind = _path_type(platform)
-    attachments = default_attachments_dir({"HOME": probe.home})
+    attachments = default_attachments(platform, probe)
     named = {
         "the settings file": paths.env_file,
         "the config directory": paths.config_dir,
@@ -1586,14 +1632,14 @@ def _service_preflight(probe: Probe, paths: Paths, options: Options) -> tuple[Op
 
 
 def install_plan(platform: Platform, options: Options, probe: Probe, paths: Paths) -> list[Step]:
-    """The install plan for a supported platform; Windows is refused for now."""
+    """The install plan for a supported platform."""
     if platform.refusal:
         raise PlanError(platform.refusal)
     return install_steps(platform, options, probe, paths)
 
 
 def install_steps(platform: Platform, options: Options, probe: Probe, paths: Paths) -> list[Step]:
-    """Steps for any known family, including Windows plans kept tested for later support."""
+    """Steps for any known family."""
     if platform.family not in FAMILIES:
         raise PlanError(f"Unsupported platform: {platform.name}")
     validate_options(options, platform)
@@ -1676,10 +1722,17 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
     steps += _config_steps(store, account, options, paths, existing, extra)
     steps += _service_steps(platform, options, probe, paths)
     steps += kept
+    if platform.family == "windows":
+        steps.append(
+            Note(
+                "Windows support has run on Windows Server runners only, not yet on Windows 10 "
+                "or 11. See docs/windows.md."
+            )
+        )
     steps += [
         *notes,
         Note(f"MCP endpoint: http://127.0.0.1:{options.port}/mcp (bearer token required)."),
-        Note(token_hint(store, account, locations)),
+        Note(token_hint(store, account, locations, venv=paths.venv)),
         Note(
             f"Audit and undo logs: {resolved['PROTON_MCP_ACTION_LOG']}; identity index: "
             f"{resolved['PROTON_MCP_IDENTITY_INDEX_DIR']}. The env file pins both for the "
@@ -1721,11 +1774,23 @@ def _setup_steps_before_credentials(
                 "Offer Bridge's CLI to log in",
                 options.imap_port,
                 service=_bridge_service(platform, probe, paths),
-                processes=("pgrep", "-u", probe.user_id, "-f", BRIDGE_PROCESSES),
+                processes=_bridge_processes(platform, probe),
                 password_stored=password_stored,
             )
         )
     return steps
+
+
+def _bridge_processes(platform: Platform, probe: Probe) -> tuple[str, ...]:
+    """A command that exits 0 for a running Bridge and 1 for none."""
+    if platform.family == "windows":
+        # By name and folder: another program's Bridge.exe (Adobe's, say) is not this Bridge.
+        check = _POWERSHELL_MODULES + (
+            f"if (Get-Process -Name {BRIDGE_WINDOWS_PROCESSES} -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.Path -like '*Proton*' }) { exit 0 }; exit 1"
+        )
+        return ("powershell", "-NoProfile", "-NonInteractive", "-Command", check)
+    return ("pgrep", "-u", probe.user_id, "-f", BRIDGE_PROCESSES)
 
 
 def _self_check_steps(
@@ -1736,13 +1801,13 @@ def _self_check_steps(
     paths: Paths,
     locations: Mapping[str, str],
 ) -> list[Step]:
-    command = str(PurePosixPath(paths.venv) / "bin" / "proton-mail-mcp")
-    steps: list[Step] = [
-        Note(
-            f"To read the token later: `{shlex.join([command, 'show-token'])}` "
-            "(prints to a terminal only)."
-        )
-    ]
+    if platform.family == "windows":
+        command = _join_windows(paths.venv, "Scripts", "proton-mail-mcp.exe")
+        later = f"& {powershell_literal(command)} show-token"
+    else:
+        command = str(PurePosixPath(paths.venv) / "bin" / "proton-mail-mcp")
+        later = shlex.join([command, "show-token"])
+    steps: list[Step] = [Note(f"To read the token later: `{later}` (prints to a terminal only).")]
     if options.skip_services:
         return [*steps, Note("Self-check: no service was set up here, so none was checked.")]
     if options.skip_credentials:
@@ -1753,7 +1818,10 @@ def _self_check_steps(
                 "again once the credentials are stored."
             ),
         ]
-    if platform.family == "macos":
+    if platform.family == "windows":
+        # Bridge's task keeps no log of the installer's; its own window shows its state.
+        logs, bridge_logs = _join_windows(paths.log_dir, "mcp.log"), "Task Scheduler"
+    elif platform.family == "macos":
         logs, bridge_logs = f"{paths.log_dir}/stderr.log", f"{paths.log_dir}/bridge-stderr.log"
     else:
         logs = f"journalctl --user -u {templates.MCP_UNIT}"
@@ -1778,7 +1846,9 @@ def _self_check_steps(
     ]
 
 
-def token_hint(store: str, account: str, locations: Mapping[str, str] | None = None) -> str:
+def token_hint(
+    store: str, account: str, locations: Mapping[str, str] | None = None, venv: str = ""
+) -> str:
     # The same store and keys the service reads, whatever the reading shell exports.
     located = "".join(f"{name}={shlex.quote(value)} " for name, value in (locations or {}).items())
     # Accounts may hold shell syntax such as $ or ;, so the pasted command quotes them.
@@ -1788,7 +1858,10 @@ def token_hint(store: str, account: str, locations: Mapping[str, str] | None = N
         "libsecret": f"secret-tool lookup service {TOKEN_SERVICE} account {quoted}",
         "pass": f"{located}pass show {shlex.quote(f'{TOKEN_SERVICE}/{account}')}",
         # Credential Manager's window never reveals generic credential secrets.
-        "wincred": ".\\scripts\\install.ps1 -Action show-token",
+        "wincred": f"& {powershell_literal(_join_windows(venv, 'Scripts', 'proton-mail-mcp.exe'))}"
+        " show-token"
+        if venv
+        else "proton-mail-mcp show-token",
     }
     return (
         "The installer never prints the bearer token. Copy it into your MCP client's secret "
@@ -1829,7 +1902,7 @@ def _bridge_removal(platform: Platform, probe: Probe) -> list[Step]:
 
 
 def uninstall_plan(platform: Platform, options: Options, probe: Probe, paths: Paths) -> list[Step]:
-    """The uninstall plan for a supported platform; Windows is refused for now."""
+    """The uninstall plan for a supported platform."""
     if platform.refusal:
         raise PlanError(platform.refusal)
     return uninstall_steps(platform, options, probe, paths)
@@ -2080,7 +2153,7 @@ def uninstall_steps(platform: Platform, options: Options, probe: Probe, paths: P
     for key, name in STATE_FILES:
         data.setdefault(key, _join(platform, paths.state_dir, name))
     # The settings file never names the default folder, and saved attachments stay in it.
-    attachments = default_attachments_dir({"HOME": probe.home})
+    attachments = default_attachments(platform, probe)
     if attachments:
         data.setdefault(ATTACHMENTS_KEY, attachments)
     data = {key: data[key] for key in DATA_SETTINGS if key in data}

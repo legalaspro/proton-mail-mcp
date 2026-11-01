@@ -56,7 +56,7 @@ to repair. A watcher for another folder temporarily selects All Mail and then
 restores its watched mailbox before resuming observation.
 
 Catch-up runs when a watcher wakes for its own folder. To observe changes across
-the whole account promptly, include the Bridge mailbox carrying `\\All` in
+the whole account promptly, include the Bridge mailbox carrying `\All` in
 `PROTON_MCP_IMAP_IDLE_FOLDERS`; an INBOX-only watcher does not wake for changes
 confined to Archive or another folder. Searches also perform bounded catch-up, so
 watching remains optional.

@@ -12,7 +12,7 @@ import pytest
 
 from proton_mail_mcp import credential_store
 from proton_mail_mcp.installer import cli
-from proton_mail_mcp.installer.detect import NOT_YET_SUPPORTED, simulated
+from proton_mail_mcp.installer.detect import detect, simulated
 from proton_mail_mcp.installer.plan import MANAGER_ENVIRONMENT, SYSTEMD_BOOTED
 from proton_mail_mcp.installer.probe import simulated_probe
 from proton_mail_mcp.installer.steps import MARKER
@@ -56,21 +56,19 @@ def test_simulated_dry_runs_succeed_for_every_supported_platform(family, capsys)
 @pytest.mark.parametrize(
     "argv",
     [
-        ["install", "--dry-run", "--simulate", "windows", "--bridge-user", "a@b.c"],
-        ["uninstall", "--dry-run", "--simulate", "windows"],
         ["install", "--bridge-user", "a@b.c", "--yes"],
         ["uninstall", "--yes"],
         ["show-token", "--bridge-user", "a@b.c"],
     ],
 )
-def test_windows_is_refused_before_any_plan_or_change(argv, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "detect_host", lambda: simulated("windows"))
+def test_a_windows_layer_is_refused_before_any_plan_or_change(argv, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "detect_host", lambda: detect("MSYS_NT-10.0", "x86_64"))
     monkeypatch.setattr(cli, "Executor", lambda **kwargs: pytest.fail("executor built"))
     monkeypatch.setattr(cli, "HostProbe", lambda platform: pytest.fail("host probed"))
     assert cli.main(argv) == 2
     captured = capsys.readouterr()
-    assert captured.err == f"install: {NOT_YET_SUPPORTED['windows']}\n"
-    assert captured.err.startswith("install: Windows is not yet supported")
+    assert captured.err.startswith("install: Unsupported platform: MSYS_NT-10.0")
+    assert "Python for Windows" in captured.err
     assert captured.out == ""
 
 
@@ -130,10 +128,13 @@ def test_detect_reports_json(capsys):
     assert report["service_manager"] == "launchd LaunchAgents"
     assert cli.main(["detect", "--json", "--simulate", "windows"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["family"] == "windows" and report["supported"] is False
-    assert report["refusal"] == NOT_YET_SUPPORTED["windows"]
+    assert report["family"] == "windows" and report["supported"] is True
+    assert report["credential_store"] == "wincred"
+    assert report["service_manager"] == "Task Scheduler logon tasks"
+    assert "refusal" not in report
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="names POSIX paths")
 def test_venv_option_reaches_install_and_uninstall_plans(monkeypatch, capsys):
     base = ["--dry-run", "--simulate", "arch", "--bridge-user", "a@b.c", "--venv", "/opt/pmm"]
     assert cli.main(["install", *base]) == 0
@@ -193,14 +194,14 @@ def test_show_token_prints_only_to_a_terminal(host, monkeypatch, capsys):
 def test_a_container_dry_run_goes_through_preflight_and_plans_no_services(
     family, monkeypatch, capsys
 ):
-    # Sol: the CI containers start no systemd, and preflight refused their dry runs.
+    # The CI containers start no systemd, and preflight refused their dry runs.
     # Round 6 (c): preflight sees the container and the plan goes on without services.
     platform = simulated(family)
     probe = simulated_probe(platform)
     del probe.files[SYSTEMD_BOOTED]
     del probe.outputs[MANAGER_ENVIRONMENT]
     probe.files["/.dockerenv"] = ""
-    # Sol r10: the CI containers run pytest as root, and the CLI refuses root.
+    # The CI containers run pytest as root, and the CLI refuses root.
     if hasattr(os, "geteuid"):
         monkeypatch.setattr(os, "geteuid", lambda: 1000)
     monkeypatch.setattr(cli, "detect_host", lambda: platform)
@@ -214,16 +215,19 @@ def test_a_container_dry_run_goes_through_preflight_and_plans_no_services(
 
 
 def test_r10_ci_linux_dry_runs_skip_the_credential_check_they_cannot_make(monkeypatch, capsys):
-    # Sol r9 #1: secret-tool cannot answer on the CI runners, so the credential check
+    # secret-tool cannot answer on the CI runners, so the credential check
     # stopped the native dry runs (exit 2) before their service-preflight greps.
-    workflow = (ROOT / ".github" / "workflows" / "installer.yml").read_text(encoding="utf-8")
+    workflows = ROOT / ".github" / "workflows"
+    workflow = "".join(
+        (workflows / name).read_text(encoding="utf-8") for name in ("check.yml", "installer.yml")
+    )
     assert workflow.count("install --dry-run --skip-credentials --bridge-user") == 3
     platform = simulated("fedora")
     probe = simulated_probe(platform)
     del probe.files[SYSTEMD_BOOTED]
     del probe.outputs[MANAGER_ENVIRONMENT]
     probe.has_secret = lambda *args, **kwargs: None  # the store cannot be checked
-    # Sol r10: a normal user, so the first exit 2 is the credential check's, not root's.
+    # A normal user, so the first exit 2 is the credential check's, not root's.
     if hasattr(os, "geteuid"):
         monkeypatch.setattr(os, "geteuid", lambda: 1000)
     monkeypatch.setattr(cli, "detect_host", lambda: platform)
@@ -236,7 +240,7 @@ def test_r10_ci_linux_dry_runs_skip_the_credential_check_they_cannot_make(monkey
 
 
 def test_show_token_reads_the_pass_store_the_service_reads(host, monkeypatch):
-    # Astra: a store chosen through the installing shell's PASSWORD_STORE_DIR.
+    # A store chosen through the installing shell's PASSWORD_STORE_DIR.
     probe = simulated_probe(host)
     paths = cli.paths_for(host, probe.env, probe.home)
     probe.files[paths.env_file] = (
@@ -256,7 +260,7 @@ def test_show_token_reads_the_pass_store_the_service_reads(host, monkeypatch):
 
 
 def test_a_relative_bridge_bin_is_resolved_against_the_current_directory(tmp_path, monkeypatch):
-    # Sol: `--bridge-bin ./bin/bridge` became ExecStart=./bin/bridge, which systemd rejects.
+    # `--bridge-bin ./bin/bridge` became ExecStart=./bin/bridge, which systemd rejects.
     monkeypatch.chdir(tmp_path)
     parser = cli.build_parser()
     options = cli._options(parser.parse_args(["install", "--bridge-bin", "bin/bridge"]))
@@ -333,7 +337,7 @@ def test_install_sh_runs_the_module_from_this_checkout(tmp_path):
 )
 def test_install_sh_explains_a_missing_python(tmp_path, ostype, os_id, hint):
     # bash keeps an OSTYPE it inherits, so each case sees the same system on every host
-    # (Sol: the Linux cases printed the Homebrew hint on the macOS runner).
+    # (the Linux cases printed the Homebrew hint on the macOS runner).
     release = tmp_path / "os-release"
     release.write_text(f'ID={os_id}\nVERSION_ID="1"\n')
     empty = tmp_path / "bin"
@@ -363,16 +367,10 @@ def test_install_ps1_only_forwards_flags_the_module_accepts():
     assert "ValidateSet('install', 'uninstall', 'detect', 'show-token')" in text
 
 
-def test_install_ps1_refuses_windows_with_the_module_text():
+def test_install_ps1_only_finds_python_and_runs_the_module():
     text = INSTALL_PS1.read_text(encoding="utf-8")
-    assignment = re.search(r"^\$refusal = (.+?)\n(?=if )", text, re.MULTILINE | re.DOTALL)
-    pieces = re.findall(r"'([^']*)'", assignment.group(1))
-    assert "".join(pieces) == NOT_YET_SUPPORTED["windows"]
-    refusal = text.index("exit 2\n", assignment.end())
-    # The refusal comes before Python is looked for, and only detect or plans for
-    # another platform get past it.
-    assert refusal < text.index("$found = Find-Python")
-    assert "if ($Action -ne 'detect' -and (-not $Simulate -or $Simulate -eq 'windows'))" in text
+    assert "$refusal" not in text and "not yet supported" not in text
+    assert text.index("$found = Find-Python") < text.index("-m proton_mail_mcp.installer")
 
 
 def test_windows_job_test_modules_import_without_fcntl():
@@ -408,7 +406,7 @@ def test_windows_job_test_modules_import_without_fcntl():
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell 7 not installed")
-def test_install_ps1_parses_refuses_windows_and_plans_other_platforms():
+def test_install_ps1_parses_and_plans_every_platform():
     parse = (
         "$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("
         f"'{INSTALL_PS1}', [ref]$null, [ref]$errors) | Out-Null; "
@@ -428,14 +426,9 @@ def test_install_ps1_parses_refuses_windows_and_plans_other_platforms():
             timeout=120,
         )
 
-    for args in (
-        ("-DryRun", "-BridgeUser", "you@example.com"),
-        ("-DryRun", "-Simulate", "windows", "-BridgeUser", "you@example.com"),
-        ("-Action", "uninstall", "-DryRun"),
-    ):
-        refused = ps1(*args)
-        assert refused.returncode == 2, refused.stdout + refused.stderr
-        assert "Windows is not yet supported" in refused.stderr
+    planned = ps1("-DryRun", "-Simulate", "windows", "-BridgeUser", "you@example.com")
+    assert planned.returncode == 0, planned.stdout + planned.stderr
+    assert "schtasks" in planned.stdout
     planned = ps1("-DryRun", "-Simulate", "debian", "-BridgeUser", "you@example.com")
     assert planned.returncode == 0, planned.stdout + planned.stderr
     assert "debsig-verify" in planned.stdout

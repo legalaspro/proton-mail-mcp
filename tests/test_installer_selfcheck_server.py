@@ -5,14 +5,11 @@ import io
 import urllib.error
 
 import pytest
+from starlette.testclient import TestClient
 
-pytest.importorskip("fcntl")  # The server needs POSIX file locking.
-
-from starlette.testclient import TestClient  # noqa: E402
-
-from proton_mail_mcp.config import Settings  # noqa: E402
-from proton_mail_mcp.installer import selfcheck  # noqa: E402
-from proton_mail_mcp.server import create_app  # noqa: E402
+from proton_mail_mcp.config import Settings
+from proton_mail_mcp.installer import selfcheck
+from proton_mail_mcp.server import create_app
 
 TOKEN = "t" * 40
 

@@ -196,6 +196,7 @@ def assert_readonly_headers(sim, *, rules=False):
         assert "RFC822.SIZE" in command and "INTERNALDATE" in command
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("action", ACTIONS)
 @pytest.mark.parametrize("count", [45, 200])
 def test_large_folder_preview_is_batched_with_headroom(speed_mailbox, tmp_path, action, count):
@@ -221,6 +222,7 @@ def test_large_folder_preview_is_batched_with_headroom(speed_mailbox, tmp_path, 
     assert_readonly_headers(sim, rules=action == "preview_rules")
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("action", ACTIONS)
 def test_discovery_cost_is_bounded_and_only_rules_audit_unrelated_memberships(
     speed_mailbox, tmp_path, action

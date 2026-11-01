@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import secrets
@@ -13,6 +12,7 @@ import tempfile
 from contextlib import contextmanager, suppress
 from pathlib import Path
 
+from . import localfs
 from .action_log import client_context, new_record
 from .cleanup_folders import _move_folders, _real_folder_name
 from .config import Settings
@@ -26,11 +26,20 @@ from .security import _local_address
 
 
 def _private_file(path, flags):
-    descriptor = os.open(path, flags | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600)
+    refusal = localfs.parent_refusal(path)
+    if refusal:
+        raise MailError(f"Rules state {refusal}")
+    descriptor = localfs.open(
+        path, flags | localfs.O_NOFOLLOW | localfs.O_CLOEXEC | localfs.O_NONBLOCK, 0o600
+    )
     info = os.fstat(descriptor)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+    if not stat.S_ISREG(info.st_mode) or not localfs.owned(info) or info.st_nlink != 1:
         os.close(descriptor)
         raise MailError("Rules state must be a private regular file")
+    refusal = localfs.acl_refusal(descriptor)
+    if refusal:
+        os.close(descriptor)
+        raise MailError(f"Rules state {refusal}")
     return descriptor
 
 
@@ -57,9 +66,9 @@ class RulesTimer:
         self.state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor = _private_file(self.lock_path, os.O_RDWR | os.O_CREAT)
         try:
-            os.fchmod(descriptor, 0o600)
+            localfs.fchmod(descriptor, 0o600)
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                localfs.lock(descriptor)
             except BlockingIOError:
                 yield False
                 return
@@ -110,10 +119,10 @@ class RulesTimer:
                 json.dump(state, stream, ensure_ascii=True, separators=(",", ":"))
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(name, self.state_path)
-            directory = os.open(self.state_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            localfs.replace(name, self.state_path)
+            directory = localfs.open(self.state_path.parent, os.O_RDONLY | localfs.O_DIRECTORY)
             try:
-                os.fsync(directory)
+                localfs.fsync_directory(directory)
             finally:
                 os.close(directory)
         finally:

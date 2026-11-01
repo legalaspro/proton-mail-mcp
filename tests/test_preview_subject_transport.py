@@ -104,6 +104,7 @@ def profile(sim, clock, case):
     return facts
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("subject", ["staff", "status", "u", "queued", "café Straße"])
 def test_subject_only_preview_has_linear_discovery_bounds(strict_mailbox, subject):
     profiles = []
@@ -133,7 +134,7 @@ def test_subject_only_preview_has_linear_discovery_bounds(strict_mailbox, subjec
 
 
 @pytest.mark.parametrize("subject", ["staff", "u", "café"])
-@pytest.mark.parametrize("filler", [20, 3000])
+@pytest.mark.parametrize("filler", [20, pytest.param(3000, marks=pytest.mark.slow)])
 def test_subject_rule_preview_is_bounded_on_inbox(strict_mailbox, tmp_path, subject, filler):
     sim, client, clock = strict_mailbox(subject=subject, filler=filler)
     path = tmp_path / "subject-rules.json"

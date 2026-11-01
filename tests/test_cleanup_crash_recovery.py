@@ -14,6 +14,8 @@ from test_mail import message
 from proton_mail_mcp.action_log import LogTransaction
 from proton_mail_mcp.mail import MailValidationError
 
+pytestmark = pytest.mark.real_fsync
+
 
 class ProcessKilled(BaseException):
     """Bypass normal error handling after persisting a partial append."""

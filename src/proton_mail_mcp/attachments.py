@@ -29,6 +29,7 @@ import unicodedata
 from contextlib import suppress
 from typing import Any
 
+from . import localfs
 from .mail import (
     MailValidationError,
     _addresses,
@@ -109,12 +110,8 @@ _PDF_HYPHENS = str.maketrans(dict.fromkeys("\u00ad\u2010\u2011\u2212", "-"))
 # A hostile PDF can only waste this process's bounded time and memory. It gets no
 # environment, so it never holds the server's token or the Bridge password.
 _PDF_WORKER = """
-import io, json, logging, resource, sys
-for name, value in (("RLIMIT_AS", {memory}), ("RLIMIT_CPU", {seconds}), ("RLIMIT_FSIZE", 0)):
-    try:
-        resource.setrlimit(getattr(resource, name), (value, value))
-    except (ValueError, OSError):
-        pass
+import io, json, logging, sys
+{limits}
 logging.disable(logging.CRITICAL)
 from pypdf import PdfReader
 reader = PdfReader(io.BytesIO(sys.stdin.buffer.read()), strict=False)
@@ -135,6 +132,54 @@ for index in range(min(total, {pages})):
         break
 text = "\\n\\n".join(pages)
 print(json.dumps({{"pages": total, "read": len(pages) + failed, "failed": failed, "text": text}}))
+"""
+_PDF_LIMITS = """
+import resource
+for name, value in (("RLIMIT_AS", {memory}), ("RLIMIT_CPU", {seconds}), ("RLIMIT_FSIZE", 0)):
+    try:
+        resource.setrlimit(getattr(resource, name), (value, value))
+    except (ValueError, OSError):
+        pass
+"""
+# Windows has no rlimits, so the worker joins a job of its own, with the same memory and CPU time
+# and one process. Nothing there forbids writing files. Without the limits it does not parse.
+_PDF_WINDOWS_LIMITS = """
+import ctypes
+from ctypes import wintypes
+class Basic(ctypes.Structure):
+    _fields_ = [
+        ("process_time", ctypes.c_int64), ("job_time", ctypes.c_int64),
+        ("flags", wintypes.DWORD), ("min_set", ctypes.c_size_t), ("max_set", ctypes.c_size_t),
+        ("processes", wintypes.DWORD), ("affinity", ctypes.c_size_t),
+        ("priority", wintypes.DWORD), ("scheduling", wintypes.DWORD),
+    ]
+class Extended(ctypes.Structure):
+    _fields_ = [
+        ("basic", Basic), ("io", ctypes.c_uint64 * 6), ("process_memory", ctypes.c_size_t),
+        ("job_memory", ctypes.c_size_t), ("peak_process", ctypes.c_size_t),
+        ("peak_job", ctypes.c_size_t),
+    ]
+kernel32 = ctypes.WinDLL("kernel32")
+kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+kernel32.SetInformationJobObject.argtypes = [
+    wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+]
+kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+limits = Extended(process_memory={memory})
+limits.basic.process_time = {seconds} * 10000000
+limits.basic.processes = 1
+# JOB_OBJECT_LIMIT_PROCESS_TIME, _ACTIVE_PROCESS and _PROCESS_MEMORY.
+limits.basic.flags = 0x2 | 0x8 | 0x100
+job = kernel32.CreateJobObjectW(None, None)
+if not (
+    job
+    # JobObjectExtendedLimitInformation.
+    and kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits))
+    and kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess())
+):
+    raise SystemExit(1)
 """
 
 
@@ -186,7 +231,8 @@ def _steps(name: Any) -> list[str]:
         raise MailValidationError(_BAD_NAME)
     steps = name.split("/")
     # Covers absolute paths, "a//b", "." and ".."; hidden files stay out of reach as well.
-    if any(not step or step.startswith(".") for step in steps):
+    # On Windows also drives (C:x), streams, devices and short names.
+    if any(not step or step.startswith(".") or localfs.reserved_name(step) for step in steps):
         raise MailValidationError(_BAD_NAME)
     return steps
 
@@ -208,14 +254,21 @@ def _open_root(settings: Any, *, create: bool = False) -> int:
         except OSError:
             raise MailValidationError(_FOLDER_NOT_CREATED) from None
     try:
-        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptor = localfs.open(
+            root, os.O_RDONLY | localfs.O_DIRECTORY | localfs.O_NOFOLLOW | localfs.O_CLOEXEC
+        )
     except OSError:
         raise MailValidationError(_NO_FOLDER) from None
-    if os.fstat(descriptor).st_mode & stat.S_IWOTH:
+    if localfs.world_writable(os.fstat(descriptor)):
         os.close(descriptor)
         raise MailValidationError(
             f"Allowed attachment folder ({_SETTING}) must not be writable by everyone"
         )
+    # A saved file takes its access rules from this folder on Windows.
+    refusal = localfs.acl_refusal(descriptor)
+    if refusal:
+        os.close(descriptor)
+        raise MailValidationError(f"Allowed attachment folder ({_SETTING}) {refusal}")
     return descriptor
 
 
@@ -227,9 +280,9 @@ def _open_local(settings: Any, name: Any) -> tuple[int, os.stat_result]:
         folder = _descend(root, steps[:-1])
         try:
             # O_NONBLOCK: opening a FIFO must refuse below, not wait for a writer.
-            descriptor = os.open(
+            descriptor = localfs.open(
                 steps[-1],
-                os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                os.O_RDONLY | localfs.O_NOFOLLOW | localfs.O_NONBLOCK | localfs.O_CLOEXEC,
                 dir_fd=folder,
             )
         finally:
@@ -294,9 +347,9 @@ def _write_new(settings: Any, name: str, data: bytes) -> str:
             candidate = f"{stem} ({attempt}){extension}" if attempt else name
             try:
                 # O_EXCL also refuses a link at this name, even one pointing nowhere.
-                descriptor = os.open(
+                descriptor = localfs.open(
                     candidate,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | localfs.O_NOFOLLOW | localfs.O_CLOEXEC,
                     0o600,
                     dir_fd=root,
                 )
@@ -307,7 +360,7 @@ def _write_new(settings: Any, name: str, data: bytes) -> str:
                     stream.write(data)
             except BaseException:
                 with suppress(OSError):
-                    os.unlink(candidate, dir_fd=root)
+                    localfs.unlink(candidate, dir_fd=root)
                 raise
             return candidate
     except OSError:
@@ -568,15 +621,17 @@ def _clean_text(text: str) -> str:
 
 
 def _pdf_text(data: bytes) -> dict[str, Any]:
-    script = _PDF_WORKER.format(
-        memory=_PDF_MEMORY_BYTES, seconds=_PDF_SECONDS, pages=MAX_PDF_PAGES, chars=MAX_PDF_CHARS
+    windows = sys.platform == "win32"
+    limits = (_PDF_WINDOWS_LIMITS if windows else _PDF_LIMITS).format(
+        memory=_PDF_MEMORY_BYTES, seconds=_PDF_SECONDS
     )
+    script = _PDF_WORKER.format(limits=limits, pages=MAX_PDF_PAGES, chars=MAX_PDF_CHARS)
     # -I and an empty environment: only the installed packages, none of this server's
-    # settings, and no bytecode to write.
+    # settings, and no bytecode to write. A Windows program cannot start without SYSTEMROOT.
     with subprocess.Popen(
         [sys.executable, "-I", "-B", "-c", script],
-        env={},
-        cwd="/",
+        env={"SYSTEMROOT": os.environ.get("SYSTEMROOT", "")} if windows else {},
+        cwd=os.path.abspath(os.sep),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -688,7 +743,9 @@ def save_attachment(
         MAX_SAVE_BYTES,
         f"Attachment exceeds the {MAX_SAVE_BYTES // _MIB} MiB save limit",
     )
-    name = filename or safe_filename(part["filename"], _fallback_name(index, part))
+    name = filename or localfs.plain_name(
+        safe_filename(part["filename"], _fallback_name(index, part))
+    )
     return {
         "saved": True,
         "filename": _write_new(client.settings, name, data),

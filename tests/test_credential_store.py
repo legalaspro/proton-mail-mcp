@@ -222,7 +222,7 @@ def test_location_settings_match_the_config_keys():
 
 
 def test_pass_calls_use_the_given_store_and_gnupg_home(run, monkeypatch, tmp_path):
-    # Astra: the service's own environment may name another store, or none.
+    # The service's own environment may name another store, or none.
     monkeypatch.setenv("PASSWORD_STORE_DIR", str(tmp_path / "shell-store"))
     monkeypatch.setenv("PATH", "/usr/bin")
     located = {"PASSWORD_STORE_DIR": str(tmp_path / "store"), "GNUPGHOME": str(tmp_path / "gpg")}

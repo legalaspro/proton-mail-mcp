@@ -63,7 +63,7 @@ _SYSTEM_NAMES = frozenset(
 # Controls (CR, LF, NUL, tab), format characters (bidi overrides, zero-width),
 # surrogates, private use, unassigned code points and line/paragraph separators.
 _REFUSED_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
-# Checked in the Bridge, gluon and go-proton-api sources; see README, Sieve filters.
+# Checked in the Bridge, gluon and go-proton-api sources; see docs/rules.md, Sieve filters.
 UNAVAILABLE_REASON = (
     "Proton Mail Bridge offers mail clients only IMAP and SMTP, with no ManageSieve, "
     "Sieve or filter interface, and this server has no other apply path"

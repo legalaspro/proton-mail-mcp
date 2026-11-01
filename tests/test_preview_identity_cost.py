@@ -196,6 +196,7 @@ def assert_no_identity_search(sim):
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("count", [3, 45, 200])
 def test_live_move_preview_avoids_mailbox_sized_header_search(identity_cost_mailbox, count):
     sim, client, clock, _ = identity_cost_mailbox(count)
@@ -253,7 +254,7 @@ def test_545_rules_matches_reach_full_batches_after_calibration(identity_cost_ma
 def test_38_rules_matches_finish_in_one_call_and_keep_a_batch_when_bridge_slows(
     identity_cost_mailbox, monkeypatch
 ):
-    # Reported: a 38-match rule returned batch_count 0, remaining 38 and "Rules preview
+    # CoS: a 38-match rule returned batch_count 0, remaining 38 and "Rules preview
     # deadline reached" at limit 1 and at limit 200.
     sim, _, clock, rules = identity_cost_mailbox(38, large=False)
     started = clock.elapsed

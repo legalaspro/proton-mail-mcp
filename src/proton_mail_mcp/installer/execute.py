@@ -19,7 +19,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import TextIO
 
-from .. import credential_store
+from .. import credential_store, localfs
 from . import selfcheck
 from .steps import (
     MARKER,
@@ -43,6 +43,7 @@ from .steps import (
     StoreSecret,
     WaitForPort,
     WriteFile,
+    powershell_literal,
 )
 
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
@@ -125,6 +126,19 @@ def command_line(argv: Sequence[str], windows: bool = os.name == "nt") -> str:
     if windows:
         return subprocess.list2cmdline(list(argv))
     return shlex.join(argv)
+
+
+def _text() -> dict[str, object]:
+    """Windows tools print in the console's code page, which is not the one text mode reads, and
+    Python would lose the output of a failed command to a traceback in its reader thread."""
+    return {"text": True, "errors": "replace"} if sys.platform == "win32" else {"text": True}
+
+
+def remove_command(path: str, windows: bool, *, force: bool = False) -> str:
+    """How a person removes one file, in the shell this platform's installer runs in."""
+    if windows:
+        return f"Remove-Item -LiteralPath {powershell_literal(path)}" + (" -Force" if force else "")
+    return shlex.join(["rm", *(["-f"] if force else []), "--", path])
 
 
 def _managed(path: Path) -> bool:
@@ -240,7 +254,7 @@ class Executor:
         for attempt in range(step.retries + 1):
             try:
                 result = self.runner(
-                    argv, check=False, env=env, capture_output=capture, text=True, stdin=None
+                    argv, check=False, env=env, capture_output=capture, **_text(), stdin=None
                 )
             except OSError:
                 raise InstallError(f"cannot run {argv[0]}") from None
@@ -284,7 +298,7 @@ class Executor:
         argv = [step.python, "-I", "-S", "-c", _SITE_PACKAGES, step.venv]
         try:
             result = self.runner(
-                argv, check=False, capture_output=True, text=True, timeout=_TIMEOUT
+                argv, check=False, capture_output=True, **_text(), timeout=_TIMEOUT
             )
             site = (result.stdout or "").rstrip("\r\n")
             if result.returncode or not site:
@@ -299,10 +313,14 @@ class Executor:
 
     # Files --------------------------------------------------------------------
 
+    def _access(self, mode: int) -> str:
+        # Windows has no such modes: a new file takes the access rules of its folder.
+        return "its folder's access rules" if self.windows else f"mode {mode:04o}"
+
     def _EnsureDir(self, step: EnsureDir) -> None:
         path = Path(step.path)
         if self.dry_run:
-            state = "exists" if path.is_dir() else f"create (mode {step.mode:04o})"
+            state = "exists" if path.is_dir() else f"create ({self._access(step.mode)})"
             self.say(f"    {step.path}: {state}")
             return
         if not path.is_dir():
@@ -316,7 +334,7 @@ class Executor:
         data = step.content.encode(step.encoding)
         # lstat: a dangling link counts too. Writing would replace the link itself.
         if path.is_symlink():
-            remove = command_line(["rm", "--", step.path], self.windows)
+            remove = remove_command(step.path, self.windows)
             raise InstallError(
                 f"{path} is a symbolic link, and the installer never writes or replaces one, "
                 f"even with --force. Check where it points, remove the link with `{remove}` "
@@ -338,7 +356,7 @@ class Executor:
                     "rerun with --force (the old file is kept as .bak)"
                 )
         state = "create" if current is None else "update"
-        self.say(f"    {path}: {state} (mode {step.mode:04o})")
+        self.say(f"    {path}: {state} ({self._access(step.mode)})")
         if step.tag:
             self.changed.add(step.tag)
         if self.dry_run:
@@ -405,7 +423,7 @@ class Executor:
     def _proven_stopped(self, step: CheckStopped) -> bool:
         try:
             result = self.runner(
-                list(step.argv), check=False, capture_output=True, text=True, timeout=_TIMEOUT
+                list(step.argv), check=False, capture_output=True, **_text(), timeout=_TIMEOUT
             )
         except (OSError, ValueError, subprocess.SubprocessError):
             return False
@@ -424,7 +442,7 @@ class Executor:
             raise InstallError("downloads must use HTTPS")
         # Straight into a new file: one already at dest may not be the installer's, so it
         # is never replaced, and what a failed download wrote stays for you to remove.
-        remove = command_line(["rm", "-f", "--", step.dest], self.windows)
+        remove = remove_command(step.dest, self.windows, force=True)
         total, created = 0, False
         try:
             with self.opener(step.url) as response:
@@ -462,7 +480,7 @@ class Executor:
         if self.dry_run:
             return
         try:
-            result = self.runner(argv, check=False, capture_output=True, text=True, timeout=30)
+            result = self.runner(argv, check=False, capture_output=True, **_text(), timeout=30)
         except (OSError, subprocess.SubprocessError):
             raise InstallError("cannot run gpg") from None
         if result.returncode:
@@ -554,7 +572,7 @@ class Executor:
         self.say(f"    $ {command_line(argv, self.windows)}")
         try:
             result = self.runner(
-                argv, check=False, capture_output=True, text=True, timeout=_VERIFY_TIMEOUT
+                argv, check=False, capture_output=True, **_text(), timeout=_VERIFY_TIMEOUT
             )
         except (OSError, subprocess.SubprocessError):
             raise InstallError(f"cannot run {argv[0]}") from None
@@ -711,7 +729,7 @@ class Executor:
             return ""
         try:
             result = self.runner(
-                list(step.processes), check=False, capture_output=True, text=True, timeout=_TIMEOUT
+                list(step.processes), check=False, capture_output=True, **_text(), timeout=_TIMEOUT
             )
         except (OSError, ValueError, subprocess.SubprocessError):
             result = None
@@ -761,7 +779,7 @@ class Executor:
                 list(service.stop),
                 check=False,
                 capture_output=True,
-                text=True,
+                **_text(),
                 timeout=_VERIFY_TIMEOUT,
             )
         except (OSError, ValueError, subprocess.SubprocessError):
@@ -789,7 +807,7 @@ class Executor:
                     list(service.start),
                     check=False,
                     capture_output=True,
-                    text=True,
+                    **_text(),
                     timeout=_TIMEOUT,
                 )
             except (OSError, ValueError, subprocess.SubprocessError):
@@ -972,6 +990,6 @@ def _new_file(directory: Path, prefix: str, suffix: str, data: bytes, mode: int)
 def _atomic_write(path: Path, data: bytes, mode: int) -> None:
     temporary = _new_file(path.parent, f".{path.name}.", ".tmp", data, mode)
     try:
-        os.replace(temporary, path)
+        localfs.replace(temporary, path)
     except OSError:
         raise InstallError(f"cannot write {path}; the new content stays in {temporary}") from None

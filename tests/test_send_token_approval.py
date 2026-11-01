@@ -31,14 +31,15 @@ from proton_mail_mcp.send import SendService
 rig = _send_rig
 BASE = {"PROTON_MCP_TOKEN": TOKEN, "PROTON_BRIDGE_USER": SENDER}
 FAILURES = (MailError, MailValidationError)
+OTHER = "other@example.test"
 
 
 @pytest.fixture
-def own_rig(rig, monkeypatch):
-    monkeypatch.setattr(
-        send_module, "_OWN_ADDRESS_SHA256", hashlib.sha256(RECIPIENT.encode("ascii")).hexdigest()
+def own_rig(rig):
+    # RECIPIENT is another of the user's own addresses, off the account itself.
+    rig.settings = replace(
+        rig.settings, send_self_no_form=True, send_from_allowlist=(SENDER, RECIPIENT)
     )
-    rig.settings = replace(rig.settings, send_self_no_form=True)
     rig.service.settings = rig.client.settings = rig.settings
     return rig
 
@@ -58,20 +59,11 @@ def assert_burned(rig, token):
 @pytest.mark.parametrize(
     "cc,bcc", [(None, None), (RECIPIENT, None), (None, RECIPIENT), (RECIPIENT, RECIPIENT)]
 )
-def test_own_recipients_require_single_to_for_unprompted_send(own_rig, monkeypatch, cc, bcc):
+def test_own_recipients_in_any_field_need_no_form(own_rig, monkeypatch, cc, bcc):
     rig = own_rig
     rig.client.raw = draft(cc=cc, bcc=bcc)
     host = Host(support=False)
     preview = rig.service.preview_send(DRAFT_ID)
-    if cc or bcc:
-        assert preview["approval"] == "host_confirmation"
-        with pytest.raises(FAILURES):
-            redeem(rig, preview["token"], host)
-        assert rig.smtp.calls == [] and host.prompts == []
-        assert_no_data(rig)
-        assert records(rig)[-1]["result"] == "confirmation_unavailable"
-        assert_burned(rig, preview["token"])
-        return
     confirm = AsyncMock(side_effect=AssertionError("Unexpected confirmation request"))
     monkeypatch.setattr(send_module, "require_confirmation", confirm)
     assert preview["approval"] == "token"
@@ -90,15 +82,45 @@ def test_own_recipients_require_single_to_for_unprompted_send(own_rig, monkeypat
     assert records(rig)[-1]["result"] == "token_invalid"
 
 
+@pytest.mark.parametrize(
+    "cc,bcc", [(OTHER, None), (None, OTHER), (OTHER, RECIPIENT), (RECIPIENT, OTHER)]
+)
+def test_anyone_else_on_cc_or_bcc_takes_the_form(own_rig, cc, bcc):
+    rig = own_rig
+    rig.client.raw = draft(cc=cc, bcc=bcc)
+    preview = rig.service.preview_send(DRAFT_ID)
+    assert preview["approval"] == "host_confirmation"
+    host = Host(support=False)
+    with pytest.raises(FAILURES):
+        redeem(rig, preview["token"], host)
+    assert rig.smtp.calls == [] and host.prompts == []
+    assert_no_data(rig)
+    assert records(rig)[-1]["result"] == "confirmation_unavailable"
+    assert_burned(rig, preview["token"])
+
+
 @pytest.mark.parametrize("field", ["cc", "bcc"])
-def test_own_cc_or_bcc_without_to_requires_host_confirmation(own_rig, field):
+def test_own_cc_or_bcc_without_to_needs_no_form(own_rig, field):
     rig = own_rig
     rig.client.raw = draft(**{field: RECIPIENT}).replace(
         b"To: " + RECIPIENT.encode() + b"\r\n", b""
     )
     preview = rig.service.preview_send(DRAFT_ID)
-    assert preview["approval"] == "host_confirmation"
+    assert preview["approval"] == "token"
     assert preview["to"] == [] and preview[field] == [RECIPIENT]
+    host = Host(support=False)
+    assert redeem(rig, preview["token"], host)["sent"] is True
+    assert host.prompts == []
+    assert rig.smtp.sent[0][:2] == (SENDER, (RECIPIENT,))
+
+
+@pytest.mark.parametrize("field", ["cc", "bcc"])
+def test_anyone_else_on_cc_or_bcc_without_to_takes_the_form(own_rig, field):
+    rig = own_rig
+    rig.client.raw = draft(**{field: OTHER}).replace(b"To: " + RECIPIENT.encode() + b"\r\n", b"")
+    preview = rig.service.preview_send(DRAFT_ID)
+    assert preview["approval"] == "host_confirmation"
+    assert preview["to"] == [] and preview[field] == [OTHER]
     host = Host(support=False)
     with pytest.raises(FAILURES):
         redeem(rig, preview["token"], host)
@@ -114,13 +136,11 @@ def test_own_cc_or_bcc_without_to_requires_host_confirmation(own_rig, field):
         "other@example.test",
         "recipient@example.test.evil.test",
         "prefixrecipient@example.test",
-        "Recipient@example.test",
-        "recipient@EXAMPLE.test",
         "recipient+tag@example.test",
         "recipient@xn--exmple-cua.test",
     ],
 )
-def test_noncanonical_or_nonown_recipient_requires_host(own_rig, address):
+def test_nonown_recipient_requires_host(own_rig, address):
     rig = own_rig
     rig.client.raw = draft(to=address)
     preview = rig.service.preview_send(DRAFT_ID)
@@ -279,7 +299,8 @@ def test_token_binds_recipient_header_roles_even_when_envelope_and_hash_match(ow
         snapshot = original(identifier)
         snapshot["to"], snapshot["cc"] = [], [RECIPIENT]
         snapshot["recipient_headers"].update(to=None, cc=" " + RECIPIENT)
-        assert not send_module._own_recipients(snapshot)
+        # Still every address the user's own, so only the binding can refuse this.
+        assert send_module._own_recipients(snapshot)
         return snapshot
 
     monkeypatch.setattr(rig.service, "_read", moved)

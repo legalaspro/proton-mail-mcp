@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -57,7 +58,7 @@ def seed_baseline(reader, uids, *, uidnext=None, bulk=False):
         # avoids constructing, parsing or tokenizing 47,468 fake messages.
         first, *remaining = uids
         index.observe("All Mail", "1", {first: {"headers": {}}})
-        with sqlite3.connect(index.path) as database:
+        with closing(sqlite3.connect(index.path)) as database, database:
             database.executemany(
                 "INSERT INTO messages(folder, uidvalidity, uid, headers_known) VALUES (?, ?, ?, ?)",
                 (("All Mail", "1", uid, 1) for uid in remaining),
@@ -66,7 +67,7 @@ def seed_baseline(reader, uids, *, uidnext=None, bulk=False):
         index.observe("All Mail", "1", {uid: {"headers": {}} for uid in uids})
     index.reconcile("All Mail", "1", uids)
     assert index.record_coverage("All Mail", "1", {"exists": len(uids), "uidnext": uidnext}, uids)
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         database.execute(
             "UPDATE index_sync SET observed_at = ?, last_catchup_at = ? WHERE folder = ?",
             (_OLD_OBSERVED, _OLD_OBSERVED, "All Mail"),
@@ -150,7 +151,7 @@ def test_epoch_change_or_shrink_keeps_existing_fallback(settings, caplog, change
         fake.next_uids["All Mail"] = 3
     elif change == "uidnext":
         # A decreasing UIDNEXT is unsafe even when the count is unchanged.
-        with sqlite3.connect(reader.search_index.path) as database:
+        with closing(sqlite3.connect(reader.search_index.path)) as database, database:
             database.execute("UPDATE coverage SET uidnext = ? WHERE folder = ?", ("4", "All Mail"))
     else:
         del fake.folders["All Mail"]["1"]
@@ -289,7 +290,7 @@ def test_tail_reconciliation_rolls_back_with_coverage_and_reporting(settings, mo
     failed = catchup(reader)
 
     assert failed is not None and not failed.complete and failed.fetched == {"3"}
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         assert database.execute(
             "SELECT uid FROM messages WHERE folder = ? ORDER BY uid", ("All Mail",)
         ).fetchall() == [("1",), ("2",), ("3",)]
@@ -315,7 +316,7 @@ def test_catchup_without_sync_row_does_not_invent_an_all_reconciliation_timestam
     )
     reader = client(settings, fake)
     seed_baseline(reader, ["1"])
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         database.execute("DELETE FROM index_sync WHERE folder = ?", ("All Mail",))
     reader = client(settings, fake)
 
@@ -459,7 +460,7 @@ def test_observation_and_coverage_roll_back_together_on_database_failure(setting
     assert incomplete is not None and not incomplete.complete and incomplete.fetched == {"2"}
     # The simulated failure disables this optional index object. Read the saved
     # state directly to verify that both writes shared a rolled-back transaction.
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         assert database.execute(
             "SELECT uidvalidity, message_count, uidnext FROM coverage WHERE folder = ?",
             ("All Mail",),

@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import threading
 import time
+from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -53,7 +54,7 @@ def test_startup_recovers_empty_or_discarded_index_without_sync(settings, legacy
     if legacy:
         path = reader.search_index.path
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with sqlite3.connect(path) as database:
+        with closing(sqlite3.connect(path)) as database, database:
             database.execute("PRAGMA user_version = 1")
         os.chmod(path, 0o600)
         path.with_name(path.name + ".lock").touch(mode=0o600)

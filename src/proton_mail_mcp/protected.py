@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import ConfigError
+from .sender_matching import bounded_cache
 
 _FIELDS = {
     "addresses",
@@ -23,12 +24,61 @@ _FIELDS = {
 }
 
 
+@bounded_cache
+def _parsed_sender(label: str, value: str) -> tuple[tuple[tuple[str, str, str], ...], bool]:
+    """Addresses as (complete, domain, folded display name) up to the first bad one, and validity.
+
+    Cleanup checks the same senders on every revalidation of a large mailbox, and the
+    stdlib header parser is by far its slowest step. The result depends only on the
+    arguments, so it may be shared; matching against the rules stays per call.
+    """
+    addresses = []
+    try:
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            return (), False
+        header = HeaderParser(policy=policy.default).parsestr(f"{label}: {value}\n\n")[label]
+        if header.defects or not header.addresses:
+            return (), False
+        for address in header.addresses:
+            addresses.append((*ProtectedPolicy._complete(address), address.display_name.casefold()))
+    except (ValueError, TypeError, AttributeError, IndexError, UnicodeError):
+        return tuple(addresses), False
+    return tuple(addresses), True
+
+
+def _domain_matches(domain: str, configured: str) -> bool:
+    configured = configured.removeprefix("*.").rstrip(".")
+    return domain == configured or domain.endswith("." + configured)
+
+
+@bounded_cache
+def _domain_rules(
+    domain: str,
+    domains: tuple[str, ...],
+    patterns: tuple[str, ...],
+    personal: tuple[str, ...],
+) -> tuple[bool, bool, bool]:
+    """Whether the domain matches each list; the lists are part of the cache key."""
+    return (
+        any(_domain_matches(domain, item) for item in domains),
+        any(fnmatchcase(domain, item) for item in patterns),
+        any(_domain_matches(domain, item) for item in personal),
+    )
+
+
+@bounded_cache
+def _name_has_keyword(display_name: str, keywords: tuple[str, ...]) -> bool:
+    return any(item in display_name for item in keywords)
+
+
 class ProtectedPolicy:
     """Every visible sender address must parse, and every address is checked."""
 
     def __init__(self, path: str | None = None):
         try:
-            defaults = json.loads(Path(__file__).with_name("protected_default.json").read_text())
+            defaults = json.loads(
+                Path(__file__).with_name("protected_default.json").read_text(encoding="utf-8")
+            )
             local = {} if path is None else json.loads(Path(path).read_text(encoding="utf-8"))
             for data in (defaults, local):
                 if not isinstance(data, dict) or set(data) - _FIELDS - {
@@ -84,11 +134,6 @@ class ProtectedPolicy:
         except (OSError, ValueError, TypeError):
             # Local policy can contain personal addresses. Never include its contents/path.
             raise ConfigError("Cannot load a valid protected sender configuration") from None
-
-    @staticmethod
-    def _domain_matches(domain: str, configured: str) -> bool:
-        configured = configured.removeprefix("*.").rstrip(".")
-        return domain == configured or domain.endswith("." + configured)
 
     @staticmethod
     def _configured_identity(name: str, value: str) -> str:
@@ -158,45 +203,36 @@ class ProtectedPolicy:
                 if (key == "from" or key in message) and not message.get("sender_invalid"):
                     reasons.append(f"Missing or unparseable {label} sender")
                 continue
-            try:
-                if not isinstance(value, str) or any(
-                    ord(char) < 32 or ord(char) == 127 for char in value
-                ):
-                    raise ValueError
-                parsed = HeaderParser(policy=policy.default).parsestr(f"{label}: {value}\n\n")
-                header = parsed[label]
-                addresses = header.addresses
-                if header.defects or not addresses:
-                    raise ValueError
-                for address in addresses:
-                    complete, domain = self._complete(address)
-                    if complete in self.rules["addresses"]:
-                        reasons.append(f"Protected personal address in {label}")
-                    if any(self._domain_matches(domain, item) for item in self.rules["domains"]):
-                        reasons.append(f"Protected sender domain in {label}")
-                    if any(fnmatchcase(domain, item) for item in self.rules["domain_patterns"]):
-                        reasons.append(
-                            f"Protected financial, insurance or government domain in {label}"
-                        )
-                    if self.protect_personal and any(
-                        self._domain_matches(domain, item)
-                        for item in self.rules["personal_domains"]
-                    ):
-                        if complete in self.rules["personal_provider_allowlist"]:
-                            bypass = {
-                                "header": label,
-                                "entry_sha256": hashlib.sha256(
-                                    complete.encode("utf-8")
-                                ).hexdigest(),
-                            }
-                            if bypass not in bypasses:
-                                bypasses.append(bypass)
-                        else:
-                            reasons.append(f"Personal mail provider in {label}")
-                    if any(
-                        item in address.display_name.casefold() for item in self.rules["keywords"]
-                    ):
-                        reasons.append(f"Protected sender display name in {label}")
-            except (ValueError, TypeError, AttributeError, IndexError, UnicodeError):
+            addresses, valid = ((), False)
+            if isinstance(value, str):
+                addresses, valid = _parsed_sender(label, value)
+            for complete, domain, display_name in addresses:
+                listed, patterned, personal = _domain_rules(
+                    domain,
+                    self.rules["domains"],
+                    self.rules["domain_patterns"],
+                    self.rules["personal_domains"],
+                )
+                if complete in self.rules["addresses"]:
+                    reasons.append(f"Protected personal address in {label}")
+                if listed:
+                    reasons.append(f"Protected sender domain in {label}")
+                if patterned:
+                    reasons.append(
+                        f"Protected financial, insurance or government domain in {label}"
+                    )
+                if self.protect_personal and personal:
+                    if complete in self.rules["personal_provider_allowlist"]:
+                        bypass = {
+                            "header": label,
+                            "entry_sha256": hashlib.sha256(complete.encode("utf-8")).hexdigest(),
+                        }
+                        if bypass not in bypasses:
+                            bypasses.append(bypass)
+                    else:
+                        reasons.append(f"Personal mail provider in {label}")
+                if _name_has_keyword(display_name, self.rules["keywords"]):
+                    reasons.append(f"Protected sender display name in {label}")
+            if not valid:
                 reasons.append(f"Unparseable {label} sender")
         return list(dict.fromkeys(reasons)), bypasses

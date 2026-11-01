@@ -35,7 +35,7 @@ def slow_moves(case, monkeypatch, *, timeout=76):
     return clock
 
 
-@pytest.mark.parametrize("count", [129, 200])
+@pytest.mark.parametrize("count", [129, pytest.param(200, marks=pytest.mark.slow)])
 def test_rules_complete_same_approval_and_one_run_across_calls(mailbox, monkeypatch, count):
     case = mailbox(count=count)
     slow_moves(case, monkeypatch)

@@ -716,7 +716,7 @@ def test_structure_deadline_preserves_seed_and_next_read_survives(
 
 
 def test_relatives_search_that_never_returns_cannot_hold_the_thread_reply(settings, caplog):
-    # Reported case: a GitHub PR notification ran ~60 s to MCP -32001 with no
+    # CoS uid 20432: a GitHub PR notification ran ~60 s to MCP -32001 with no
     # reply. Its body is read before relatives are searched. A relatives search
     # that no socket watchdog can end must not hold the reply past the budget.
     root = "<example-org/example-repo/pull/49@github.com>"

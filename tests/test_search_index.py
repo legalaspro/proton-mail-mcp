@@ -1,13 +1,16 @@
 """The optional index accelerates discovery without changing search results."""
 
-import fcntl
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 
 import pytest
 from gluon_search import GluonSearchImap
 from test_mail import FakeImap, client, message
 from test_mail import settings as settings
+from windows_skips import has_mode
+
+from proton_mail_mcp import localfs
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +49,7 @@ def header_uids(fake):
 
 
 def stored_handles(index):
-    with sqlite3.connect(index.path) as connection:
+    with closing(sqlite3.connect(index.path)) as connection, connection:
         return set(connection.execute("SELECT folder, uidvalidity, uid FROM messages"))
 
 
@@ -159,8 +162,8 @@ def test_absent_index_stays_lazy_until_message_data_is_written(settings):
     index.observe("INBOX", "1", {"1": {"headers": {"Subject": "Other topic"}}})
     assert index.enabled
     assert stored_handles(index) == {("INBOX", "1", "1")}
-    assert index.path.stat().st_mode & 0o777 == 0o600
-    assert index.path.parent.stat().st_mode & 0o777 == 0o700
+    assert has_mode(index.path, 0o600)
+    assert has_mode(index.path.parent, 0o700)
     assert index.candidates("INBOX", "1", ["1", "2"], [("subject", "invoice")]) == ["2"]
 
 
@@ -191,7 +194,7 @@ def test_index_query_preserves_substrings_and_reduces_warm_header_fetches(settin
     assert warm == cold
     assert warm["total_is_exact"] and not warm["partial"]
     assert header_uids(fake) == {"1"}
-    with sqlite3.connect(reader.search_index.path) as connection:
+    with closing(sqlite3.connect(reader.search_index.path)) as connection, connection:
         row = connection.execute("SELECT cc, body FROM messages WHERE uid = '1'").fetchone()
     assert "team@example.com" in row[0]
     assert row[1] == "", "Snippet and body fetches must not persist body text"
@@ -528,7 +531,7 @@ def test_startup_reports_safe_index_failure_and_retries_transient_lock(settings)
     index = SearchIndex(settings, rebuild=True)
     index.observe("All Mail", "1", {"1": {"headers": {"Subject": "Manning"}}})
     with index.path.with_suffix(".sqlite3.lock").open("rb") as lock:
-        fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        localfs.lock(lock.fileno(), exclusive=False)
         reopened = SearchIndex(settings)
         assert reopened.known_uids("All Mail", "1") is None
         assert reopened.reason == "busy" and reopened.enabled

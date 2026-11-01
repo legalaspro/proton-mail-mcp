@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from contextlib import closing
 
 import anyio
 import pytest
@@ -94,7 +95,7 @@ def test_thread_bodies_never_enter_the_search_index(settings, prefer_html):
     result = reader.read_thread("<news@example.com>", prefer_html=prefer_html)
 
     assert result["messages"]
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         assert database.execute("SELECT DISTINCT body FROM messages").fetchall() == [("",)]
 
 

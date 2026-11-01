@@ -10,10 +10,6 @@ from proton_mail_mcp.service_entry import EnvFileError, parse_env_file, read_env
 
 TOKEN = "stored-token-" + "x" * 32
 USER = "bridge-user@example.test"
-# The installer's Windows CI job runs this file; the server itself needs POSIX fcntl.
-needs_server = pytest.mark.skipif(
-    sys.platform == "win32", reason="the MCP server needs POSIX fcntl; Windows is not yet supported"
-)
 
 
 def test_parse_keeps_literal_values_and_skips_comments():
@@ -90,7 +86,7 @@ def test_token_comes_from_the_configured_store(monkeypatch):
 
 
 def test_token_lookup_uses_the_pass_store_named_in_the_settings(monkeypatch):
-    # Astra: the service does not inherit the installing shell's PASSWORD_STORE_DIR.
+    # The service does not inherit the installing shell's PASSWORD_STORE_DIR.
     calls = []
     monkeypatch.setattr(credential_store, "lookup", fake_lookup(calls))
     service_entry.service_env(
@@ -124,7 +120,6 @@ def test_missing_token_is_reported_without_details(monkeypatch):
     assert TOKEN not in str(caught.value)
 
 
-@needs_server
 def test_main_passes_the_token_only_in_the_server_mapping(monkeypatch, tmp_path):
     from proton_mail_mcp import server
 
@@ -141,7 +136,6 @@ def test_main_passes_the_token_only_in_the_server_mapping(monkeypatch, tmp_path)
     assert "PROTON_MCP_TOKEN" not in os.environ
 
 
-@needs_server
 def test_main_refuses_secret_env_files_and_logs_privately(monkeypatch, tmp_path, capsys):
     from proton_mail_mcp import server
 

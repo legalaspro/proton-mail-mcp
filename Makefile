@@ -1,16 +1,23 @@
 PYTHON ?= .venv/bin/python
 RUFF ?= .venv/bin/ruff
-JOBS ?= 12
+# pytest-xdist workers, at most 12; JOBS=0 runs serially in one process.
+JOBS ?= auto
+# For instance PYTEST_ARGS='-m "not slow"', which is what a pull request runs.
+PYTEST_ARGS ?=
 
 # Run the same checks per interpreter, e.g. make check PYTHON=python3.14 RUFF=ruff
 
-.PHONY: lint check wheel-smoke
+.PHONY: lint check docs wheel-smoke
 lint:
-	$(RUFF) check src tests scripts/run_tests.py scripts/wheel_smoke.py
-	$(RUFF) format --check src tests scripts/run_tests.py scripts/wheel_smoke.py
+	$(RUFF) check src tests scripts/wheel_smoke.py scripts/generate_tool_docs.py
+	$(RUFF) format --check src tests scripts/wheel_smoke.py scripts/generate_tool_docs.py
 
 check: lint
-	$(PYTHON) scripts/run_tests.py --suite full --jobs $(JOBS)
+	$(PYTHON) -m pytest -q -p no:cacheprovider -n $(JOBS) --maxprocesses=12 --dist worksteal --durations=15 $(PYTEST_ARGS)
+
+# Writes docs/tools.md from the registered tools; a test fails when it is out of date.
+docs:
+	$(PYTHON) scripts/generate_tool_docs.py
 
 # Needs uv and network access for the dependencies; uploads nothing.
 wheel-smoke:

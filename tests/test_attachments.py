@@ -14,6 +14,7 @@ from attachment_fixtures import settings as settings  # noqa: F401
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import ImageContent, TextContent
+from windows_skips import has_mode
 
 from proton_mail_mcp import attachments as attachments_module
 from proton_mail_mcp.action_log import ActionLog
@@ -413,7 +414,7 @@ def test_save_writes_the_decoded_bytes_as_a_private_new_file(settings, tmp_path)
     }
     saved = folder / "plan.bin"
     assert saved.read_bytes() == data
-    assert saved.stat().st_mode & 0o777 == 0o600
+    assert has_mode(saved, 0o600)
     assert not writes(fake)
     assert all("PEEK" in query for query in content_fetches(fake))
 

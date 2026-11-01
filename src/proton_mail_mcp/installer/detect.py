@@ -6,18 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FAMILIES = ("debian", "fedora", "arch", "macos", "windows")
-# Detected and simulated, but refused: plans for these stay buildable for tests only.
-NOT_YET_SUPPORTED = {
-    "windows": (
-        "Windows is not yet supported: the MCP server keeps its audit, undo and index "
-        "state with POSIX file locking (fcntl), so its service cannot start on Windows. "
-        "Use WSL2 (run `wsl --install`, then run this command inside Linux); native "
-        "Windows support is planned for v1.1. See docs/install.md."
-    ),
-}
-# platform.system() of Python builds that run on Windows without being a Linux: the
-# prefixes install.sh refuses as msys, cygwin and win32 before Python even starts.
+# platform.system() of Python builds that run on Windows without being a Linux or a Windows
+# program: the prefixes install.sh refuses as msys, cygwin and win32 before Python even starts.
+# The service and its logon tasks need Python for Windows.
 _WINDOWS_LAYERS = ("cygwin", "msys", "mingw")
+_LAYER_HINT = "use Python for Windows in PowerShell, or WSL2. See docs/windows.md"
 # Families sharing a package format; ID_LIKE covers derivatives not listed here.
 _LINUX_IDS = {
     "debian": {"debian", "ubuntu", "linuxmint", "pop", "elementary", "zorin", "raspbian", "kali"},
@@ -59,8 +52,6 @@ class Platform:
     @property
     def refusal(self) -> str | None:
         """Why the installer refuses this platform, or None when it is supported."""
-        if self.family in NOT_YET_SUPPORTED:
-            return NOT_YET_SUPPORTED[self.family]
         if self.family not in FAMILIES:
             return f"Unsupported platform: {self.name}"
         return None
@@ -114,8 +105,10 @@ def detect(
     kind = system.strip().lower()
     if kind == "darwin":
         return Platform("macos", "macos", release, arch, f"macOS {release}".strip())
-    if kind == "windows" or kind.startswith(_WINDOWS_LAYERS):
+    if kind == "windows":
         return Platform("windows", "windows", release, arch, f"Windows {release}".strip())
+    if kind.startswith(_WINDOWS_LAYERS):
+        return Platform("unsupported", kind, release, arch, f"{system}: {_LAYER_HINT}")
     if kind == "linux":
         values = parse_os_release(os_release or "")
         return Platform(

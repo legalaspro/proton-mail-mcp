@@ -174,7 +174,7 @@ def test_utf16_task_files_compare_and_count_as_managed(tmp_path):
 def test_unmanaged_files_need_force_and_keep_a_backup(tmp_path):
     path = tmp_path / "com.proton-mail-mcp.plist"
     path.write_text("hand-written plist with a token")
-    # Astra r7 #3: --force wrote over an earlier backup, which may be the only copy.
+    # --force wrote over an earlier backup, which may be the only copy.
     earlier = tmp_path / "com.proton-mail-mcp.plist.bak"
     earlier.write_text("an earlier backup")
     step = WriteFile(str(path), f"<!-- {MARKER} -->", "write")
@@ -304,6 +304,7 @@ def test_download_writes_a_private_file(tmp_path):
     assert "13 bytes" in out.getvalue()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="names POSIX paths")
 def test_download_refuses_plain_http_and_oversized_files(tmp_path, monkeypatch):
     target = tmp_path / "bridge.deb"
     run, _out = executor(opener=lambda url: Response(b"x", "http://mirror.example/x.deb"))
@@ -321,8 +322,9 @@ def test_download_refuses_plain_http_and_oversized_files(tmp_path, monkeypatch):
     assert sorted(path.name for path in tmp_path.iterdir()) == ["bridge.deb"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="names POSIX paths")
 def test_r8_no_file_already_there_is_replaced_or_deleted(tmp_path):
-    # Sol and Astra r7 #2: a stale .part, a taken temporary name and an earlier
+    # A stale .part, a taken temporary name and an earlier
     # download were unlinked or replaced although this run had not created them.
     target = tmp_path / "bridge.deb"
     target.write_bytes(b"not the installer's")
@@ -421,7 +423,7 @@ def test_rpm_is_verified_against_a_temporary_database_holding_only_the_key(tmp_p
         [*base, "--checksig", str(package)],
     ]
     assert all(kwargs["capture_output"] for _argv, kwargs in runner.calls)
-    # Sol and Astra r7: the scratch database stays; nothing deletes a populated directory.
+    # The scratch database stays; nothing deletes a populated directory.
     assert str(kept_scratch(tmp_path, ".rpmdb-", out.getvalue())) == dbpath
     assert {path.name for path in tmp_path.iterdir()} == {
         os.path.basename(dbpath),
@@ -736,7 +738,7 @@ def test_delete_secret_reports_absence(monkeypatch):
 
 
 def test_pass_steps_use_the_locations_the_service_uses(monkeypatch):
-    # Astra: the installing shell's PASSWORD_STORE_DIR and GNUPGHOME are not the service's.
+    # The installing shell's PASSWORD_STORE_DIR and GNUPGHOME are not the service's.
     calls = []
     monkeypatch.setattr(credential_store, "store_secret", lambda *args: calls.append(args))
     monkeypatch.setattr(credential_store, "remove_secret", lambda *args: calls.append(args))
@@ -785,7 +787,7 @@ def snapshot(top):
 
 
 def test_r7_rule1_a_directory_goes_only_when_it_is_real_and_empty(tmp_path):
-    # Sol (rounds 3-6): every check in front of an rmtree had a gap. RemovePath now
+    # Every check in front of an rmtree had a gap. RemovePath now
     # only ever calls rmdir, so a directory with anything in it stays whole.
     venv = tmp_path / "venv"
     (venv / "bin").mkdir(parents=True)
@@ -852,7 +854,7 @@ def test_r7_rule2_a_file_goes_only_when_it_is_a_marked_regular_file(tmp_path):
 
 
 def test_r9_a_symbolic_link_is_never_written_or_replaced(tmp_path):
-    # Sol and Astra r8 #1: exists() is false for a dangling link, so writing the
+    # exists() is false for a dangling link, so writing the
     # settings file replaced the link although the installer had not made it.
     real = tmp_path / "real.service"
     real.write_text(f"# {MARKER}\nold\n")
@@ -894,7 +896,7 @@ STOP_HINT = (
     ],
 )
 def test_r7_rule3_check_stopped_proves_a_stop_or_stops_the_run(tmp_path, states, result, proven):
-    # Sol r6 #4: a failed `disable --now` was ignored and the removals went on. The
+    # A failed `disable --now` was ignored and the removals went on. The
     # check's verdict, not the stop command's exit status, decides.
     unit = tmp_path / "x.service"
     unit.write_text(f"# {MARKER}\n")

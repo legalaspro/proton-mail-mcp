@@ -1048,14 +1048,18 @@ def test_descriptions_and_docs_say_what_the_token_guards(rig):
     root = Path(__file__).resolve().parents[1]
     readme = " ".join((root / "README.md").read_text(encoding="utf-8").split())
     assert "cannot prove that a human typed the OK" in readme
-    assert "only guards against a changed draft and a replay" in readme
-    assert "always gets the form and never falls back" in readme
     assert "`PROTON_MCP_SEND_TYPED_OK=0` turns this path off" in readme
-    assert "whether it keeps one session or opens a new one per call" in readme
-    assert "| `PROTON_MCP_SEND_TYPED_OK` | `1` |" in readme
-    assert "must never widen this boundary further" in readme
-    assert "There is no setting for this path" not in readme
-    assert "must never widen this boundary." not in readme
+    reference = " ".join((root / "docs" / "sending.md").read_text(encoding="utf-8").split())
+    assert "cannot prove that a human typed the OK" in reference
+    assert "only guards against a changed draft and a replay" in reference
+    assert "always gets the form and never falls back" in reference
+    assert "`PROTON_MCP_SEND_TYPED_OK=0` turns this path off" in reference
+    assert "whether it keeps one session or opens a new one per call" in reference
+    assert "must never widen this boundary further" in reference
+    assert "There is no setting for this path" not in reference
+    assert "must never widen this boundary." not in reference
+    config = " ".join((root / "docs" / "configuration.md").read_text(encoding="utf-8").split())
+    assert "| `PROTON_MCP_SEND_TYPED_OK` | `1` |" in config
     apps = " ".join((root / "docs" / "mcp-apps.md").read_text(encoding="utf-8").split())
     assert "keeps the existing gate exactly" not in apps
     assert "PROTON_MCP_SEND_TYPED_OK=0" in apps

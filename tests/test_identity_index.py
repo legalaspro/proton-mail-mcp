@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from proton_mail_mcp import identity_index
+from proton_mail_mcp import identity_index, localfs
 from proton_mail_mcp.config import ConfigError, Settings
 from proton_mail_mcp.mail import CallDeadlineExceeded
 
@@ -98,7 +98,7 @@ def test_cold_complete_inventory_and_warm_no_raw_fetch(inventory):
     assert inventory.connection.fetches == [["1"]]
     assert not any("CHANGEDSINCE" in command[-1] for command in inventory.connection.commands)
     files = list(inventory.path.iterdir())
-    assert files and all(path.stat().st_mode & 0o077 == 0 for path in files)
+    assert files and all(localfs.mode_private(path.stat()) for path in files)
     text = next(inventory.path.glob("*.json")).read_text()
     assert '"subject"' not in text and '"from"' not in text and '"body"' not in text
     assert "synthetic@example.invalid" not in text

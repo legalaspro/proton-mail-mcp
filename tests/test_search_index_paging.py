@@ -1,6 +1,7 @@
 """Immutable metadata enables indexed pages and mailbox-local header coverage."""
 
 import sqlite3
+from contextlib import closing
 from email import policy
 from email.parser import BytesParser
 from types import SimpleNamespace
@@ -101,7 +102,7 @@ def test_ordered_page_uses_nested_header_filters_and_rejects_unknown_evidence(se
 def test_header_cache_enriches_missing_metadata_without_replacing_headers(settings):
     index = SearchIndex(settings)
     index.observe("All Mail", "1", {"1": indexed_message("1")})
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         database.execute("DELETE FROM search_metadata")
     index = SearchIndex(settings)
     assert index.enabled and index.metadata_uids("All Mail", "1") == set()
@@ -136,7 +137,7 @@ def test_ordinary_metadata_does_not_create_message_rows_for_browsed_views(settin
     index.observe("Labels/Browsed", "1", fetched)
     assert not index.has_mailbox("Labels/Browsed")
     assert index.cached_metadata("Labels/Browsed", "1", ["101"]) == {}
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         assert database.execute("SELECT folder, uid FROM messages").fetchall() == [
             ("All Mail", "1")
         ]
@@ -351,7 +352,7 @@ def test_fingerprint_index_needs_all_mail_and_the_holding_folder_only(settings):
     # A folder holding no copy is not asked, however stale or incomplete it is.
     only_holder = {name: epochs[name] for name in ("All Mail", "INBOX")}
     assert index.indexed_locations(handles, real, "All Mail", only_holder) == inbox_copy
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         database.execute("UPDATE search_metadata SET size = NULL WHERE folder = 'Archive'")
     assert index.indexed_locations(handles, real, "All Mail", epochs) == inbox_copy
     # An unproven holder never gives a handle; it only names where to scan.
@@ -360,7 +361,7 @@ def test_fingerprint_index_needs_all_mail_and_the_holding_folder_only(settings):
     )
     assert isinstance(unplaced, Unplaced) and unplaced.holders == ("INBOX",)
     # All Mail is what proves the copy unique, so it needs every fingerprint.
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         database.execute("UPDATE search_metadata SET size = NULL WHERE uid = '2'")
     assert index.indexed_locations(handles, real, "All Mail", epochs) is None
     index.observe("All Mail", "1", {"2": {"size": 200, "internaldate": 2.0}})
@@ -368,7 +369,7 @@ def test_fingerprint_index_needs_all_mail_and_the_holding_folder_only(settings):
     # A legacy writer's unknown extra row must not count, even with a matching
     # fingerprint: stale fingerprints cannot invent a live copy.
     index.observe("Archive", "1", {"202": inventories["INBOX"]["101"]})
-    with sqlite3.connect(index.path) as database:
+    with closing(sqlite3.connect(index.path)) as database, database:
         database.execute(
             "UPDATE messages SET headers_known = 0 WHERE folder = 'Archive' AND uid = '202'"
         )

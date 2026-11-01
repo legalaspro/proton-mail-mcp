@@ -1,0 +1,34 @@
+name: Full run
+
+# Every Python and test, plus the installer workflow. The private dev repo pays for every minute,
+# so there it runs only by hand, on Linux and Windows. The public release repo runs it on its
+# own too, with macOS and every Python, because minutes are free there. See docs/ci.md.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    if: github.event_name == 'workflow_dispatch' || (github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public')
+    strategy:
+      fail-fast: false
+      # By hand in a private repo, only the oldest and newest supported Python.
+      matrix:
+        python: ${{ fromJSON(github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public' && '["3.12", "3.13", "3.14"]' || '["3.12", "3.14"]') }}
+    uses: ./.github/workflows/check.yml
+    with:
+      python-version: ${{ matrix.python }}
+      full: true
+
+  installer:
+    # A push to main starts the installer workflow itself, if its paths changed.
+    if: github.event_name == 'workflow_dispatch' || (github.ref != 'refs/heads/main' || github.event_name != 'push') && (github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public')
+    uses: ./.github/workflows/installer.yml

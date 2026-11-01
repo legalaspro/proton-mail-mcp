@@ -12,7 +12,8 @@ import re
 import sys
 from pathlib import Path
 
-from . import credential_store
+from . import credential_store, localfs
+from .config import default_credential_store
 
 SECRET_KEYS = frozenset({"PROTON_MCP_TOKEN", "PROTON_BRIDGE_PASSWORD"})
 MAX_ENV_FILE_BYTES = 64 * 1024
@@ -46,6 +47,11 @@ def parse_env_file(text: str) -> dict[str, str]:
     return values
 
 
+def env_file_encoding() -> str:
+    """UTF-8, with the byte order mark that Windows PowerShell 5.1 and some editors add there."""
+    return "utf-8-sig" if sys.platform == "win32" else "utf-8"
+
+
 def read_env_file(path: str | os.PathLike) -> dict[str, str]:
     """Only the account owner may change settings such as confirmation or send."""
     target = Path(path)
@@ -55,9 +61,21 @@ def read_env_file(path: str | os.PathLike) -> dict[str, str]:
             raise EnvFileError(
                 "Env file must be owned by the service user and not writable by group or others"
             )
+        if sys.platform == "win32":
+            refusal = localfs.path_refusal(target)
+            if refusal:
+                raise EnvFileError(f"Env file {refusal}")
         if info.st_size > MAX_ENV_FILE_BYTES:
             raise EnvFileError("Env file is too large")
-        text = target.read_text(encoding="utf-8")
+        if sys.platform == "win32":
+            # The handle checked is the handle read, so a swap after the check above gains nothing.
+            with target.open(encoding=env_file_encoding()) as stream:
+                refusal = localfs.acl_refusal(stream.fileno())
+                if refusal:
+                    raise EnvFileError(f"Env file {refusal}")
+                text = stream.read()
+        else:
+            text = target.read_text(encoding=env_file_encoding())
     except OSError:
         raise EnvFileError("Env file cannot be read") from None
     except UnicodeDecodeError:
@@ -70,7 +88,7 @@ def service_env(base: dict[str, str], values: dict[str, str]) -> dict[str, str]:
     env = dict(base)
     env.update(values)
     if not env.get("PROTON_MCP_TOKEN"):
-        store = env.get("PROTON_MCP_CREDENTIAL_STORE", "keychain")
+        store = env.get("PROTON_MCP_CREDENTIAL_STORE", default_credential_store())
         account = env.get("PROTON_BRIDGE_USER", "")
         try:
             env["PROTON_MCP_TOKEN"] = credential_store.lookup(
@@ -88,8 +106,17 @@ def _redirect_output(path: str) -> None:
     """pythonw services have no console; keep diagnostics in a private log file."""
     target = Path(path)
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    refusal = localfs.parent_refusal(target)
+    if refusal:
+        print(f"Cannot start proton-mail-mcp: log file {refusal}", file=sys.stderr)
+        raise SystemExit(2)
     flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0)
     descriptor = os.open(target, flags, 0o600)
+    refusal = localfs.acl_refusal(descriptor)
+    if refusal:
+        os.close(descriptor)
+        print(f"Cannot start proton-mail-mcp: log file {refusal}", file=sys.stderr)
+        raise SystemExit(2)
     stream = open(descriptor, "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = stream
 

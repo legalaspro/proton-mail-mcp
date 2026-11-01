@@ -1,5 +1,6 @@
 """Plan steps: plain data that a dry run prints and the executor applies."""
 
+import re
 from dataclasses import dataclass
 
 PACKAGE = "proton-mail-mcp"
@@ -7,6 +8,11 @@ MARKER = "Managed by proton-mail-mcp installer"
 # Created inside directories the installer owns. The installer never deletes them; it
 # prints how to remove one by hand only when this marker is there.
 DIR_MARKER = ".proton-mail-mcp-installer"
+
+
+def powershell_literal(text: str) -> str:
+    """Text as a PowerShell string nothing in it can end or expand; it also reads curly quotes."""
+    return "'" + re.sub("(['\u2018\u2019\u201a\u201b])", r"\1\1", text) + "'"
 
 
 @dataclass(frozen=True)

@@ -5,8 +5,10 @@ import dataclasses
 import io
 import os
 import plistlib
+import re
 import shlex
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from pathlib import Path
@@ -18,7 +20,7 @@ from proton_mail_mcp.config import Settings
 from proton_mail_mcp.credential_store import BRIDGE_SERVICE, TOKEN_SERVICE
 from proton_mail_mcp.installer import plan as planner
 from proton_mail_mcp.installer import templates
-from proton_mail_mcp.installer.detect import FAMILIES, NOT_YET_SUPPORTED, Platform, simulated
+from proton_mail_mcp.installer.detect import FAMILIES, Platform, simulated
 from proton_mail_mcp.installer.execute import Executor
 from proton_mail_mcp.installer.plan import (
     BRIDGE_KEY_FINGERPRINT,
@@ -57,10 +59,9 @@ from proton_mail_mcp.security import get_credentials
 from proton_mail_mcp.service_entry import parse_env_file
 
 USER = "you@example.com"
+# These tests name POSIX paths.
+POSIX_FAMILIES = tuple(family for family in FAMILIES if family != "windows")
 TASK_NS = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
-SUPPORTED = tuple(family for family in FAMILIES if family not in NOT_YET_SUPPORTED)
-# install_plan and uninstall_plan refuse Windows; its builders stay tested directly.
-UNGUARDED = {install_plan: install_steps, uninstall_plan: uninstall_steps}
 MCP_TASK = "\\proton-mail-mcp-HOST-you"
 BRIDGE_TASK = "\\proton-mail-mcp-bridge-HOST-you"
 
@@ -74,8 +75,6 @@ def build(family, probe=None, action=install_plan, platform=None, **overrides):
     platform = platform or simulated(family)
     probe = probe or simulated_probe(platform)
     paths = paths_for(platform, probe.env, probe.home)
-    if platform.family in NOT_YET_SUPPORTED:
-        action = UNGUARDED.get(action, action)
     return action(platform, options(**overrides), probe, paths)
 
 
@@ -313,7 +312,7 @@ def test_windows_uses_winget_authenticode_and_logon_tasks():
     authenticode = next(
         step for step in steps if isinstance(step, Command) and step.argv[0] == "powershell"
     )
-    exe = "C:\\Program Files\\Proton AG\\Proton Mail Bridge\\proton-bridge.exe"
+    exe = "C:\\Program Files\\Proton AG\\Proton Mail Bridge\\bridge.exe"
     assert authenticode.env == (("PMM_VERIFY_PATH", exe),)
     assert '"' not in authenticode.argv[-1] and "Proton( Technologies)? AG" in authenticode.argv[-1]
     task = written(steps, "mcp-task.xml")
@@ -459,7 +458,7 @@ def test_linux_services_restart_only_for_relevant_changes():
 @pytest.mark.parametrize("family", ["debian", "fedora", "arch"])
 @pytest.mark.parametrize("bridge_service", [True, False])
 def test_linux_units_are_enabled_by_path_and_reloaded_before_any_start(family, bridge_service):
-    # Sol: units under a shell-only XDG_CONFIG_HOME are outside a running user
+    # Units under a shell-only XDG_CONFIG_HOME are outside a running user
     # manager's search path. Enabling them by path makes systemd link them into its
     # own configuration directory; the reload then precedes every start or restart.
     platform = simulated(family)
@@ -586,19 +585,19 @@ def test_env_file_enabling_send_says_what_a_client_with_no_form_can_do(lines, wa
         ("", False, False),
         ("PROTON_MCP_SEND_TYPED_OK_CLIENTS=\n", False, False),
         ("PROTON_MCP_SEND_TYPED_OK_CLIENTS= , ,\n", False, False),
-        ("PROTON_MCP_SEND_TYPED_OK_CLIENTS= Example Client ,, Other\n", True, False),
+        ("PROTON_MCP_SEND_TYPED_OK_CLIENTS= Grok Bot ,, Other\n", True, False),
         (
-            "PROTON_MCP_ENABLE_SEND=1\nPROTON_MCP_SEND_TYPED_OK_CLIENTS=Example Client,Other\n",
+            "PROTON_MCP_ENABLE_SEND=1\nPROTON_MCP_SEND_TYPED_OK_CLIENTS=Grok Bot,Other\n",
             True,
             False,
         ),
         (
-            "PROTON_MCP_SEND_TYPED_OK=1\nPROTON_MCP_SEND_TYPED_OK_CLIENTS=Example Client,Other\n",
+            "PROTON_MCP_SEND_TYPED_OK=1\nPROTON_MCP_SEND_TYPED_OK_CLIENTS=Grok Bot,Other\n",
             True,
             False,
         ),
         (
-            "PROTON_MCP_SEND_TYPED_OK=0\nPROTON_MCP_SEND_TYPED_OK_CLIENTS=Example Client,Other\n",
+            "PROTON_MCP_SEND_TYPED_OK=0\nPROTON_MCP_SEND_TYPED_OK_CLIENTS=Grok Bot,Other\n",
             False,
             True,
         ),
@@ -616,11 +615,9 @@ def test_env_file_listing_typed_ok_clients_names_them_or_says_they_are_ignored(
     )
     steps = build("arch", probe=probe, bridge_user=None)
     notes = " ".join(step.text for step in steps if isinstance(step, Note))
-    assert ("treats these clients as having no form: Example Client, Other." in notes) is warned
+    assert ("treats these clients as having no form: Grok Bot, Other." in notes) is warned
     assert ("self-reported (clientInfo.name)" in notes) is warned
-    assert (
-        "PROTON_MCP_SEND_TYPED_OK_CLIENTS is ignored: Example Client, Other." in notes
-    ) is ignored
+    assert ("PROTON_MCP_SEND_TYPED_OK_CLIENTS is ignored: Grok Bot, Other." in notes) is ignored
 
 
 def test_env_file_merge_keeps_user_lines_and_reports_unsafe_choices():
@@ -648,7 +645,7 @@ def test_env_file_merge_keeps_user_lines_and_reports_unsafe_choices():
     assert "PROTON_MCP_CONFIRM_MUTATIONS to something other than 1" in notes
     assert "PROTON_MCP_ENABLE_SEND=1" in notes
     assert "PMM_SEND_TOKEN_APPROVAL" not in notes
-    # Astra r7 #5: the value itself is never echoed.
+    # The value itself is never echoed.
     assert "off-for-now" not in notes
     probe.files[paths.env_file] = content
     assert written(build("arch", probe=probe, port=8800), ".env").content == content
@@ -666,7 +663,7 @@ def test_env_file_with_a_secret_stops_the_plan_without_echoing_it():
 
 @pytest.mark.parametrize("action", [install_plan, uninstall_plan])
 def test_r8_a_settings_file_the_installer_did_not_write_is_neither_used_nor_shown(action):
-    # Sol r7 #3: uninstall printed the data settings of a settings file the installer
+    # Uninstall printed the data settings of a settings file the installer
     # did not write. Such a file stops the plan before anything changes; the message
     # names its path and keys, never a value.
     platform = simulated("arch")
@@ -718,7 +715,7 @@ CUSTOM_PASS = {"PASSWORD_STORE_DIR": "/srv/pass", "GNUPGHOME": "/srv/gnupg"}
 
 
 def test_a_custom_pass_store_and_gnupg_home_are_pinned_for_the_service():
-    # Astra: set only in the installing shell, they never reached the service.
+    # Set only in the installing shell, they never reached the service.
     probe, paths = pass_probe(**CUSTOM_PASS)
     steps = build("debian", probe=probe, credential_store="pass")
     settings = env_file(steps)
@@ -853,14 +850,10 @@ def test_unsupported_platforms_are_refused():
 
 
 @pytest.mark.parametrize("action", [install_plan, uninstall_plan])
-def test_windows_is_refused_until_the_server_runs_there(action):
+def test_windows_plans_come_from_the_public_builders(action):
     platform = simulated("windows")
     probe = simulated_probe(platform)
-    paths = paths_for(platform, probe.env, probe.home)
-    with pytest.raises(PlanError) as caught:
-        action(platform, options(), probe, paths)
-    assert str(caught.value).startswith("Windows is not yet supported")
-    assert "fcntl" in str(caught.value)
+    assert action(platform, options(), probe, paths_for(platform, probe.env, probe.home))
 
 
 @pytest.mark.parametrize("family", FAMILIES)
@@ -923,7 +916,7 @@ def test_linux_uninstall_disables_only_present_units():
     steps = build("debian", probe=probe, action=uninstall_plan)
     disable = next(step for step in steps if isinstance(step, Command) and "disable" in step.argv)
     assert disable.argv == ("systemctl", "--user", "disable", "--now", templates.MCP_UNIT)
-    # Its exit status proves nothing (Sol r6 #4); the check right after it does.
+    # Its exit status proves nothing; the check right after it does.
     assert disable.allow_failure
     (check,) = [step for step in steps if isinstance(step, CheckStopped)]
     assert steps.index(check) == steps.index(disable) + 1
@@ -959,7 +952,7 @@ def test_xdg_directories_are_honoured_only_when_absolute():
     assert paths.venv == "/home/u/.local/share/proton-mail-mcp/venv"
 
 
-# A pre-existing virtual environment is never claimed (Sol: venv ownership).
+# A pre-existing virtual environment is never claimed.
 
 
 @pytest.mark.parametrize("present", ["directory", "python"])
@@ -1083,9 +1076,9 @@ def mentions(steps, text):
     return [step for step in steps if not isinstance(step, Note) and text in repr(step)]
 
 
-@pytest.mark.parametrize("family", SUPPORTED)
+@pytest.mark.parametrize("family", POSIX_FAMILIES)
 def test_r7_moving_the_venv_keeps_the_previous_one_and_prints_its_size_and_command(family):
-    # R1: no installer step removes a directory with content. Sol and Astra found a
+    # R1: no installer step removes a directory with content. Reviews found a
     # delete-path gap in every round since 3; the previous venv now always stays.
     probe, paths = moved_venv_probe(family)
     probe.files[f"{OLD}/lib/site.py"] = "x" * 2000
@@ -1188,7 +1181,7 @@ def test_r7_rule6_no_removal_command_where_it_could_harm_this_installation(case)
         with_settings(probe, paths, PROTON_MCP_SAVED_RULES=f"{OLD}/rules.json")
         reason = f"{used}PROTON_MCP_SAVED_RULES."
     elif case == "data-setting-names-it":
-        # Sol r7 #6: a setting equal to the directory itself lost its protection.
+        # A setting equal to the directory itself lost its protection.
         with_settings(probe, paths, PROTON_MCP_IDENTITY_INDEX_DIR=OLD)
         reason = f"{used}PROTON_MCP_IDENTITY_INDEX_DIR."
     elif case == "gnupg-default-home":
@@ -1293,9 +1286,9 @@ def mcp_service_running(family, probe, paths):
         probe.files[f"{paths.unit_dir}/{templates.MCP_UNIT}"] = f"# {MARKER}\n"
 
 
-@pytest.mark.parametrize("family", SUPPORTED)
+@pytest.mark.parametrize("family", POSIX_FAMILIES)
 def test_r7_data_in_the_previous_venv_stays_there_and_its_settings_still_point_there(family):
-    # Sol (rounds 3-6): data moved out of the old venv before it was removed, and each
+    # Data moved out of the old venv before it was removed, and each
     # round found a use the checks missed. Round 7 moves nothing and removes nothing.
     probe, paths = moved_venv_probe(family)
     with_settings(probe, paths, **DATA_IN_OLD)
@@ -1313,7 +1306,7 @@ def test_r7_data_in_the_previous_venv_stays_there_and_its_settings_still_point_t
 
 
 def test_r7_a_pass_store_and_gnupg_home_in_the_previous_venv_stay_in_use():
-    # Astra (round 3): PASSWORD_STORE_DIR and GNUPGHOME inside the old venv went with it.
+    # PASSWORD_STORE_DIR and GNUPGHOME inside the old venv went with it.
     # They stay in use where they are; secrets are looked up and stored there.
     probe, paths = moved_venv_probe("debian")
     with_settings(
@@ -1351,7 +1344,7 @@ def test_r7_a_pass_store_and_gnupg_home_in_the_previous_venv_stay_in_use():
 def test_r7_a_location_the_shell_replaces_keeps_the_previous_venv_without_a_command(
     key, name, saved, store
 ):
-    # Astra r6 #1: a saved GnuPG home lost its protection once the shell named another.
+    # A saved GnuPG home lost its protection once the shell named another.
     # The shell value still wins and nothing moves, but the old place still counts as
     # something the previous venv holds, so its note suggests no removal.
     probe, paths = moved_venv_probe("debian")
@@ -1388,10 +1381,10 @@ def bridge_unit(*lines):
         ("/home/you/venv", ["Environment=X=venv", "ExecStart=/bin/sh $X/start.sh"], {}),
         ("/opt/old-venv", ["ExecStart=/opt/\\u006fld-venv/start.sh"], {}),
     ],
-    ids=["sol1-xdg-specifier", "sol2-relative-argument", "sol2-relative-variable", "sol3-escape"],
+    ids=["xdg-specifier", "relative-argument", "relative-variable", "escape"],
 )
-def test_r7_sol_unit_values_never_cost_the_old_venv(old, lines, env):
-    # Sol r6 #1-#3: %C resolved from the shell's XDG_CACHE_HOME, relative arguments and
+def test_r7_unit_values_never_cost_the_old_venv(old, lines, env):
+    # %C resolved from the shell's XDG_CACHE_HOME, relative arguments and
     # variables, and \uNNNN escapes slipped past the unit parser, and the old venv was
     # deleted under a Bridge unit left in place. The parser is gone, and so is the
     # deletion: only notes and the list of environments left in place name it.
@@ -1437,7 +1430,7 @@ def uninstall_probe(**values):
 
 
 def test_r7_uninstall_keeps_the_venv_and_the_downloads_and_prints_how_to_remove_them():
-    # Sol r6 #5: uninstall removed the current venv while a service it left running
+    # Uninstall removed the current venv while a service it left running
     # used it. Neither the venv nor the downloads are removed now.
     probe, base = uninstall_probe()
     probe.files[f"{OLD}/bin/python"] = "x" * 1500
@@ -1454,8 +1447,9 @@ def test_r7_uninstall_keeps_the_venv_and_the_downloads_and_prints_how_to_remove_
     assert "; the settings file is removed." in notes(steps)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="names POSIX paths")
 def test_r7_uninstall_gives_no_command_for_a_directory_that_holds_data():
-    # Sol and Astra (rounds 3-6): uninstall moved data out and removed the venv and the
+    # Uninstall moved data out and removed the venv and the
     # downloads, losing what a check missed. Both stay; the notes name what they hold,
     # and the closing note says where every data setting points.
     cache = "/home/you/.cache/proton-mail-mcp/installer"
@@ -1490,6 +1484,7 @@ def test_r7_uninstall_gives_no_command_for_a_directory_that_holds_data():
     ) in notes(steps)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="names POSIX paths")
 @pytest.mark.parametrize(
     "values, shown",
     [
@@ -1564,14 +1559,14 @@ def test_r7_rule6_uninstall_suggests_no_command_for_what_it_cannot_vouch_for(cas
     [("debian", "bin/bridge"), ("macos", "./Bridge"), ("windows", "bridge\\proton-bridge.exe")],
 )
 def test_a_relative_bridge_executable_is_refused(family, bridge):
-    # Sol: ExecStart=./bin/bridge passes the existence check, and systemd rejects it.
+    # ExecStart=./bin/bridge passes the existence check, and systemd rejects it.
     probe = simulated_probe(simulated(family))
     probe.files[bridge] = ""
     with pytest.raises(PlanError, match="--bridge-bin must be an absolute path"):
         build(family, probe=probe, skip_bridge=True, bridge_bin=bridge)
 
 
-# Services are stopped, disabled, unloaded or deleted only once proven ours (Sol).
+# Services are stopped, disabled, unloaded or deleted only once proven ours.
 
 
 def test_linux_uninstall_never_stops_units_it_did_not_write():
@@ -1680,7 +1675,7 @@ def test_windows_tasks_are_ended_or_deleted_only_when_the_installer_made_them():
             build("windows", probe=probe, action=action)
 
 
-# --skip-services never stops the Windows MCP task (Sol).
+# --skip-services never stops the Windows MCP task.
 
 
 def test_windows_skip_services_never_queues_a_task_stop():
@@ -1694,7 +1689,8 @@ def test_windows_skip_services_never_queues_a_task_stop():
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "if ((Get-ScheduledTask -TaskPath '\\' -TaskName 'proton-mail-mcp-HOST-you' "
+            planner._POWERSHELL_MODULES
+            + "if ((Get-ScheduledTask -TaskPath '\\' -TaskName 'proton-mail-mcp-HOST-you' "
             "-ErrorAction Stop).State -eq 'Running') { exit 0 }; exit 3",
         )
     )
@@ -1706,7 +1702,7 @@ def test_windows_skip_services_never_queues_a_task_stop():
     assert ("schtasks", "/End", "/TN", MCP_TASK) in commands(stop)
 
 
-# Bridge maintenance leaves the Linux MCP unit running (Sol).
+# Bridge maintenance leaves the Linux MCP unit running.
 
 
 def test_stopping_bridge_for_a_cli_login_leaves_the_mcp_unit_running():
@@ -1723,7 +1719,7 @@ def test_stopping_bridge_for_a_cli_login_leaves_the_mcp_unit_running():
     assert "MCP service keeps running" in text
 
 
-# State locations reach the service, not only the installing shell (Sol).
+# State locations reach the service, not only the installing shell.
 
 
 def state_build(family, env, existing=None):
@@ -1736,7 +1732,7 @@ def state_build(family, env, existing=None):
     return build(family, probe=probe)
 
 
-@pytest.mark.parametrize("family", SUPPORTED)
+@pytest.mark.parametrize("family", POSIX_FAMILIES)
 def test_resolved_state_locations_are_pinned_for_the_service(family):
     steps = state_build(family, {"XDG_STATE_HOME": "/data/state"})
     settings = env_file(steps)
@@ -1789,7 +1785,7 @@ def test_uninstall_names_the_state_it_keeps():
 
 
 def test_linux_with_systemd_out_of_reach_is_refused_before_any_change():
-    # Sol: on a systemd host the venv and settings changed before the service setup
+    # On a systemd host the venv and settings changed before the service setup
     # failed. systemd runs this host, so services may be running unseen.
     platform = Platform("arch", "arch", "", "x86_64", "Arch Linux")
     probe = simulated_probe(platform)
@@ -1870,7 +1866,7 @@ def env_file_path(platform, probe):
     ids=["no-systemctl-on-path", "no-manager", "no-systemd"],
 )
 def test_linux_uninstall_keeps_installer_units_it_cannot_control(booted, systemctl, manager, why):
-    # Sol: a restricted PATH proves nothing about running units, yet uninstall removed
+    # A restricted PATH proves nothing about running units, yet uninstall removed
     # them and the venv. Round 6 (b): nothing changes, and the manual steps are given.
     platform = simulated("arch")
     probe = simulated_probe(platform)
@@ -1988,7 +1984,7 @@ def is_removal(step):
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_r7_rule3_every_stop_is_proven_before_anything_is_removed(family):
-    # Sol r6 #4: uninstall went on after a stop failed. Each stop is now followed by a
+    # Uninstall went on after a stop failed. Each stop is now followed by a
     # check of its own, and every check comes before the first removal of any kind.
     platform = simulated(family)
     probe = simulated_probe(platform)
@@ -2016,7 +2012,7 @@ def test_r7_rule3_every_stop_is_proven_before_anything_is_removed(family):
         assert all(not step.states and "launchctl bootout gui/501/" in step.hint for step in found)
         assert all(step.status == planner.LAUNCHD_NOT_FOUND for step in found)
     elif family == "windows":
-        assert [step.argv[-1].split("'")[3] for step in found] == [
+        assert [re.search("-TaskName '([^']+)'", step.argv[-1])[1] for step in found] == [
             MCP_TASK.lstrip("\\"),
             BRIDGE_TASK.lstrip("\\"),
         ]
@@ -2066,7 +2062,7 @@ def test_r7_rule3_an_agent_not_loaded_while_planning_is_still_checked():
     ],
 )
 def test_r8_a_definition_the_installer_cannot_vouch_for_stops_uninstall(family, case):
-    # Sol r7 #4: a failed FragmentPath query made a marked local file look like the
+    # A failed FragmentPath query made a marked local file look like the
     # installer's unit, so uninstall could stop a foreign definition loaded under its
     # name. A definition the installer did not write, or one the service manager does
     # not name, under any of its service names now stops uninstall before anything is
@@ -2142,9 +2138,9 @@ def visible(steps):
     return out.getvalue() + repr([dataclasses.asdict(step) for step in steps])
 
 
-@pytest.mark.parametrize("family", SUPPORTED)
+@pytest.mark.parametrize("family", POSIX_FAMILIES)
 def test_r7_rule5_no_content_of_a_definition_the_installer_did_not_write_reaches_output(family):
-    # Astra r6 #2: values the unit parser could not resolve reached the report raw. The
+    # Values the unit parser could not resolve reached the report raw. The
     # planner reads no such definition now, so nothing of one can reach a step, a
     # printed line, a PlanError or installer.log (logged notes are notes here).
     probe, paths = moved_venv_probe(family)
@@ -2237,7 +2233,7 @@ def test_r7_every_removal_is_a_marked_file_or_an_empty_directory(family, scenari
 
 
 def test_r8_printed_token_commands_quote_the_account():
-    # Astra r7 #6: accounts may hold $, ; or (), which ran as shell code when pasted.
+    # Accounts may hold $, ; or (), which ran as shell code when pasted.
     account = "me$(id);x@example.com"
     for store, word in (
         ("keychain", account),
@@ -2263,7 +2259,7 @@ def test_r8_printed_token_commands_quote_the_account():
 def test_r9_a_failed_credential_check_keeps_what_is_stored_and_stops(
     monkeypatch, family, check, not_found, failure
 ):
-    # Astra r8 #2: a Keychain check that timed out, or a failed secret-tool lookup,
+    # A Keychain check that timed out, or a failed secret-tool lookup,
     # counted as "no token", so the plan generated one over the token clients use.
     calls = []
 
@@ -2290,7 +2286,7 @@ def test_r9_a_failed_credential_check_keeps_what_is_stored_and_stops(
 
 
 def test_r9_printed_launch_commands_quote_their_paths():
-    # Sol r8 #2: with --venv '/srv/My PMM' the pasted service command ran /srv/My.
+    # With --venv '/srv/My PMM' the pasted service command ran /srv/My.
     platform = simulated("debian")
     probe = simulated_probe(platform)
     probe.env["XDG_CONFIG_HOME"] = "/home/you/my config"
@@ -2305,7 +2301,7 @@ def test_r9_printed_launch_commands_quote_their_paths():
 
 
 def test_r10_a_silent_secret_tool_lookup_keeps_the_token_and_stops(monkeypatch):
-    # Astra r9 #1: secret-tool exits 1 and prints nothing for no entry, but also for a
+    # secret-tool exits 1 and prints nothing for no entry, but also for a
     # locked one whose unlock prompt was dismissed. Read as "no token", the plan
     # generated one over the token clients use.
     calls = []
@@ -2339,7 +2335,7 @@ def test_r10_a_silent_secret_tool_lookup_keeps_the_token_and_stops(monkeypatch):
 
 
 def test_r10_macos_printed_login_commands_quote_their_paths():
-    # Sol and Astra r9 #2: the macOS hints put paths in double quotes, so a pasted
+    # The macOS hints put paths in double quotes, so a pasted
     # --bridge-bin '/opt/Bridge$HOME/bridge' expanded $HOME.
     platform = simulated("macos")
     probe = simulated_probe(platform)

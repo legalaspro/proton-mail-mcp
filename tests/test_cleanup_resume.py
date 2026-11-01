@@ -96,7 +96,7 @@ def continue_to_end(case, token, *, action="move_to_trash", first=None):
     pytest.fail("Bounded approval did not finish in 30 confirmation calls")
 
 
-@pytest.mark.parametrize("count", [129, 200])
+@pytest.mark.parametrize("count", [129, pytest.param(200, marks=pytest.mark.slow)])
 def test_large_slow_approval_finishes_across_calls_and_each_chunk_undoes(
     slow_cleanup, monkeypatch, count
 ):

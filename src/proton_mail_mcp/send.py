@@ -41,12 +41,11 @@ from .views import account_address
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_DRAFT_BYTES = MAX_DRAFT_BYTES
-# This recipient pin is deliberately not configurable. Besides it, only the user's own
-# send-from addresses (the account and PROTON_MCP_SEND_FROM) skip the form. Anyone else's
-# address takes the form, or a typed OK on a client without one, which proves no consent.
-# Proof requires out-of-band approval: an independent-channel link/code (design 2), or
-# an authenticated server-side approval queue (design 3), never a token edit.
-_OWN_ADDRESS_SHA256 = "1632be39658c2291f7b38247c04b3ab4d009cfeb07ec24fbf7fe78762a89dca5"
+# No address is built in: only the user's own send-from addresses (the account and
+# PROTON_MCP_SEND_FROM) skip the form. Anyone else's address takes the form, or a typed OK
+# on a client without one, which proves no consent. Proof requires out-of-band approval:
+# an independent-channel link/code, or an authenticated server-side approval queue, never
+# a token edit.
 
 
 class _SendRefusal(MailValidationError):
@@ -227,18 +226,6 @@ def _typed_ok_summary(draft: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _own_address(address: str) -> bool:
-    # No case folding, whitespace removal, aliases, display names or IDN mapping.
-    return (
-        is_bare_address(address)
-        and address.isascii()
-        and address == address.lower()
-        and "+" not in address
-        and not any(label.startswith("xn--") for label in address.split("@")[-1].split("."))
-        and hmac.compare_digest(_sha256(address.encode("ascii")), _OWN_ADDRESS_SHA256)
-    )
-
-
 def _own_recipients(draft: dict[str, Any]) -> bool:
     # The path without a form is for plain notes to yourself. Attachments and forwards
     # always go through the host form, whoever receives them.
@@ -246,20 +233,7 @@ def _own_recipients(draft: dict[str, Any]) -> bool:
         return False
     # Every address is the user's own, from any sender _snapshot allowed. recipients is the
     # whole To, Cc and Bcc envelope, which _snapshot refuses when empty.
-    if all(address.lower() in draft["own_addresses"] for address in draft["recipients"]):
-        return True
-    # Otherwise only the account itself may write to the single pinned address. A cheap
-    # second check: _snapshot refuses an empty Cc or Bcc header, and the envelope compare
-    # below catches their addresses.
-    if draft["from_alias"] or any(
-        draft["recipient_headers"][name] is not None or draft[name] for name in ("cc", "bcc")
-    ):
-        return False
-    return (
-        len(draft["to"]) == 1
-        and _own_address(draft["to"][0])
-        and draft["recipients"] == draft["to"]
-    )
+    return all(address.lower() in draft["own_addresses"] for address in draft["recipients"])
 
 
 def _binding(draft: dict[str, Any]) -> dict[str, Any]:

@@ -7,6 +7,7 @@ folder, can.
 
 import re
 import sqlite3
+from contextlib import closing
 
 import pytest
 from bridge_sim import BridgeSim, Msg, hdr, make_client, mutations
@@ -47,7 +48,7 @@ def handles(result):
 
 def forget_fingerprint(reader, uid):
     # A row a plain page cached before pages stored its envelope and size.
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         database.execute(
             "UPDATE search_metadata SET envelope_digest = NULL, size = NULL "
             "WHERE folder = 'INBOX' AND uid = ?",
@@ -465,7 +466,7 @@ def test_proven_folder_is_scanned_only_for_a_row_of_the_wanted_date(
     reader, fake = account(
         settings, clock, {"All Mail": {"70": root, "71": other}, "INBOX": {"1": other}}
     )
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         database.execute("UPDATE search_metadata SET envelope_digest = NULL WHERE folder = 'INBOX'")
 
     result = reader.read_thread(ROOT)

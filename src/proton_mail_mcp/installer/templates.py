@@ -4,6 +4,7 @@ The systemd units and LaunchAgents are package data in service_templates, so an
 installed wheel needs no checkout.
 """
 
+import hashlib
 import plistlib
 import re
 import string
@@ -38,6 +39,9 @@ class TemplateError(ValueError):
 
 def task_name(prefix: str, user_id: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", user_id).strip("-.") or "user"
+    if not user_id.isascii():
+        # Two names can differ only in letters the slug drops, as two Cyrillic ones can.
+        slug += "-" + hashlib.sha256(user_id.encode("utf-8")).hexdigest()[:8]
     return f"\\{prefix}-{slug}"
 
 

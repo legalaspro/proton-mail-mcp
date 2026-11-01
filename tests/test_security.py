@@ -262,7 +262,7 @@ def test_certificate_pin_failure_does_not_expose_underlying_errors(monkeypatch, 
 def test_smtp_is_confined_to_guarded_send_and_mutations_to_cleanup():
     package = Path(__file__).resolve().parents[1] / "src" / "proton_mail_mcp"
     for source in package.rglob("*.py"):
-        tree = ast.parse(source.read_text())
+        tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 modules = (

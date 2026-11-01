@@ -14,6 +14,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import ValidationError
 from sieve_fakes import FakeSieveBackend
 from test_send import Host
+from windows_skips import has_mode
 
 from proton_mail_mcp import rules_store, saved_rules
 from proton_mail_mcp.action_log import ActionLog, LogTransaction
@@ -264,7 +265,7 @@ def test_add_saves_exactly_the_previewed_rule_once_after_a_durable_intent(case, 
         "token_consumed": True,
     }
     rule = spec(conditions=conditions, match="any", mark_read=True)
-    assert saved(case) == (rule,) and case.store.stat().st_mode & 0o777 == 0o600
+    assert saved(case) == (rule,) and has_mode(case.store, 0o600)
     [record] = records(case)
     assert record["log_id"] == added["log_id"] and record["status"] == "completed"
     assert record["params"] == {
@@ -612,7 +613,7 @@ def test_a_store_directory_missing_at_preview_is_created_by_the_save(case):
     token = preview(case)["token"]
     assert not (case.directory / "new").exists()
     assert case.client.add_rule(token)["added"] is True
-    assert saved(case) == (spec(),) and case.store.parent.stat().st_mode & 0o777 == 0o700
+    assert saved(case) == (spec(),) and has_mode(case.store.parent, 0o700)
 
 
 def replace_directory(directory, moved):
@@ -696,7 +697,7 @@ def test_rules_previewed_while_the_store_directory_is_missing_all_save_there(cas
     parent, old = missing_store(case)
     first, second, third = (preview(case, name=name)["token"] for name in ("1st", "2nd", "3rd"))
     assert case.client.add_rule(first)["added"] is True
-    assert case.store.parent.stat().st_mode & 0o777 == 0o700
+    assert has_mode(case.store.parent, 0o700)
     # Previewed before the first save made the directory, below the same parent.
     assert case.client.add_rule(second)["added"] is True
     assert [rule.name for rule in saved(case)] == ["1st", "2nd"]
@@ -725,7 +726,7 @@ def test_rules_previewed_before_a_fresh_state_directory_exists_all_save(case):
     store = store_path(client.settings)
     assert store == journal.with_name("saved-rules.json")
     assert [rule.name for rule in load_saved(store)[0]] == ["1st", "2nd"]
-    assert store.parent.stat().st_mode & 0o777 == 0o700
+    assert has_mode(store.parent, 0o700)
 
 
 def test_the_sieve_backend_stays_unavailable_and_fails_closed(case, monkeypatch):

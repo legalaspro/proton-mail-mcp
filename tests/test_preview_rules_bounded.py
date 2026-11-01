@@ -106,6 +106,7 @@ def interrupt_membership(case, monkeypatch):
     return first, clock, completed, attempted
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("order,expected", [("oldest", "1"), ("newest", "10000")])
 def test_limit_one_large_mailbox_selects_before_rule_safety(mailbox, monkeypatch, order, expected):
     case = mailbox(count=10_000)

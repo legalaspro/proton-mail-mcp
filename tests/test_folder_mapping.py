@@ -1,6 +1,7 @@
 """Optional folder membership warming preserves the ordinary bounded search."""
 
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -28,7 +29,7 @@ def complete_source(settings, count=5, *, missing_metadata=False):
     assert reader.rebuild_search_index("All Mail")["indexed"] == count
     if missing_metadata:
         # Complete headers do not imply immutable date/envelope evidence.
-        with sqlite3.connect(reader.search_index.path) as database:
+        with closing(sqlite3.connect(reader.search_index.path)) as database, database:
             database.execute("DELETE FROM search_metadata")
         assert reader.search_index.metadata_uids("All Mail", "1") == set()
         assert reader.search_index.coverage("All Mail") == ("1", count, str(count + 1))
@@ -122,7 +123,7 @@ def test_folder_mapping_shares_cap_across_source_and_target_and_retains_warming(
     assert not mappings, "A capped target sample cannot establish Message-ID uniqueness"
     # The ordinary header scan supplies the other target dates/IDs. Only the
     # bounded warm step supplies envelope fingerprints, which survive on disk.
-    with sqlite3.connect(reader.search_index.path) as database:
+    with closing(sqlite3.connect(reader.search_index.path)) as database, database:
         retained = database.execute(
             "SELECT folder, uid FROM search_metadata WHERE envelope_digest IS NOT NULL"
         ).fetchall()

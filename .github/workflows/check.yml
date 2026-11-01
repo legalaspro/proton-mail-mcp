@@ -1,32 +1,148 @@
 name: Checks
 
+# What runs when, and why, is in docs/ci.md. One Linux and one Windows job. Another Python or the
+# slow tests: run this workflow by hand. Every Python and test: the Full run workflow, which
+# calls this one. macOS only ever runs in the public release repo, where minutes are free.
+
 on:
   push:
     branches: [main]
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - LICENSE
   workflow_dispatch:
+    inputs:
+      python-version:
+        description: Python to test on Linux and Windows
+        default: "3.12"
+      full:
+        description: Include the slow tests
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: "3.12"
+      full:
+        description: Every test the OS can run, not the pull request's selection
+        type: boolean
+        default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  # github.workflow is the caller's name in a called workflow, so this never matches the caller.
+  group: checks-${{ github.workflow }}-${{ inputs.python-version || '3.12' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+env:
+  CI_BRIDGE_USER: ci-bridge-user@example.invalid
+
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  test:
+    name: ${{ matrix.os }}, Python ${{ inputs.python-version || '3.12' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ inputs.full && 40 || 25 }}
     strategy:
-      fail-fast: false
-      # Policy: test only the oldest and newest supported Python.
+      fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix:
-        python-version: ["3.12", "3.14"]
+        os: ${{ fromJSON(inputs.full && github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # The tests compare files byte for byte, so keep the repository's line ends.
+      - if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
-          check-latest: true
-      - run: python -m pip install -e '.[dev]'
-      - run: make check PYTHON=python RUFF=ruff
+          python-version: ${{ inputs.python-version || '3.12' }}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+      - run: uv pip install --system -e ".[dev]"
+      # A push to main adds the slow tests on Linux only.
+      - if: runner.os != 'Windows'
+        run: make check PYTHON=python RUFF=ruff
+        env:
+          PYTEST_ARGS: >-
+            ${{ github.event_name == 'pull_request' && '--maxfail=5' || '' }}
+            ${{ !inputs.full && github.event_name != 'push' && '-m "not slow"' || '' }}
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          python -m pytest -q -p no:cacheprovider -n auto --dist worksteal --durations=15
+          ${{ github.event_name == 'pull_request' && '--maxfail=5' || '' }}
+          ${{ !inputs.full && '-m "not slow"' || '' }}
+
+      # The installer's dry runs. They come after the tests, which run without secret-tool and
+      # a user manager. Nothing here installs Bridge, stores credentials or starts services.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libsecret-tools shellcheck
+      - if: runner.os == 'Linux'
+        run: shellcheck --shell=bash scripts/install.sh
+      - if: runner.os == 'Linux'
+        run: PMM_PYTHON="$(command -v python)" scripts/install.sh detect --json
+      - name: Start a systemd user manager for the runner user (the preflight needs one)
+        if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+          for _ in $(seq 30); do
+            XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user show-environment >/dev/null 2>&1 && break
+            sleep 1
+          done
+          XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user show-environment >/dev/null
+      - name: Dry run with systemd (the plan sets up the user units)
+        if: runner.os == 'Linux'
+        run: |
+          output="$(PMM_PYTHON="$(command -v python)" scripts/install.sh install --dry-run --skip-credentials --bridge-user "$CI_BRIDGE_USER")"
+          printf '%s\n' "$output"
+          grep -q "systemctl --user enable" <<<"$output"
+      - if: runner.os == 'Linux'
+        run: PMM_PYTHON="$(command -v python)" scripts/install.sh uninstall --dry-run
+      - name: Simulated plans for every supported platform
+        if: runner.os == 'Linux'
+        run: |
+          for family in debian fedora arch macos windows; do
+            PMM_PYTHON="$(command -v python)" scripts/install.sh install --dry-run \
+              --simulate "$family" --bridge-user "$CI_BRIDGE_USER"
+          done
+      - name: Parse install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD\scripts\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+      - name: Detect reports Windows as supported
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $report = .\scripts\install.ps1 -Action detect -Json | ConvertFrom-Json
+          if (-not $report.supported -or $report.credential_store -ne 'wincred') {
+            Write-Error "unexpected report: $($report | ConvertTo-Json)"; exit 1
+          }
+      - name: Dry runs of install and uninstall (PowerShell 7 and 5.1)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          function Assert-Plan([string]$Shell, [string[]]$Arguments, [string]$Expected) {
+            $output = & $Shell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1 @Arguments 2>&1 |
+              Out-String
+            $code = $LASTEXITCODE
+            Write-Host "$Shell $($Arguments -join ' '): exit $code"
+            Write-Host $output
+            if ($code -ne 0 -or $output -notmatch $Expected) { exit 1 }
+          }
+          foreach ($shell in 'pwsh', 'powershell') {
+            Assert-Plan $shell @('-DryRun', '-SkipBridge', '-SkipBridgeService', '-SkipCredentials', '-BridgeUser', $env:CI_BRIDGE_USER) 'schtasks'
+            Assert-Plan $shell @('-Action', 'uninstall', '-DryRun') 'Dry run: nothing was changed'
+          }
+          exit 0

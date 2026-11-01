@@ -1,4 +1,4 @@
-"""With the pin off the own-address list, only a draft to the pin alone skips the host form."""
+"""Only a draft to the user's own addresses alone skips the host form, however it is spelled."""
 
 import base64
 
@@ -37,11 +37,11 @@ def case(to, expected, *extra_headers, prefix="To: ", id):
         case(f"{RECIPIENT} ", TOKEN, id="trailing-space"),
         case(f"Recipient <{RECIPIENT}>", TOKEN, id="unquoted-display"),
         # A valid draft with any other recipient set needs the host form.
-        case(f"{RECIPIENT}, {RECIPIENT}", HOST, id="duplicate-owner"),
+        case(f"{RECIPIENT}, {RECIPIENT}", TOKEN, id="duplicate-owner"),
         case(f"{RECIPIENT}, {OTHER}", HOST, id="owner-and-other"),
         case(f'"Name" <{RECIPIENT}>, {OTHER}', HOST, id="named-owner-and-other"),
         case(f"Name <{OTHER}>", HOST, id="nonowner-named"),
-        case(RECIPIENT.upper(), HOST, id="uppercase-owner"),
+        case(RECIPIENT.upper(), TOKEN, id="uppercase-owner"),
         case(RECIPIENT, HOST, f"Cc: {OTHER}", id="cc-other"),
         case(RECIPIENT, HOST, f"Bcc: {OTHER}", id="bcc-other"),
         case(f"{RECIPIENT}\r\nBcc: {OTHER}", HOST, id="header-injection"),
@@ -113,7 +113,8 @@ def test_raw_draft_gets_only_its_approval_path(own_rig, to_line, extra_headers, 
     preview = rig.service.preview_send(DRAFT_ID)
     assert preview["approval"] == expected
     if expected == TOKEN:
-        assert preview["to"] == [RECIPIENT] and preview["cc"] == preview["bcc"] == []
+        assert {address.lower() for address in preview["to"]} == {RECIPIENT}
+        assert preview["cc"] == preview["bcc"] == []
     else:
         host = Host(support=False)
         with pytest.raises(FAILURES):

@@ -41,7 +41,9 @@ MAX_MESSAGE_ID_BYTES = 4096
 # The largest draft that guarded send reads, and so the largest with attachments.
 MAX_DRAFT_BYTES = 10 * 1024 * 1024
 _ID = re.compile(r"<[^<>\s]+>")
-_IMAP_QUOTED = re.compile(rb'((?:[^"\\]|\\.)*)"', re.DOTALL)
+_IMAP_QUOTED = re.compile(rb'([^"\\]*(?:\\.[^"\\]*)*)"', re.DOTALL)
+_IMAP_SPACE = re.compile(rb"[ \r\n\t]*")
+_IMAP_ATOM = re.compile(rb"[^ ()\r\n\t]*")
 _IMAP_ESCAPE = re.compile(
     rb"\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[0-7]{3}|.)", re.DOTALL
 )
@@ -416,8 +418,7 @@ class _ImapValues:
 
     def value(self) -> Any:
         raw = self.raw
-        while self.position < len(raw) and raw[self.position] in b" \r\n\t":
-            self.position += 1
+        self.position = _IMAP_SPACE.match(raw, self.position).end()
         if self.position >= len(raw):
             raise MailError("Mailbox returned invalid message metadata")
         char = raw[self.position]
@@ -425,8 +426,7 @@ class _ImapValues:
         if char == ord("("):
             values = []
             while True:
-                while self.position < len(raw) and raw[self.position] in b" \r\n\t":
-                    self.position += 1
+                self.position = _IMAP_SPACE.match(raw, self.position).end()
                 if self.position >= len(raw):
                     raise MailError("Mailbox returned invalid message metadata")
                 if raw[self.position] == ord(")"):
@@ -458,8 +458,7 @@ class _ImapValues:
                 raise MailError("Mailbox returned invalid message metadata")
             return raw[start : self.position]
         start = self.position - 1
-        while self.position < len(raw) and raw[self.position] not in b" ()\r\n\t":
-            self.position += 1
+        self.position = _IMAP_ATOM.match(raw, self.position).end()
         token = raw[start : self.position]
         return None if token.upper() == b"NIL" else token
 

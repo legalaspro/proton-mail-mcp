@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import hmac
 import json
@@ -18,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from . import localfs
 from .cleanup_lookup import display_row
 from .mail import MailError, MailValidationError
 from .run_journal import RUN_EVENTS, replay_runs, run_event
@@ -153,9 +153,7 @@ def header_digest(row: dict[str, Any]) -> str:
 
 
 def default_log_path() -> Path:
-    state = os.environ.get("XDG_STATE_HOME")
-    root = Path(state) if state else Path.home() / ".local" / "state"
-    return root / "proton-mail-mcp" / "actions.jsonl"
+    return localfs.state_home() / "actions.jsonl"
 
 
 def new_record(action: str, params: dict[str, str]) -> dict[str, Any]:
@@ -380,26 +378,35 @@ class ActionLog:
         try:
             if not readonly:
                 self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            refusal = localfs.parent_refusal(self.path)
+            if refusal:
+                raise MailError(f"Cleanup action log {refusal}")
             flags = (
-                os.O_RDONLY | os.O_NONBLOCK if readonly else os.O_RDWR | os.O_APPEND | os.O_CREAT
+                os.O_RDONLY | localfs.O_NONBLOCK
+                if readonly
+                else os.O_RDWR | os.O_APPEND | os.O_CREAT
             )
             try:
-                descriptor = os.open(self.path, flags | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                descriptor = localfs.open(
+                    self.path, flags | localfs.O_NOFOLLOW | localfs.O_CLOEXEC, 0o600
+                )
             except FileNotFoundError:
                 if not readonly:
                     raise
                 yield LogTransaction(None)
                 return
             info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            if not stat.S_ISREG(info.st_mode) or not localfs.owned(info) or info.st_nlink != 1:
                 raise MailError("Cleanup action log must be a private regular file")
+            refusal = localfs.acl_refusal(descriptor)
+            if refusal:
+                raise MailError(f"Cleanup action log {refusal}")
             if not readonly:
-                os.fchmod(descriptor, 0o600)
+                localfs.fchmod(descriptor, 0o600)
             try:
                 # Refuse a concurrent operation rather than waiting outside its
                 # mailbox deadline. A lock spans validation, changes, and append.
-                lock = fcntl.LOCK_SH if readonly else fcntl.LOCK_EX
-                fcntl.flock(descriptor, lock | fcntl.LOCK_NB)
+                localfs.lock(descriptor, exclusive=not readonly)
             except BlockingIOError:
                 raise _LogBusy("Cleanup action log is busy; retry the operation") from None
             yield LogTransaction(descriptor)

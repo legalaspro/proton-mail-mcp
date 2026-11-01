@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 import time
+from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -48,7 +49,7 @@ _DISCARD_MESSAGE = "Old search index cache discarded; rebuilding from scratch"
 def v1_index_path(settings):
     path = SearchIndex(settings).path
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         database.executescript(_V1_SCHEMA)
     path.chmod(0o600)
     path.with_name(path.name + ".lock").touch(mode=0o600)
@@ -56,7 +57,7 @@ def v1_index_path(settings):
 
 
 def assert_empty_v2(path):
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         assert database.execute("PRAGMA user_version").fetchone() == (2,)
         tables = {
             "messages",
@@ -84,13 +85,13 @@ def test_v1_fts_cache_is_discarded_without_virtual_table_ddl(
         # A missing virtual-table module behaves like SQLite built without FTS5.
         # PRAGMA/schema inspection works, but accessing or dropping the old table
         # needs a module that this connection cannot load.
-        with sqlite3.connect(path) as database:
+        with closing(sqlite3.connect(path)) as database, database:
             database.execute("PRAGMA writable_schema = ON")
             database.execute(
                 "UPDATE sqlite_master SET sql = replace(sql, 'USING fts5', "
                 "'USING unavailable_fts5') WHERE name = 'message_fts'"
             )
-        with sqlite3.connect(path) as database:
+        with closing(sqlite3.connect(path)) as database, database:
             with pytest.raises(sqlite3.OperationalError, match="no such module"):
                 database.execute("SELECT * FROM message_fts").fetchall()
 
@@ -121,9 +122,10 @@ def test_v1_fts_cache_is_discarded_without_virtual_table_ddl(
         return database
 
     def unlink_closed_cache(name, *args, **kwargs):
-        if name in {path.name, path.name + "-wal", path.name + "-shm"}:
+        base = os.path.basename(name)
+        if base in {path.name, path.name + "-wal", path.name + "-shm"}:
             assert connections and all(database.closed for database in connections)
-            unlinked.append(name)
+            unlinked.append(base)
         return unlink(name, *args, **kwargs)
 
     for suffix in ("-wal", "-shm"):
@@ -160,7 +162,7 @@ def test_v1_fts_cache_is_discarded_without_virtual_table_ddl(
 def test_non_v2_cache_is_discarded(settings, version, caplog):
     path = SearchIndex(settings).path
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         database.execute("CREATE TABLE obsolete_cache (private_content TEXT)")
         database.execute("INSERT INTO obsolete_cache VALUES ('old private data')")
         database.execute(f"PRAGMA user_version = {version}")
@@ -172,7 +174,7 @@ def test_non_v2_cache_is_discarded(settings, version, caplog):
 
     assert index.enabled and index.reason is None
     assert_empty_v2(path)
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         assert not database.execute(
             "SELECT name FROM sqlite_master WHERE name = 'obsolete_cache'"
         ).fetchall()
@@ -184,7 +186,7 @@ def test_non_v2_cache_is_discarded(settings, version, caplog):
 )
 def test_v2_cache_containing_fts_is_discarded(settings, caplog, module):
     path = SearchIndex(settings, rebuild=True).path
-    with sqlite3.connect(path) as database:
+    with closing(sqlite3.connect(path)) as database, database:
         database.execute(f"CREATE VIRTUAL TABLE unrelated_search USING {module}(content)")
         database.execute("INSERT INTO unrelated_search VALUES ('old private data')")
     caplog.clear()
@@ -239,7 +241,7 @@ def test_rebuilding_discarded_cache_restores_all_mail_maintenance(
     rebuilt = reader.rebuild_search_index("All Mail")
 
     assert rebuilt == {"folder": "All Mail", "indexed": 1, "available": True}
-    with sqlite3.connect(v1_index_path) as database:
+    with closing(sqlite3.connect(v1_index_path)) as database, database:
         assert database.execute("SELECT * FROM index_roles").fetchall() == [
             ("all_mail", "All Mail")
         ]
