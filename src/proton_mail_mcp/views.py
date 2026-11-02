@@ -9,7 +9,7 @@ from typing import Any
 
 from .attachments import ATTACHED_SIZE_NOTE, ENCODED_SIZE_NOTE, visible_name, visible_type
 from .email_html import email_document, sanitize_email_html
-from .mail import MailValidationError, _addresses, _HtmlText, _message_id
+from .mail import MailValidationError, _addresses, _collapse_filler, _HtmlText, _message_id
 from .send_address import FORWARD_SUBJECT, is_bare_address
 from .threading import MAX_THREAD_BODY_BYTES, MAX_THREAD_HEADER_BYTES, MAX_THREAD_SECONDS
 
@@ -23,7 +23,7 @@ def html_text(markup: str) -> str:
     """The text read_thread extracts from an HTML body."""
     parser = _HtmlText()
     parser.feed(markup)
-    return "".join(parser.parts).strip()
+    return _collapse_filler("".join(parser.parts)).strip()
 
 
 def plain_id(value: Any) -> str | None:

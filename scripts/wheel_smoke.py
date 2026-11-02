@@ -30,16 +30,22 @@ import sys
 import tempfile
 import threading
 import time
+import tomllib
 import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The package's one version, as the wheel's metadata and the server read it.
+VERSION = re.search(
+    r'^__version__ = "([^"]+)"$',
+    (ROOT / "src" / "proton_mail_mcp" / "__init__.py").read_text(encoding="utf-8"),
+    flags=re.M,
+).group(1)
 ACCOUNT = "smoke@proton.invalid"
 # Throwaway values for the stand-ins; they exist only in the scratch directory.
 PASSWORD = "smoke-bridge-password-Xq7"
-NOT_AN_ADDRESS = "pasted-by-mistake-Zk3"
 TOKEN_SERVICE = "proton-mail-mcp-token"
 BRIDGE_SERVICE = "proton-mail-mcp"
 # Well under the CI job's 10 minutes, so a hang still prints the transcript.
@@ -132,6 +138,8 @@ from pathlib import Path
 state = Path(os.environ["PMM_SMOKE_STATE"])
 with open(state / "calls.log", "a") as log:
     log.write("pgrep " + " ".join(sys.argv[1:]) + "\n")
+if "-x" in sys.argv and "bridge-gui" in sys.argv:
+    sys.exit(1)  # This host runs no Bridge desktop app.
 try:
     os.kill(int((state / "units" / "proton-mail-mcp-bridge.service.pid").read_text()), 0)
 except (OSError, ValueError):
@@ -187,6 +195,12 @@ if "--cli" in sys.argv:
         if line == "login":
             (state / "no-account").unlink(missing_ok=True)
         print(f"fake Bridge: did {line}", flush=True)
+        # What Bridge itself prints, which setup reads; the password line stays a placeholder.
+        if line == "login":
+            print("Account smoke was added successfully.", flush=True)
+        elif line == "info":
+            account = (state / "account").read_text()
+            print(f"IMAP Settings\nUsername:  {account}\nPassword:  (shown here)", flush=True)
     raise SystemExit(0)
 
 expected = (state / "expected-password").read_text()
@@ -436,6 +450,7 @@ class Smoke:
             path.write_text(text.replace("#!PYTHON", f"#!{sys.executable}", 1))
             path.chmod(0o755)
         (self.state / "expected-password").write_text(PASSWORD)
+        (self.state / "account").write_text(ACCOUNT)
         subprocess.run(
             [
                 "openssl",
@@ -461,7 +476,7 @@ class Smoke:
 
     def dry_runs(self, tool: list[object], label: str) -> None:
         version = self.run(*tool, "--version")
-        self.check("proton-mail-mcp 1.0.0" in version, f"{label}: --version says 1.0.0")
+        self.check(f"proton-mail-mcp {VERSION}" in version, f"{label}: --version says {VERSION}")
         report = json.loads(self.run(*tool, "detect", "--json"))
         self.check(
             report["env_file"].startswith(str(self.home)), f"{label}: detect uses the scratch HOME"
@@ -532,16 +547,14 @@ class Smoke:
             *tool,
             "setup",
             *common,
+            # A person types only `login` in Bridge's CLI; setup types `info` and `exit`
+            # itself and reads the username, so it never asks for one.
             script=[
-                ("Bridge IMAP username", NOT_AN_ADDRESS),
-                ("Bridge IMAP username", ACCOUNT),
+                ("Log in now, in Bridge's CLI here", ""),
+                (">>> ", "login"),
                 ("Folder for attachment files", ""),
                 ("Store new ones", "y"),
                 ("Apply these steps?", "y"),
-                ("Open Bridge's CLI here", ""),
-                (">>> ", "login"),
-                (">>> ", "info"),
-                (">>> ", "exit"),
                 ("Bridge IMAP password for", PASSWORD),
                 ("Repeat the Bridge password", PASSWORD),
             ],
@@ -552,6 +565,12 @@ class Smoke:
         self.check(code == 0, "setup on a terminal exits 0")
         self.check(
             "fake Bridge: did login" in transcript, "setup opened Bridge's CLI on the terminal"
+        )
+        self.check(
+            "fake Bridge: did info" in transcript
+            and f"Bridge's info shows the IMAP username {ACCOUNT}; setup uses it." in transcript
+            and "Bridge IMAP username (" not in transcript,
+            "setup typed info itself and read the username from Bridge, asking for none",
         )
         self.check(
             "ok: the MCP server on" in transcript and "enforces and accepts" in transcript,
@@ -572,10 +591,6 @@ class Smoke:
         self.check("LOGIN ok" in imap_log, "the server logged in to Bridge with the typed password")
         self.check('EXAMINE "INBOX"' in imap_log, "the probe read INBOX read-only")
         self.no_secret(transcript, token, "the setup transcript")
-        self.check(
-            transcript.count(NOT_AN_ADDRESS) == 1,
-            "a rejected username appears only as what the terminal echoed",
-        )
         unit_dir = self.home / ".config" / "systemd" / "user"
         units = {path.name for path in unit_dir.iterdir()}
         self.check(
@@ -600,7 +615,6 @@ class Smoke:
             (self.state / "secret-tool-env.log", "every secret-tool environment"),
         ):
             self.no_secret(path.read_text(), token, what)
-            self.check(NOT_AN_ADDRESS not in path.read_text(), f"no rejected answer in {what}")
         for name, unit_name in (("mcp", "proton-mail-mcp.service"),
                                 ("bridge", "proton-mail-mcp-bridge.service")):  # fmt: skip
             pid = int((self.state / "units" / f"{unit_name}.pid").read_text())
@@ -610,7 +624,7 @@ class Smoke:
         python = venv / "bin" / "python"
         code_check = "import importlib.metadata as m; print(m.version('proton-mail-mcp'))"
         version = self.run(python, "-I", "-c", code_check)
-        self.check(version.strip() == "1.0.0", "the private venv runs this version")
+        self.check(version.strip() == VERSION, "the private venv runs this version")
         self.check((venv / "bin" / "proton-mail-mcp").exists(), "the private venv has the command")
         base = (venv / "pyvenv.cfg").read_text().splitlines()[0]
         self.check(
@@ -630,12 +644,15 @@ class Smoke:
         output = self.run(*tool, "setup", "--yes", *common)
         self.check("is already in libsecret; keeping it" in output, "a rerun keeps credentials")
         self.check("reads INBOX through Bridge" in output, "a rerun passes the self-check")
-        self.check("not opened" in output, "a rerun does not open Bridge's CLI beside Bridge")
+        self.check(
+            "A Bridge password is already stored" in output and "Offer Bridge's CLI" not in output,
+            "a rerun with a stored password offers no Bridge login",
+        )
         stored = (self.state / "secrets" / f"{TOKEN_SERVICE}__{ACCOUNT}").read_text()
         self.check(stored == token, "a rerun keeps the token")
         self.no_secret(output, token, "the rerun output")
         direct = self.run(venv / "bin" / "proton-mail-mcp", "--version")
-        self.check("1.0.0" in direct, "the private venv's command works without uvx")
+        self.check(VERSION in direct, "the private venv's command works without uvx")
 
     def login_around_service(self, tool: list[object], common: list[object]) -> None:
         """A rerun on a terminal, with the installer's own Bridge service running."""
@@ -649,14 +666,13 @@ class Smoke:
             script=[
                 ("Folder for attachment files", ""),
                 ("Apply these steps?", "y"),
-                ("A Bridge password is stored", ""),
             ],
             log="setup-rerun-enter",
         )
         self.check(code == 0, "a rerun on a terminal exits 0")
         self.check(
             f"systemctl --user stop {bridge}" not in calls.read_text().splitlines()[seen:],
-            "with a password stored, Enter stops nothing",
+            "with a password stored, no login is offered and nothing stops",
         )
         # The first setup's login was declined: no account, and no password was stored.
         no_account = self.state / "no-account"
@@ -674,8 +690,6 @@ class Smoke:
                 ("Apply these steps?", "y"),
                 ("No Bridge password is stored yet", ""),
                 (">>> ", "login"),
-                (">>> ", "info"),
-                (">>> ", "exit"),
                 ("Bridge IMAP password for", PASSWORD),
                 ("Repeat the Bridge password", PASSWORD),
             ],
@@ -719,6 +733,32 @@ class Smoke:
             venv / "bin" / "proton-mail-mcp", "show-token", log="show-token-venv"
         )
         self.check(code == 0 and token in transcript, "the venv's show-token works too")
+        cursor = self.home / ".cursor" / "mcp.json"
+        cursor.parent.mkdir()
+        cursor.write_text('{"mcpServers": {"other": {"url": "https://example.test/mcp"}}}\n')
+        clients = ("--client", "cursor", "--client", "chatgpt")
+        output = self.run(*tool, "configure-client", *clients, "--yes", "--json")
+        # stdout, with only the JSON document, comes first; the progress on stderr follows.
+        report = json.JSONDecoder().raw_decode(output)[0]
+        servers = json.loads(cursor.read_text())["mcpServers"]
+        launcher = venv / "bin" / "proton-mail-mcp"
+        self.check(
+            report["result"] == "done"
+            and servers["proton-mail"]
+            == {"command": str(launcher), "args": ["connect", "--env-file", str(settings)]}
+            and token not in cursor.read_text()
+            and "other" in servers
+            and len(list(cursor.parent.glob("mcp.json.*.bak"))) == 1,
+            "configure-client gives Cursor the connect command, not the token, with a backup",
+        )
+        codex = tomllib.loads((self.home / ".codex" / "config.toml").read_text())
+        self.check(
+            codex["mcp_servers"]["proton-mail"]["http_headers"]["Authorization"]
+            == f"Bearer {token}",
+            "configure-client gives ChatGPT the stored token over HTTP, in ~/.codex/config.toml",
+        )
+        self.no_secret(output, token, "the configure-client output")
+        self.connect(launcher, settings, token)
         pids = [
             int((self.state / "units" / f"{unit}.pid").read_text())
             for unit in ("proton-mail-mcp.service", "proton-mail-mcp-bridge.service")
@@ -742,6 +782,45 @@ class Smoke:
         )
         self.check(not stored.exists(), "--remove-credentials removes them")
         self.no_secret(output, token, "the uninstall output")
+
+    def connect(self, launcher: Path, settings: Path, token: str) -> None:
+        """What Cursor starts: connect reads the stored token and relays to the service."""
+        messages = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "smoke", "version": "1"},
+                },
+            },
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        ]
+        result = subprocess.run(
+            [str(launcher), "connect", "--env-file", str(settings)],
+            input="".join(json.dumps(message) + "\n" for message in messages),
+            capture_output=True,
+            text=True,
+            env=self.env,
+            timeout=STEP_TIMEOUT,
+            check=False,
+            cwd=self.work,
+        )
+        answers = {
+            answer.get("id"): answer
+            for answer in map(json.loads, result.stdout.splitlines())
+            if isinstance(answer, dict)
+        }
+        self.check(
+            result.returncode == 0
+            and answers[1]["result"]["serverInfo"]["version"] == VERSION
+            and any(tool["name"] == "count_mail" for tool in answers[2]["result"]["tools"]),
+            "connect relays initialize and tools/list to the service with the stored token",
+        )
+        self.no_secret(result.stdout + result.stderr, token, "connect's output")
 
     def pipx(self, wheel: Path) -> None:
         env = {
@@ -815,7 +894,7 @@ class Smoke:
         )  # fmt: skip
         self.check(
             f"--index-url {base}/index/ --extra-index-url https://pypi.org/simple "
-            "proton-mail-mcp==1.0.0" in plan,
+            f"proton-mail-mcp=={VERSION}" in plan,
             "pipx by name: the plan passes on the index pipx recorded",
         )
         output = self.apply_by_name(command, "pipx")
@@ -851,7 +930,7 @@ class Smoke:
         )  # fmt: skip
         self.check(
             f"--index-url {base}/index/ --extra-index-url https://pypi.org/simple "
-            "proton-mail-mcp==1.0.0" in plan,
+            f"proton-mail-mcp=={VERSION}" in plan,
             "uv tool by name: the plan passes on the index uv recorded",
         )
 
@@ -881,7 +960,7 @@ class Smoke:
             "--skip-bridge-service",
         )  # fmt: skip
         self.check(
-            "--only-binary=proton-mail-mcp proton-mail-mcp==1.0.0" in plan
+            f"--only-binary=proton-mail-mcp proton-mail-mcp=={VERSION}" in plan
             and "holds the copy running this installer" in plan,
             "uvx by name: no record, so the plan pins the version and checks the copy",
         )

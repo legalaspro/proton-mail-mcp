@@ -316,6 +316,41 @@ def test_incomplete_result_warnings_only_claim_activity_while_it_exists(state):
     assert "rebuilding" not in result["index_note"]
 
 
+@pytest.mark.parametrize("state", ["queued", "running"])
+def test_bridge_sync_says_why_the_index_lags_and_that_it_catches_up(state):
+    reader = status_client(
+        {"indexed_count": 2, "all_mail_count": 8},
+        {"state": state, "last_error": "bridge_syncing"},
+    )
+    result = attach_index_status(reader, {}, depends_on_index=True, incomplete=True)
+    assert result["index_status"]["state"] == "rebuilding"
+    assert result["index_status"]["last_error"] == "bridge_syncing"
+    assert result["index_note"] == (
+        "search index waiting for Bridge, which is still downloading the mailbox (most likely "
+        "its first sync after a login); the index catches up by itself once Bridge finishes: "
+        "2/8 messages indexed (25%); results may be incomplete"
+    )
+
+
+def test_other_retry_reasons_while_rebuilding_keep_the_plain_note():
+    reader = status_client(
+        {"indexed_count": 2, "all_mail_count": 8},
+        {"state": "queued", "last_error": "rebuild_failed"},
+    )
+    result = attach_index_status(reader, {}, depends_on_index=True, incomplete=True)
+    assert "last_error" not in result["index_status"]
+    assert result["index_note"].startswith("search index rebuilding: ")
+
+
+def test_public_status_reports_bridge_sync_while_rebuilding(settings):
+    reader = client(settings, FakeImap())
+    reader.index_autorebuild._update(state="queued", last_error="bridge_syncing")
+    result = reader.reindex_status()
+    assert result["state"] == "rebuilding"
+    assert result["source"] == "auto"
+    assert result["last_error"] == "bridge_syncing"
+
+
 def test_folder_specific_inventory_never_borrows_the_account_eta():
     reader = status_client(auto={"state": "running", "target": 4, "eta_seconds": 9.0})
     result = attach_index_status(

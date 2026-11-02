@@ -1,5 +1,7 @@
 # proton-mail-mcp
 
+<!-- mcp-name: io.github.legalaspro/proton-mail-mcp -->
+
 An MCP server that lets an AI assistant read your Proton Mail, write drafts and tidy your
 mailbox, with a preview you approve before mail is moved, deleted or sent. It runs on your own
 computer, under the same login as [Proton Mail Bridge](https://proton.me/mail/bridge), and listens
@@ -100,52 +102,62 @@ You need:
 - Linux (Debian/Ubuntu, Fedora/RHEL or Arch) or macOS, with [Homebrew](https://brew.sh) unless
   Bridge is already installed. Native Windows support is new and has run only on Windows Server
   runners: read [docs/windows.md](docs/windows.md) first, or use WSL2.
-- [uv](https://docs.astral.sh/uv/), which brings Python 3.12 or newer if you have none.
+- [uv](https://docs.astral.sh/uv/), which brings Python 3.12 or newer if you have none, and git.
 
-> **Not on PyPI yet.** Until the first release is published, do not run the `uvx proton-mail-mcp`
-> commands below: anyone could hold that name on PyPI. Build a wheel from this repository with
-> `uv build --wheel`, and use
-> `uvx --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp` in their place.
+> **Not on PyPI yet.** Install from a clone of this repository, as below. The repository is
+> private for now, so your GitHub account needs access to `legalaspro/proton-mail-mcp`. Do not run
+> `uvx proton-mail-mcp` by name: until the first release is published, anyone could hold that name
+> on PyPI. Installing from PyPI, and a listing in the MCP Registry, come later.
 
-**1. Run the guided setup.**
-
-```sh
-uvx proton-mail-mcp setup
-```
-
-It prints its plan and asks before changing anything, and `--dry-run` stops after the plan. It
-checks for Bridge or installs it, offers Bridge's login, stores the Bridge password from a hidden
-prompt, installs per-user services and runs a self-check. Rerunning it is safe. If it stops on
-Debian or Ubuntu because `python3-venv` is missing, run `sudo apt-get install python3-venv`, or add
-`--managed-python` after `uvx` to use uv's own Python (until the first release,
-`uvx --managed-python --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp setup`).
-
-**2. Copy the bearer token.**
+**1. Get the code.**
 
 ```sh
-uvx proton-mail-mcp show-token
+gh repo clone legalaspro/proton-mail-mcp   # or git clone https://github.com/legalaspro/proton-mail-mcp.git
+cd proton-mail-mcp
 ```
 
-It prints only to a terminal. Keep the token in your client's secret storage, and out of version
-control and logs.
+Without access, `gh auth login` first with an account that has it, or unpack an archive of the
+repository you were given and run the rest there.
 
-**3. Connect your client.** Point it at `http://127.0.0.1:8765/mcp` and send the token in an
-`Authorization` header on every request:
+**2. Quit the Proton Mail Bridge app** if it runs, and turn off its start-at-login setting. Setup
+runs Bridge as a background service, which cannot run beside the app; the app's login carries
+over. To keep using the app instead, add `--skip-bridge-service` below.
 
-```json
-{
-  "mcpServers": {
-    "proton-mail": {
-      "type": "http",
-      "url": "http://127.0.0.1:8765/mcp",
-      "headers": { "Authorization": "Bearer ${PROTON_MCP_TOKEN}" }
-    }
-  }
-}
+**3. Run the guided setup in your own terminal**, naming your MCP client:
+
+```sh
+uvx --from . proton-mail-mcp setup --client claude-desktop
+# or claude-code, chatgpt, codex, gemini, cursor, grok-bot; repeatable
 ```
 
-This example is Claude Code's `.mcp.json` format, which reads the token from your environment.
-Other clients differ: [Connect an MCP client](docs/clients.md) has a snippet for each.
+It shows what it will do, asks its questions, prints the full plan and changes nothing else
+before you approve it (`--dry-run` stops after the plan). The one exception: when Bridge is
+installed but setup does not know your account yet, it first offers, at a `[Y/n]`, to open
+Bridge's CLI so you log in to Bridge. It checks or installs Bridge, stores the Bridge
+password and a new bearer token in your system's credential store, starts per-user services,
+checks that the server reads your inbox, and adds the server to your client, keeping a backup of
+its config. Most clients start `proton-mail-mcp connect`, which reads the token itself, so their
+config holds none. The token is never shown. Rerunning it is safe. If it stops on Debian or Ubuntu
+because `python3-venv` is missing, run `sudo apt-get install python3-venv`, or add
+`--managed-python` after `uvx`.
+
+Only you can do these, and setup says when:
+
+- **Log in to Bridge**, if it is not logged in yet: setup opens Bridge's CLI, where you type
+  `login`, your Proton email and password and the two-factor code, and open any verification link
+  it prints in a browser. Pasting works. Setup then reads your IMAP username from Bridge.
+- **Type the Bridge password** at a hidden prompt: the one Bridge's `info` (or the Bridge app)
+  shows, not your Proton password. That is why setup runs in your own terminal.
+- **On macOS, allow Keychain access** when asked: choose Always Allow.
+- **Restart your client** at the end, as setup says.
+
+**4. Check it.** Ask your assistant which Proton Mail tools it has; it should name tools such as
+`search_mail`.
+
+`uvx --from . proton-mail-mcp configure-client --client <name>` adds another client later, and
+[Connect an MCP client](docs/clients.md) has a page for each client and covers the others. An AI
+agent setting this up for you follows [llms-install.md](llms-install.md): it does everything else
+and hands you only the Bridge login, as one command for your own terminal.
 
 ## Documentation
 
@@ -167,6 +179,8 @@ On PyPI these relative links do not resolve; read them in the
   it its instructions and tool descriptions when it connects.
 - **An assistant reading about this project** can start at [`llms.txt`](llms.txt), an index of
   these docs in Markdown.
+- **An assistant installing it for someone** follows [`llms-install.md`](llms-install.md), which
+  hands the person the one step only they can do.
 - **A coding agent changing this repository** should read [`AGENTS.md`](AGENTS.md).
 
 ## License

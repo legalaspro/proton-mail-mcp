@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 from test_send import Host
 
 from proton_mail_mcp.config import Settings
-from proton_mail_mcp.mail import MailClient
+from proton_mail_mcp.mail import BridgeUnavailable, MailClient
 from proton_mail_mcp.server import BearerAuth, create_app, create_mcp, main
 
 TOKEN = "server-token-secret-" + "x" * 32
@@ -838,6 +838,16 @@ def test_mail_backend_error_does_not_leak_secrets(client, mail, caplog, failure,
     assert "Validation error:" not in visible
     assert TOKEN not in visible
     assert PASSWORD not in visible
+
+
+@pytest.mark.parametrize("name", ["search_mail", "count_mail"])
+def test_bridge_not_running_is_said_with_its_address(client, mail, name):
+    mail.failure = BridgeUnavailable("127.0.0.1", 1143)
+    result = rpc(client, "tools/call", {"name": name, "arguments": {"subject": "Example"}})
+    assert result["result"].get("isError") is True
+    visible = json.dumps(result)
+    assert "Proton Mail Bridge is not running: nothing answers on 127.0.0.1:1143." in visible
+    assert "Mailbox operation failed" not in visible
 
 
 @pytest.mark.parametrize(

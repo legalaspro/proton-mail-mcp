@@ -724,7 +724,8 @@ def test_a_custom_pass_store_and_gnupg_home_are_pinned_for_the_service():
     stores = [step for step in steps if isinstance(step, StoreSecret)]
     assert [dict(step.locations) for step in stores] == [CUSTOM_PASS, CUSTOM_PASS]
     assert probe.secret_locations == [CUSTOM_PASS, CUSTOM_PASS]
-    assert "PASSWORD_STORE_DIR=/srv/pass GNUPGHOME=/srv/gnupg pass show" in notes(steps)
+    # show-token reads the saved locations, so the hint needs none and prints no token.
+    assert "show-token --copy" in notes(steps) and "pass show" not in notes(steps)
     # A rerun from a shell without them keeps using the same store and keys.
     probe.files[paths.env_file] = written(steps, ".env").content
     probe.env.clear()
@@ -1327,7 +1328,7 @@ def test_r7_a_pass_store_and_gnupg_home_in_the_previous_venv_stay_in_use():
     settings = env_file(steps)
     assert settings["PROTON_MCP_PASSWORD_STORE_DIR"] == f"{OLD}/pass"
     assert settings["PROTON_MCP_GNUPGHOME"] == f"{OLD}/gnupg"
-    assert f"PASSWORD_STORE_DIR={OLD}/pass GNUPGHOME={OLD}/gnupg pass show" in notes(steps)
+    assert "show-token --copy" in notes(steps) and "pass show" not in notes(steps)
     text = kept_note(steps, OLD).text
     assert "uses: PROTON_MCP_PASSWORD_STORE_DIR, PROTON_MCP_GNUPGHOME." in text
     assert "rm -rf" not in text
@@ -2232,16 +2233,21 @@ def test_r7_every_removal_is_a_marked_file_or_an_empty_directory(family, scenari
             assert step.path in files, step
 
 
-def test_r8_printed_token_commands_quote_the_account():
-    # Accounts may hold $, ; or (), which ran as shell code when pasted.
-    account = "me$(id);x@example.com"
-    for store, word in (
-        ("keychain", account),
-        ("libsecret", account),
-        ("pass", f"{TOKEN_SERVICE}/{account}"),
-    ):
-        command = planner.token_hint(store, account).split("`")[1]
-        assert shlex.quote(word) in command and word in shlex.split(command)
+def test_r8_the_token_hint_names_no_command_that_prints_the_token():
+    # `security ... -w`, `secret-tool lookup` and `pass show` all print it where they run.
+    venv = "/home/you/it's $(id)/venv"
+    hint = planner.token_hint(venv, windows=False)
+    for printing in ("find-generic-password", "-w", "secret-tool", "pass show"):
+        assert printing not in hint
+    pasted = [shlex.split(command) for command in hint.split("`")[1::2]]
+    command = f"{venv}/bin/proton-mail-mcp"
+    assert pasted == [
+        [command, "configure-client", "--client", "<name>"],
+        [command, "connect"],
+        [command, "show-token", "--copy"],
+    ]
+    assert "grok-bot, claude-desktop, claude-code, chatgpt, codex, gemini, cursor" in hint
+    assert "configs hold none" in hint
 
 
 @pytest.mark.parametrize(

@@ -98,6 +98,13 @@ receive the thread text. If a card appears empty while the text result contains
 messages, check that the host delivers the result's `_meta`, where the view's
 data travels.
 
+A client that starts [`proton-mail-mcp connect`](clients.md#the-connect-command)
+gets the `ui://` resources and each tool's `_meta` unchanged, as a client over
+HTTP does: connect relays the messages as they are. Whether a client renders them
+is up to the client. The ChatGPT Mac app rendered the thread view over direct
+HTTP in a live test; Claude Desktop through connect has not been checked yet, and
+through `mcp-remote` it showed none.
+
 ## Read thread view
 
 `show_thread(message_id, include_thread=True)` shows mail the user wants to see;

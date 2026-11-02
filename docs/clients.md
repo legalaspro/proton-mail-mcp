@@ -1,6 +1,103 @@
 # Connect an MCP client
 
-The server speaks MCP over Streamable HTTP. Every client needs the same two things:
+Setup adds the server to seven clients itself: name them with `--client` (repeatable). Every one
+but ChatGPT starts [`proton-mail-mcp connect`](#the-connect-command), a local stdio server that
+reads the bearer token when it starts, so its config holds no token. ChatGPT takes the server
+directly over HTTP, with the token in its config. Any other client connects
+[over HTTP](#other-clients-mcp-over-http).
+
+| `--client` | How it connects | Its config |
+| --- | --- | --- |
+| [`claude-desktop`](clients/claude-desktop.md) | connect | `claude_desktop_config.json` |
+| [`claude-code`](clients/claude-code.md) | connect, added with `claude mcp add` when `claude` is on `PATH` | `~/.claude.json` |
+| [`chatgpt`](clients/chatgpt.md) | HTTP, with the token | `~/.codex/config.toml`, shared with Codex |
+| [`codex`](clients/codex.md) | connect, added with `codex mcp add` when `codex` is on `PATH` | `~/.codex/config.toml` |
+| [`gemini`](clients/gemini.md) | connect, added with `gemini mcp add` when `gemini` is on `PATH` | `~/.gemini/settings.json` |
+| [`cursor`](clients/cursor.md) | connect | `~/.cursor/mcp.json` |
+| [`grok-bot`](clients/grok-bot.md) | connect; no file, the entry is shown for the agent to add | The agent's own |
+
+Each client's page has its entry, the commands, a first question to try and what was checked.
+Vendors change their settings often, so trust their current docs if they differ.
+
+## The connect command
+
+A client that starts local servers as commands runs the service environment's own
+`proton-mail-mcp`, by absolute path, with `connect` and the settings file setup wrote:
+
+| System | Command | Settings file |
+| --- | --- | --- |
+| Linux | `~/.local/share/proton-mail-mcp/venv/bin/proton-mail-mcp` | `~/.config/proton-mail-mcp/proton-mail-mcp.env` |
+| macOS | `~/Library/Application Support/proton-mail-mcp/venv/bin/proton-mail-mcp` | `~/Library/Application Support/proton-mail-mcp/proton-mail-mcp.env` |
+| Windows | `%LOCALAPPDATA%\proton-mail-mcp\venv\Scripts\proton-mail-mcp.exe` | `%LOCALAPPDATA%\proton-mail-mcp\proton-mail-mcp.env` |
+
+The config names both with your home folder in full, and the environment from `--venv` if you gave
+one. An absolute path means a desktop app's short `PATH` does not matter.
+
+```sh
+proton-mail-mcp connect [--env-file PATH] [--port PORT] [--token-file PATH]
+```
+
+connect relays every MCP message between the client, on stdin and stdout, and the service at
+`http://127.0.0.1:PORT/mcp`, unchanged: client capabilities, `_meta` and the `ui://` resources of
+[MCP Apps views](mcp-apps.md) pass through as they are. It adds the bearer token to each request.
+
+- **The token** comes from `PROTON_MCP_TOKEN` in connect's environment if that is set, else from
+  `--token-file` (a file only you can read), else from the credential store the settings file
+  names, read each time connect starts. connect never prints it, logs it or puts it in a message.
+- **The port** comes from `--port`, else `PROTON_MCP_PORT` in the settings file, else 8765.
+  `--env-file` defaults to the settings file for this computer.
+- **Errors** reach the client as JSON-RPC errors, with one line on stderr, which clients keep in
+  their logs: the service is not running, the token was refused, or there is no token to read. A
+  refused token is read again once, and a service that restarted gets the session set up again,
+  before connect gives up on a request.
+
+## Let the installer write the config
+
+`setup --client <name>` adds each client at the end of a setup. Afterwards,
+`configure-client` does the same on its own, with the launcher you use in front:
+
+```sh
+proton-mail-mcp configure-client --client claude-desktop   # repeatable
+```
+
+It reads the port from the settings `setup` wrote (`--port` overrides it) and adds one
+`proton-mail` entry, in the shape each client's page gives:
+
+- Every other key and server in the file stays, and so do its byte-order mark and line endings.
+  In TOML, comments stay too, except those inside the replaced `proton-mail` table: comments and
+  blank lines at its end, such as a note above the next table, stay where they are.
+- Before a change, the old file is kept beside it as `<name>.<YYYYMMDD-HHMMSS>.bak`, owner-only;
+  a backup never replaces an earlier one. A ChatGPT entry, and its backups, may hold a token.
+- The file is written owner-only (mode `0600`).
+- An entry that already says the same leaves the file untouched, keys added to it by hand
+  included. A different `proton-mail` entry is replaced, and the run says so; anything added to
+  it by hand is then only in the backup.
+- A file that is not valid JSON or TOML, is a symbolic link, or holds the entry, or the
+  `mcp_servers` table it goes in, in a form it cannot edit safely is refused and left as it
+  was. The plan checks this before any step runs, so such a file stops `--dry-run` and `--yes`
+  alike, with `result` `refused`, and nothing changes.
+- `--dry-run` shows what would change without any value already in the file: the new entry,
+  with a placeholder for a token, whether an entry is replaced, and the names of the servers
+  kept.
+- Claude Code, Codex and Gemini CLI get the entry through their own `mcp add` when their command
+  is on `PATH`; each one's page has the commands. A failed `mcp add` never loses an entry that
+  was there.
+- ChatGPT and Codex share `~/.codex/config.toml` and its one `proton-mail` table. Codex keeps
+  ChatGPT's direct HTTP entry, which it uses too, and warns when that entry points elsewhere.
+  ChatGPT replaces a Codex entry with its own and warns, as the file then holds the token.
+- The token is read only for ChatGPT, only when applied, and is never printed.
+
+`--print-config` prints each client's entry with this computer's paths, its own `mcp add`
+command, and for Cursor a one-click link, and changes nothing. It reads no token: ChatGPT's entry
+shows a placeholder. `setup --print-config` with no `--client` prints all seven but Codex: with
+ChatGPT it shares one table, so only ChatGPT's is printed, and a note says so (`--client codex`
+alone prints Codex's). With `--json`, the document's `result` is `printed`, `configs` lists each
+client's `path`, `format`, `snippet` and, where there is one, `command` and `link`, and `notes`
+holds such notes.
+
+## Other clients: MCP over HTTP
+
+The server speaks MCP over Streamable HTTP:
 
 | Setting | Value |
 | --- | --- |
@@ -8,153 +105,26 @@ The server speaks MCP over Streamable HTTP. Every client needs the same two thin
 | Header | `Authorization: Bearer <token>`, on every request |
 | Session | Stateful with SSE: initialize a session first. Only with both `PROTON_MCP_ENABLE_SEND` and `PROTON_MCP_CONFIRM_MUTATIONS` at `0` is it stateless |
 
-Replace `<token>` with the output of `show-token`, run with the same command you installed with:
-`proton-mail-mcp show-token`, or until the first release
-`uvx --from <wheel> proton-mail-mcp show-token` (see the note in
-[Quick start](install.md#quick-start)). Keep it in your client's secret storage where it has one,
-and out of version control and logs. A missing or wrong token returns HTTP `401`.
+A client that can start a local command is better served by [connect](#the-connect-command),
+which keeps the token out of its config. Otherwise, at a terminal,
+`proton-mail-mcp show-token --copy` puts the token on the clipboard without showing it. Keep it in
+your client's secret storage, and out of version control and logs. A missing or wrong token
+returns HTTP `401`.
 
 The client must run where it can reach that address, which means on the same computer as the
 server. To reach the server from another device on your tailnet, use the HTTPS address from
 [Tailscale Serve](install.md#expose-through-tailscale-serve) as the URL; the header stays the
-same.
-
-| Client | How it connects | How this page was checked |
-| --- | --- | --- |
-| [Claude Code](#claude-code) | Directly over HTTP | Connected to this server with Claude Code 2.1.302, on 1 Nov 2026. |
-| [Claude Desktop](#claude-desktop) | Through a local stdio bridge | From Anthropic's and the bridge's docs; not run. |
-| [Codex CLI, IDE extension and app](#codex-cli-ide-extension-and-app) | Directly over HTTP | Codex CLI 0.162.1 accepted this config, on 1 Nov 2026; tool calls not run. |
-| [ChatGPT Mac app](#chatgpt-mac-app) | Directly over HTTP, with the same config as Codex | From OpenAI's docs; not run. |
-| [Grok Bot and other clients](#grok-bot-and-other-clients) | Generic MCP over HTTP | The `curl` check ran against this server, on 1 Nov 2026; Grok Bot itself not run. |
-
-Vendors change these settings often, so trust their current docs if they differ from this page.
-
-## Claude Code
-
-```sh
-claude mcp add --transport http proton-mail http://127.0.0.1:8765/mcp \
-  --header "Authorization: Bearer <token>"
-claude mcp list
-```
-
-`claude mcp list` should report the server as connected. The command above leaves the token in
-your shell history. To keep it out of files and history, put this in a project's `.mcp.json`
-and set `PROTON_MCP_TOKEN` in your environment:
-
-```json
-{
-  "mcpServers": {
-    "proton-mail": {
-      "type": "http",
-      "url": "http://127.0.0.1:8765/mcp",
-      "headers": { "Authorization": "Bearer ${PROTON_MCP_TOKEN}" }
-    }
-  }
-}
-```
-
-## Claude Desktop
-
-Claude Desktop runs local MCP servers as commands from its config file. Its custom connectors
-connect from Anthropic's cloud, so they cannot reach `127.0.0.1`. Use a local stdio bridge such
-as [`mcp-remote`](https://github.com/geelen/mcp-remote), a third-party package that needs
-Node.js.
-
-In Claude Desktop, open **Settings**, then **Developer**, then **Edit Config**. That opens
-`claude_desktop_config.json`, at `~/Library/Application Support/Claude/` on macOS. Add:
-
-```json
-{
-  "mcpServers": {
-    "proton-mail": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "http://127.0.0.1:8765/mcp",
-        "--header",
-        "Authorization:${PROTON_MCP_AUTH}"
-      ],
-      "env": { "PROTON_MCP_AUTH": "Bearer <token>" }
-    }
-  }
-}
-```
-
-Quit and reopen Claude Desktop. The token sits in this file, so keep the file private. There
-are no spaces around the `:` in the header on purpose: `mcp-remote`'s docs give this form as
-the workaround for clients that do not escape spaces in `args`.
-
-## Codex CLI, IDE extension and app
-
-These share one config, by default `~/.codex/config.toml`. Add the server with the CLI:
-
-```sh
-codex mcp add proton-mail --url http://127.0.0.1:8765/mcp \
-  --bearer-token-env-var PROTON_MCP_TOKEN
-```
-
-Or edit the file directly:
-
-```toml
-[mcp_servers.proton-mail]
-url = "http://127.0.0.1:8765/mcp"
-bearer_token_env_var = "PROTON_MCP_TOKEN"
-tool_timeout_sec = 150
-```
-
-`PROTON_MCP_TOKEN` must be set in the environment Codex runs in. `tool_timeout_sec` matters here:
-Codex's default is 60 seconds, shorter than this server's call budget. See
-[Client timeouts](#client-timeouts).
-
-## ChatGPT Mac app
-
-OpenAI's docs say the ChatGPT desktop app, Codex CLI and IDE extension share the same
-`config.toml`, so the [Codex config](#codex-cli-ide-extension-and-app) above also applies here.
-In the app, open **Settings**, then **MCP servers**, then **Add server**. Enter a name, choose
-**Streamable HTTP**, enter the URL, save, and select **Restart**.
-
-An app you start from the Dock may not see variables exported in your shell. In that case, set
-the header in `~/.codex/config.toml` instead, and keep the file private:
-
-```toml
-[mcp_servers.proton-mail]
-url = "http://127.0.0.1:8765/mcp"
-http_headers = { Authorization = "Bearer <token>" }
-tool_timeout_sec = 150
-```
-
-This is for the desktop app on your Mac. OpenAI's docs say ChatGPT on the web does not read local
-Codex configuration, and that local MCP servers may not be available in the cloud.
-
-## Grok Bot and other clients
-
-Grok Bot, like any client that speaks MCP over Streamable HTTP and can send a custom header,
-needs only the URL and header from the top of this page. Many clients take a shape like this,
-but key names vary, so check your client's docs:
-
-```json
-{
-  "mcpServers": {
-    "proton-mail": {
-      "url": "http://127.0.0.1:8765/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
-    }
-  }
-}
-```
-
-A client that runs in someone else's cloud cannot reach `127.0.0.1` on your computer.
-
-Confirmation forms have not been verified on Grok Bot. Check them before relying on it: see
-[Forms and typed OK](#forms-and-typed-ok).
+same. A client that runs in someone else's cloud cannot reach `127.0.0.1` on your computer.
 
 To check the URL and token without any client, send `initialize` with `curl`. A working server
-answers `200` with `serverInfo`; a wrong token gets `401`:
+answers `200` with `serverInfo`; a wrong token gets `401`. `read -rs` takes the token at a hidden
+prompt (paste it after `show-token --copy`), and `-H @-` gives it to curl on stdin, so it never
+appears in the process list or the shell history:
 
 ```sh
-curl -sS -i http://127.0.0.1:8765/mcp \
-  -H "Authorization: Bearer <token>" \
+read -rs TOKEN
+printf 'Authorization: Bearer %s\n' "$TOKEN" | curl -sS -i http://127.0.0.1:8765/mcp \
+  -H @- \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl-check","version":"1"}}}'
@@ -162,6 +132,22 @@ curl -sS -i http://127.0.0.1:8765/mcp \
 
 The server keeps the sessions that forms need whenever sending or confirmation is on, which is
 the default, so a client must initialize a session and read Server-Sent Events.
+
+## Troubleshooting
+
+- **"proton-mail-mcp is not running on 127.0.0.1:8765".** The service is down. On Linux,
+  `systemctl --user status proton-mail-mcp` says why; on a host without systemd, rerun setup,
+  which starts it again ([Hosts without systemd](install.md#hosts-without-systemd)). A rerun of
+  setup also runs the self-check, which names the cause.
+- **"the proton-mail-mcp service refused the bearer token".** The running service uses another
+  token than the one connect read: restart the service, or rerun setup. With `--token-file`, the
+  file most likely holds an older token; delete it and drop `--token-file`. Setup warns about a
+  `token` file left from an earlier manual setup in the settings folder.
+- **No token to read.** The credential store is locked or holds none: unlock it, or run setup
+  first. On macOS, choose Always Allow when Keychain asks whether `security` may read it. On Linux
+  the client must reach the same Secret Service as setup did.
+- **Searches come back incomplete after a first login.** Bridge is still downloading the mailbox;
+  the index catches up by itself ([`bridge_syncing`](search-index.md#automatic-startup-recovery)).
 
 ## Forms and typed OK
 

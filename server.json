@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.legalaspro/proton-mail-mcp",
+  "title": "Proton Mail (Bridge)",
+  "description": "Unofficial MCP server for Proton Mail Bridge: search and read mail, write drafts, guarded cleanup.",
+  "repository": {
+    "url": "https://github.com/legalaspro/proton-mail-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/README.md",
+  "version": "1.30.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "proton-mail-mcp",
+      "version": "1.30.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "connect"
+        }
+      ]
+    }
+  ]
+}

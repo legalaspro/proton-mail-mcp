@@ -204,9 +204,20 @@ def test_the_license_file_is_the_whole_apache_license_with_its_owner():
     assert "[yyyy]" not in text and "MIT License" not in text
 
 
+def test_the_version_has_one_source_that_the_wheel_reads():
+    # A version written in pyproject.toml too could drift from the one the server reports.
+    assert "version" not in PROJECT and PROJECT["dynamic"] == ["version"]
+    assert PYPROJECT["tool"]["hatch"]["version"]["path"] == "src/proton_mail_mcp/__init__.py"
+    text = (ROOT / "src" / "proton_mail_mcp" / "__init__.py").read_text(encoding="utf-8")
+    [version] = re.findall(r'^__version__ = "([^"]+)"$', text, flags=re.M)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version)
+    from proton_mail_mcp import __version__
+
+    assert __version__ == version
+
+
 def test_package_metadata_is_complete():
     assert PROJECT["name"] == "proton-mail-mcp"
-    assert PROJECT["version"] == "1.0.0"
     assert PROJECT["requires-python"] == ">=3.12"
     assert PROJECT["readme"] == "README.md"
     assert PROJECT["license"] == "Apache-2.0"

@@ -1,11 +1,15 @@
 """Apply or print installer steps; secrets never reach output, argv or errors."""
 
+import codecs
 import csv
 import getpass
 import hashlib
+import json
 import os
+import re
 import secrets
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -20,7 +24,7 @@ from pathlib import Path
 from typing import TextIO
 
 from .. import credential_store, localfs
-from . import selfcheck
+from . import bridge_cli, clients, selfcheck
 from .steps import (
     MARKER,
     PACKAGE,
@@ -33,12 +37,15 @@ from .steps import (
     CheckSameCopy,
     CheckStopped,
     Command,
+    ConfigureClient,
     DeleteSecret,
     Download,
     EnsureDir,
+    NeedsUser,
     Note,
     RemovePath,
     SelfCheck,
+    StartBackground,
     Step,
     StoreSecret,
     WaitForPort,
@@ -72,6 +79,10 @@ _BRIDGE_START_RETRIES = 3
 # In a dist-info directory, what comes from the wheel and decides what runs. The rest
 # differs between equal copies: pip and uv each add their own files there.
 _COMPARED_METADATA = {"METADATA", "entry_points.txt"}
+# What a terminal wraps pasted text in, when it marks a paste.
+_PASTE_MARKS = ("\x1b[200~", "\x1b[201~")
+# How long a background service may take to stop before a rerun gives up on it.
+_SERVICE_STOP_CHECKS = 20
 
 
 class InstallError(RuntimeError):
@@ -122,6 +133,14 @@ def terminal_available() -> bool:
     return True
 
 
+def pasted(text: str) -> str:
+    """Typed or pasted text as meant: without the marks some terminals wrap a paste in, or the
+    spaces and line break a copied line brings along. No Bridge password or username has any."""
+    for mark in _PASTE_MARKS:
+        text = text.replace(mark, "")
+    return text.strip()
+
+
 def command_line(argv: Sequence[str], windows: bool = os.name == "nt") -> str:
     if windows:
         return subprocess.list2cmdline(list(argv))
@@ -170,6 +189,8 @@ class Executor:
         terminal: Callable[[], bool] = on_terminal,
         check_service: Callable[..., None] = selfcheck.check_service,
         running_copy: Callable[[], metadata.Distribution] = _running_copy,
+        bridge_session: Callable[[Sequence[str]], tuple[int, str]] | None = None,
+        spawn: Callable[..., subprocess.Popen] = subprocess.Popen,
     ) -> None:
         self.dry_run = dry_run
         self.force = force
@@ -186,8 +207,15 @@ class Executor:
         self.terminal = terminal
         self.check_service = check_service
         self.running_copy = running_copy
+        # Bridge's CLI through a pseudo-terminal, which reads the username from `info`; without
+        # one, the CLI simply inherits this terminal.
+        self.bridge_session = bridge_session
+        self.spawn = spawn
         self.changed: set[str] = set()
         self.warnings: list[str] = []
+        # Each step's number, kind, summary and status, for --json; never a value.
+        self.records: list[dict[str, object]] = []
+        self._outcome = ""
 
     def say(self, text: str) -> None:
         print(text, file=self.out, flush=True)
@@ -197,7 +225,7 @@ class Executor:
         self.say(f"    warning: {text}")
 
     def run(self, steps: Sequence[Step]) -> None:
-        actions = [step for step in steps if not isinstance(step, Note)]
+        actions = [step for step in steps if not isinstance(step, (Note, NeedsUser))]
         number = 0
         for step in steps:
             if isinstance(step, Note):
@@ -205,13 +233,29 @@ class Executor:
                 if step.log:
                     self.log(step)
                 continue
+            if isinstance(step, NeedsUser):
+                self.say(f"  ! For you: {step.text}")
+                continue
             number += 1
             prefix = "[dry run] " if self.dry_run else ""
             self.say(f"[{number}/{len(actions)}] {prefix}{step.summary}")
+            record: dict[str, object] = {
+                "n": number,
+                "kind": type(step).__name__,
+                "summary": step.summary,
+            }
+            self.records.append(record)
+            warned = len(self.warnings)
+            self._outcome = "planned" if self.dry_run else "done"
             try:
                 getattr(self, f"_{type(step).__name__}")(step)
             except InstallError as error:
+                record["status"] = "failed"
                 raise InstallError(f"Step {number} ({step.summary}) failed: {error}") from None
+            except BaseException:
+                record["status"] = "interrupted"
+                raise
+            record["status"] = "warning" if len(self.warnings) > warned else self._outcome
 
     def log(self, step: Note) -> None:
         """Append an applied note to its log file, owner-only; a failure only warns."""
@@ -239,6 +283,7 @@ class Executor:
         argv = self.argv(step)
         if step.when_changed and not self.changed.intersection(step.when_changed):
             self.say(f"    skipped: nothing it depends on changed ({', '.join(step.when_changed)})")
+            self._outcome = "skipped"
             return
         for name, value in step.env:
             self.say(f"    with {name}={value}")
@@ -269,9 +314,14 @@ class Executor:
                 return
             if output.strip():
                 self.say(_indent(output))
-            raise InstallError(
-                f"exit status {result.returncode}" + (f". {step.hint}" if step.hint else "")
-            )
+            hint = step.hint
+            if step.sudo and "-n" in self.sudo:
+                # An unattended run never lets sudo ask; its cached login may have run out.
+                hint = (
+                    "sudo may need your password again, which an unattended run never types: "
+                    "run `sudo -v` in a terminal, then rerun"
+                ) + (f". {hint}" if hint else "")
+            raise InstallError(f"exit status {result.returncode}" + (f". {hint}" if hint else ""))
         if step.expect is not None:
             if step.expect not in output:
                 self.say(_indent(output))
@@ -637,11 +687,11 @@ class Executor:
         self.changed.add(step.tag)
 
     def _prompt_twice(self, account: str) -> str:
-        label = f"Bridge IMAP password for {account} (input hidden, Enter to skip): "
-        first = self._hidden(label)
+        label = f"Bridge IMAP password for {account} (input hidden; pasting works; Enter to skip): "
+        first = pasted(self._hidden(label))
         if not first:
             return ""
-        if self._hidden("Repeat the Bridge password: ") != first:
+        if pasted(self._hidden("Repeat the Bridge password: ")) != first:
             raise InstallError("the two entries differ")
         return first
 
@@ -741,26 +791,14 @@ class Executor:
 
     def _login_around_service(self, step: BridgeLogin, service: BridgeService) -> None:
         """The installer's own Bridge runs: stop it for the CLI and always start it again.
-        Whether an account is logged in cannot be seen from here: Bridge listens either way.
-        So Enter follows the stored password, which leaves a healthy rerun alone."""
-        lead = (
-            "    The installer's Bridge service is running, and Bridge's CLI cannot run beside it."
+        The plan offers a login only while no Bridge password is stored, so Enter agrees."""
+        answer = self.ask(
+            "    The installer's Bridge service is running, and Bridge's CLI cannot run beside "
+            "it. No Bridge password is stored yet, so an account most likely still has to log "
+            "in. Stop the service, open the CLI here and start the service again afterwards? "
+            "[Y/n] "
         )
-        if step.password_stored:
-            answer = self.ask(
-                f"{lead} A Bridge password is stored, so an account is most likely logged in. To "
-                "log in again, or to read the password with `info`: stop the service, open the "
-                "CLI here and start the service again afterwards? [y/N] "
-            )
-            agreed = answer.strip().lower() in {"y", "yes"}
-        else:
-            answer = self.ask(
-                f"{lead} No Bridge password is stored yet, so an account most likely still has "
-                "to log in. Stop the service, open the CLI here and start the service again "
-                "afterwards? [Y/n] "
-            )
-            agreed = answer.strip().lower() not in {"n", "no"}
-        if not agreed:
+        if answer.strip().lower() in {"n", "no"}:
             return
         try:
             still = self._stop_bridge_service(step, service)
@@ -819,17 +857,362 @@ class Executor:
             self.warn(f"cannot start Bridge's service again; run `{command}`")
 
     def _open_bridge_cli(self, step: BridgeLogin) -> None:
-        self.say(
-            "    In the CLI use `login`, then `info` (it shows the IMAP username and password "
-            "the next step asks for), then `exit`."
-        )
+        if self.bridge_session is None:
+            self.say(
+                "    In the CLI use `login`, then `info` (it shows the IMAP username and password "
+                "the next step asks for), then `exit`."
+            )
+            try:
+                result = self.runner(list(step.argv), check=False)
+            except OSError:
+                self.warn(f"cannot run {step.argv[0]}; log in to Bridge by hand")
+                return
+            status, username = result.returncode, ""
+        else:
+            self.say(f"    {bridge_cli.INSTRUCTIONS}")
+            try:
+                status, username = self.bridge_session(step.argv)
+            except OSError:
+                self.warn(f"cannot run {step.argv[0]}; log in to Bridge by hand")
+                return
+        if status:
+            self.warn(f"Bridge's CLI exited with status {status}")
+        if username and step.account and username.lower() != step.account.lower():
+            # The password would be stored, and the server would log in, under the wrong name.
+            raise InstallError(
+                f"Bridge's info shows the IMAP username {username}, not {step.account}, which "
+                f"this run was given. Rerun setup with --bridge-user {username}"
+            )
+        if username:
+            self.say(f"    ok: Bridge's info shows the IMAP username {username}")
+
+    def _ConfigureClient(self, step: ConfigureClient) -> None:
+        """Put this server into the client's config; a token is read only now, and goes only
+        into that file."""
+        client = clients.CLIENTS[step.client]
+        path = Path(step.path)
+        if client.http:
+            where = f"{step.store} ({step.service}, account {step.account}){_at(step.locations)}"
+            self.say(
+                f"    {path}: {clients.SERVER_NAME} over HTTP, with the token from {where}; the "
+                "token is never printed"
+            )
+        else:
+            self.say(
+                f"    {path}: {clients.SERVER_NAME} starts "
+                f"`{command_line(step.command, self.windows)}`, which reads the token itself; "
+                "the file holds no token"
+            )
+        native: tuple[tuple[str, ...], ...] = ()
+        if step.native:
+            native = clients.native_commands(step.client, step.native, step.command)
+        if path.is_symlink():
+            raise InstallError(
+                f"{path} is a symbolic link, and the installer never writes through one. Point "
+                "the client at a real file, or add the entry by hand (docs/clients.md)"
+            )
+        current = None
+        if path.exists():
+            try:
+                current = path.read_bytes()
+            except OSError:
+                raise InstallError(f"cannot read {path}") from None
         try:
-            result = self.runner(list(step.argv), check=False)
-        except OSError:
-            self.warn(f"cannot run {step.argv[0]}; log in to Bridge by hand")
+            text = current.decode("utf-8-sig") if current is not None else None
+            servers = clients.servers_in(text, client.form)
+        except (clients.ConfigError, UnicodeError) as error:
+            if native:
+                # The client's own command reads its own file; only the preview is lost.
+                text, servers = None, {}
+            else:
+                reason = (
+                    str(error) if isinstance(error, clients.ConfigError) else "is not UTF-8 text"
+                )
+                raise InstallError(
+                    f"{path} {reason}, so it was not changed. Fix or move it, then rerun"
+                ) from None
+        found = servers.get(clients.SERVER_NAME)
+        if self._shared_entry(step, found):
             return
-        if result.returncode:
-            self.warn(f"Bridge's CLI exited with status {result.returncode}")
+        if native:
+            self.say(f"    added with {client.label}'s own command line, {step.native}")
+            if found is None:
+                # Nothing to take out first; a remove runs only for an entry that is there.
+                native = ((), *native[1:])
+        if self.dry_run:
+            self._preview(step, current is None, servers)
+            if not native:
+                # The real run's merge, so a file it would refuse is refused before any step
+                # runs; the placeholder stands for the token, which a dry run never reads.
+                placeholder = clients.TOKEN_PLACEHOLDER
+                server = clients.entry(step.client, step.port, placeholder, step.command)
+                self._merged(path, text, client.form, server)
+            for argv in native:
+                if argv:
+                    self.say(f"    $ {command_line(argv, self.windows)}")
+            return
+        if step.client == "claude-code":
+            self._shadowing_projects(text)
+        token = ""
+        if client.http:
+            try:
+                token = credential_store.lookup(
+                    step.store, step.service, step.account, dict(step.locations)
+                )
+            except credential_store.CredentialStoreError as error:
+                raise InstallError(f"{error}; run setup first, which stores the token") from None
+            if not token:
+                raise InstallError("the stored MCP token is empty; rerun setup")
+        wanted = clients.entry(step.client, step.port, token, step.command)
+        if clients.same(found, wanted):
+            self.say("    unchanged: the entry is already there")
+            self._outcome = "unchanged"
+            return
+        if native:
+            self._add_natively(step, client, native, path, current, found)
+        else:
+            new = self._merged(path, text, client.form, wanted)
+            if new is None:
+                self.say("    unchanged: the entry is already there")
+                self._outcome = "unchanged"
+                return
+            if current is None:
+                try:
+                    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                except OSError as error:
+                    raise InstallError(f"Cannot create {path.parent}: {error.strerror}") from None
+            else:
+                self.say(f"    kept the previous file as {_backup(path, current)}")
+            # Owner-only: the file may hold this token or another server's secrets.
+            _atomic_write(path, _encoded(new, current), 0o600)
+            state = "create" if current is None else "update"
+            self.say(f"    {path}: {state} ({self._access(0o600)})")
+        if found is not None:
+            # Anything added to the old entry by hand, such as an extra variable, is gone.
+            self.say(
+                f"    replaced the existing {clients.SERVER_NAME} entry; the backup above keeps it"
+            )
+
+    def _merged(self, path: Path, text: str | None, form: str, server: dict) -> str | None:
+        try:
+            return clients.merged(text, server, form)
+        except clients.ConfigError as error:
+            raise InstallError(
+                f"{path} {error}, so it was not changed. Fix or move it, then rerun"
+            ) from None
+
+    def _shared_entry(self, step: ConfigureClient, found: object) -> bool:
+        """ChatGPT and Codex read one config.toml, so one's entry is the other's. Whether Codex
+        keeps ChatGPT's direct HTTP entry, which it can use too: replacing it would cut ChatGPT
+        off. ChatGPT needs its own, so it replaces Codex's, and says so."""
+        http = isinstance(found, dict) and "url" in found
+        if step.client == "chatgpt" and isinstance(found, dict) and not http:
+            self.warn(
+                f"the {clients.SERVER_NAME} entry in {step.path} starts a command, which "
+                "Codex can use; ChatGPT's direct HTTP entry replaces it, Codex uses that one "
+                "too, and the file then holds the token"
+            )
+        if step.client != "codex" or not http:
+            return False
+        self.say(
+            f"    kept: the {clients.SERVER_NAME} entry there connects over HTTP, as --client "
+            "chatgpt writes it, and Codex uses it too; replacing it would cut the ChatGPT app off"
+        )
+        url = clients.server_url(step.port)
+        if found.get("url") != url:
+            self.warn(
+                f"the {clients.SERVER_NAME} entry in {step.path} does not point at this "
+                f"server's {url}; run configure-client --client chatgpt, which updates it for "
+                "ChatGPT and Codex both"
+            )
+        self._outcome = "unchanged"
+        return True
+
+    def _preview(self, step: ConfigureClient, new_file: bool, servers: dict) -> None:
+        """What a run would change, without a value of anything already in the file."""
+        wanted = clients.entry(step.client, step.port, clients.TOKEN_PLACEHOLDER, step.command)
+        found = servers.get(clients.SERVER_NAME)
+        if clients.same(found, wanted):
+            self.say("    (unchanged: the entry is already there)")
+            return
+        if clients.CLIENTS[step.client].http and clients.same(found, {"url": wanted["url"]}):
+            headers = found.get("http_headers")
+            if isinstance(headers, dict) and list(headers) == ["Authorization"]:
+                # A dry run reads no token, so it cannot tell whether this one is current.
+                self.say(
+                    "    (the entry is there: a run rewrites it only if its token is not the "
+                    "stored one)"
+                )
+                return
+        if new_file:
+            self.say("    (creates the file)")
+        elif found is not None:
+            self.say(f"    - {clients.SERVER_NAME}: the entry there now (its values are not shown)")
+        self.say(f"    + {clients.SERVER_NAME}: {json.dumps(wanted, ensure_ascii=False)}")
+        others = sorted(name for name in servers if name != clients.SERVER_NAME)
+        if others:
+            self.say(f"    (kept as they are: {', '.join(others)})")
+
+    def _add_natively(
+        self,
+        step: ConfigureClient,
+        client: clients.Client,
+        native: tuple[tuple[str, ...], ...],
+        path: Path,
+        current: bytes | None,
+        found: object,
+    ) -> None:
+        """The client's own `mcp add`, which knows its file and its locking. Claude Code's
+        refuses a name it has, so its earlier entry is removed first, and put back if the add
+        then fails: a failed run never loses a working entry."""
+        remove, add, listing = native
+        backup = _backup(path, current) if current is not None else None
+        if backup:
+            self.say(f"    kept the previous file as {backup}")
+        if remove:
+            self._quiet(remove)
+        self.say(f"    $ {command_line(add, self.windows)}")
+        try:
+            result = self.runner(
+                list(add), check=False, capture_output=True, **_text(), timeout=_VERIFY_TIMEOUT
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        except BaseException:
+            # Interrupted between the remove and the add.
+            if remove:
+                self._put_back(path, found, backup)
+            raise
+        if result is None or result.returncode:
+            if result is not None:
+                self._relay(_output(result))
+            if remove:
+                self._put_back(path, found, backup)
+            failed = (
+                f"cannot run {add[0]}"
+                if result is None
+                else f"{client.label}'s `mcp add` exited with status {result.returncode}"
+            )
+            raise InstallError(f"{failed}; add the entry by hand (docs/clients/{step.client}.md)")
+        self.say(f"    $ {command_line(listing, self.windows)}")
+        try:
+            listed = self.runner(
+                list(listing), check=False, capture_output=True, **_text(), timeout=_VERIFY_TIMEOUT
+            )
+            lines = [
+                line.strip() for line in _output(listed).splitlines() if clients.SERVER_NAME in line
+            ]
+        except (OSError, subprocess.SubprocessError):
+            lines = []
+        if lines:
+            # Its own line names the command and whether it connected; it holds no token.
+            self.say(f"    ok: {lines[0]}")
+            if step.client == "gemini" and "disabled" in lines[0].lower():
+                self.say(
+                    "    (Gemini CLI turns MCP servers off in a folder it does not trust; it "
+                    "starts this one in the folders you trust)"
+                )
+        else:
+            self.warn(
+                f"`{command_line(listing, self.windows)}` does not list {clients.SERVER_NAME}"
+            )
+
+    def _relay(self, output: str) -> None:
+        """A failed command's own message, without a line that may quote a value from the
+        client's file, such as another server's key."""
+        lines = output.strip().splitlines()
+        shown = [line for line in lines if not _QUOTES_A_VALUE.search(line)]
+        if shown:
+            self.say(_indent("\n".join(shown)))
+        if len(shown) < len(lines):
+            self.say(f"    ({len(lines) - len(shown)} line(s) not shown: they may quote a secret)")
+
+    def _put_back(self, path: Path, entry: object, backup: Path | None) -> None:
+        """Put the entry the client's own remove took out back into its JSON file, keeping
+        whatever else changed there since."""
+        try:
+            data = path.read_bytes()
+            new = clients.merged(data.decode("utf-8-sig"), entry)
+            if new is not None:
+                _atomic_write(path, _encoded(new, data), 0o600)
+        except (OSError, UnicodeError, clients.ConfigError, InstallError):
+            kept = f"; {backup} keeps it" if backup else ""
+            self.warn(f"cannot put the earlier {clients.SERVER_NAME} entry back{kept}")
+            return
+        self.say(f"    put the earlier {clients.SERVER_NAME} entry back")
+
+    def _quiet(self, argv: tuple[str, ...]) -> None:
+        """Run a command whose failure means nothing, such as removing what may not be there."""
+        self.say(f"    $ {command_line(argv, self.windows)}")
+        try:
+            self.runner(list(argv), check=False, capture_output=True, **_text(), timeout=_TIMEOUT)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    def _shadowing_projects(self, text: str | None) -> None:
+        """A project's own (local scope) proton-mail entry wins over the user-scope one there."""
+        try:
+            projects = json.loads(text).get("projects", {}) if text else {}
+        except (ValueError, AttributeError):
+            return
+        for folder, settings in projects.items() if isinstance(projects, dict) else ():
+            servers = settings.get("mcpServers") if isinstance(settings, dict) else None
+            if isinstance(servers, dict) and clients.SERVER_NAME in servers:
+                self.warn(
+                    f"the project {folder} has its own {clients.SERVER_NAME} entry, which Claude "
+                    "Code uses there instead of this one; in that folder run `claude mcp remove "
+                    f"--scope local {clients.SERVER_NAME}`"
+                )
+
+    def _StartBackground(self, step: StartBackground) -> None:
+        """Start the service detached from this run, its output appended to a private log."""
+        self.say(f"    $ {command_line(step.argv, self.windows)} >> {shlex.quote(step.log)} 2>&1 &")
+        self.say(f"    (its process id goes to {step.pidfile})")
+        if self.dry_run:
+            return
+        running = _service_pid(step.pidfile, step.argv[0])
+        if running and not self.changed.intersection(step.restart_on):
+            self.say(f"    already running as process {running}, and nothing it reads changed")
+            self._outcome = "skipped"
+            return
+        if running:
+            self.say(f"    stop process {running}, which started before this run's changes")
+            if not _stop_process(running, step.argv[0], self.sleep):
+                raise InstallError(
+                    f"process {running} did not stop; stop it with `kill {running}` and rerun"
+                )
+        elif self.port_open(step.port):
+            self.say(
+                f"    127.0.0.1:{step.port} answers already, so nothing was started; the checks "
+                "that follow show what answers"
+            )
+            self._outcome = "skipped"
+            return
+        log = Path(step.log)
+        try:
+            for folder in (log.parent, Path(step.pidfile).parent):
+                folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | _BINARY, 0o600)
+        except OSError:
+            raise InstallError(f"cannot open {log}") from None
+        try:
+            process = self.spawn(
+                list(step.argv),
+                stdin=subprocess.DEVNULL,
+                stdout=descriptor,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError:
+            raise InstallError(f"cannot run {step.argv[0]}") from None
+        finally:
+            os.close(descriptor)
+        _atomic_write(Path(step.pidfile), f"{process.pid}\n".encode(), 0o600)
+        self.say(
+            f"    started as process {process.pid}; it stops when this host restarts, so run "
+            "setup again then, or have your own init system run the command above"
+        )
 
     def _SelfCheck(self, step: SelfCheck) -> None:
         self.say(
@@ -953,6 +1336,16 @@ def _output(result: subprocess.CompletedProcess) -> str:
     return (result.stdout or "") + (result.stderr or "")
 
 
+# A line that may quote one from a config file: a key and its value, or a credential.
+_QUOTES_A_VALUE = re.compile(r"=|bearer|authorization|token|secret|password|api[_-]?key", re.I)
+
+
+def _encoded(text: str, original: bytes | None) -> bytes:
+    """New text for a file, with the byte-order mark the old one had."""
+    mark = codecs.BOM_UTF8 if original and original.startswith(codecs.BOM_UTF8) else b""
+    return mark + text.encode("utf-8")
+
+
 def _make_dirs(*paths: Path) -> None:
     try:
         for path in paths:
@@ -993,3 +1386,59 @@ def _atomic_write(path: Path, data: bytes, mode: int) -> None:
         localfs.replace(temporary, path)
     except OSError:
         raise InstallError(f"cannot write {path}; the new content stays in {temporary}") from None
+
+
+def _backup(path: Path, data: bytes) -> Path:
+    """Keep data under a new name dated now, next to path; an earlier backup is never replaced.
+    It may hold an earlier token, so it is owner-only."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for count in range(1, 100):
+        backup = path.with_name(f"{path.name}.{stamp}{f'-{count}' if count > 1 else ''}.bak")
+        try:
+            descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY, 0o600)
+        except FileExistsError:
+            continue
+        except OSError:
+            raise InstallError(f"cannot create a backup of {path} in {path.parent}") from None
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError:
+            raise InstallError(f"cannot write {backup}, which stays") from None
+        return backup
+    raise InstallError(f"cannot create a backup of {path} in {path.parent}")
+
+
+def _service_pid(pidfile: str, program: str) -> int | None:
+    """The process the pid file names, while it is alive and still runs program; None when it
+    is gone, or when its id now belongs to something else."""
+    try:
+        pid = int(Path(pidfile).read_text(encoding="ascii").strip())
+        command = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except (OSError, ValueError):
+        return None
+    return pid if pid > 1 and program.encode() in command.split(b"\0") else None
+
+
+def _stop_process(pid: int, program: str, sleep: Callable[[float], None]) -> bool:
+    """Ask one process, by its id, to stop, and wait for it to go."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    for _check in range(_SERVICE_STOP_CHECKS):
+        sleep(0.5)
+        if not Path(f"/proc/{pid}").exists() or not _runs(pid, program):
+            return True
+    return False
+
+
+def _runs(pid: int, program: str) -> bool:
+    try:
+        return program.encode() in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return False

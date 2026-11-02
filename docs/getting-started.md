@@ -8,9 +8,10 @@ You need a paid Proton plan, because Bridge requires one, and an MCP client on t
 
 ## 1. Install and connect
 
-Follow the three steps under [Install](../README.md#install) in the README. They set up Bridge and
-the server, print your bearer token and connect your client. To check the connection, ask your
-assistant which Proton Mail tools it has. It should name tools such as `search_mail`.
+Follow the steps under [Install](../README.md#install) in the README. They set up Bridge and the
+server, and add the server to your client; [Connect an MCP client](clients.md) has a page for
+each. To check the connection, ask your assistant which Proton Mail tools it has. It should name
+tools such as `search_mail`.
 
 ## 2. Read some mail
 

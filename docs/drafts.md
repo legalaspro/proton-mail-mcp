@@ -12,6 +12,11 @@ tool's arguments are in the [tool reference](tools.md).
 | [`read_attachment`](tools.md#read_attachment) | Read-only: text from a PDF, TXT or CSV, in pieces of 65,536 characters (`next_offset` continues), or an image as image content. At most 10 MiB, images 5 MiB. |
 | [`save_attachment`](tools.md#save_attachment) | Saves one attachment, at most 25 MiB, as a new private file in `PROTON_MCP_ATTACHMENTS_DIR`. Never overwrites and never writes anywhere else. Audited, without file names or content. |
 
+A new draft's `Message-ID` ends in this computer's host name: Python's
+`email.utils.make_msgid` takes it from `socket.getfqdn()`, so on a host without a domain name,
+such as a container, it may end in `@localhost` or the bare host name. The part before the
+`@` is random, so each ID stays unique.
+
 ## Attachments
 
 `list_attachments`, `read_attachment` and `save_attachment` work on one message at a

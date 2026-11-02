@@ -125,6 +125,9 @@ class DiskProbe(HostProbe):
     def can_make_venv(self, python: str) -> bool:
         return True
 
+    def port_open(self, port: int) -> bool:
+        return False
+
     def has_secret(self, *args, **kwargs) -> bool:
         return True
 

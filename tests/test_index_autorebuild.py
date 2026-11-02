@@ -571,6 +571,94 @@ def test_transient_failures_stop_after_bounded_attempts(settings, monkeypatch):
         worker.stop()
 
 
+def growing_failures(monkeypatch, reader, fake, growing):
+    """Fail every All Mail batch; the first `growing` failures each add a message, as
+    Bridge's first sync after a login does, and no failure leaves the mailbox private
+    text."""
+    attempts, backoffs, running = [], [], []
+
+    def fail(*args, **kwargs):
+        attempts.append(True)
+        running.append(reader.index_autorebuild.status())
+        if len(attempts) <= growing:
+            uid = max(map(int, fake.folders["All Mail"])) + 1
+            fake.folders["All Mail"].update(items(uid))
+        raise OSError("private-sync-diagnostic")
+
+    def record_wait(seconds, *, backoff=False):
+        if backoff:
+            backoffs.append((seconds, reader.index_autorebuild.status(), reader.reindex_status()))
+
+    monkeypatch.setattr(reader, "_metadata", fail)
+    monkeypatch.setattr(reader.index_autorebuild, "_wait", record_wait)
+    return attempts, backoffs, running
+
+
+def test_a_growing_mailbox_is_waited_out_as_bridge_syncing(settings, monkeypatch, caplog):
+    import proton_mail_mcp.index_autorebuild as autorebuild
+
+    fake = GluonSearchImap({"All Mail": items(1)}, uidnext=True)
+    reader, worker = job(settings, fake)
+    original = reader._metadata
+    syncing = autorebuild._MAX_FAILURES + 5
+    attempts, backoffs, running = growing_failures(monkeypatch, reader, fake, syncing + 1)
+
+    def settle(*args, **kwargs):
+        # Bridge's sync ends: the mailbox holds still and every batch succeeds.
+        if len(attempts) > syncing:
+            return original(*args, **kwargs)
+        return failing(*args, **kwargs)
+
+    failing = reader._metadata
+    monkeypatch.setattr(reader, "_metadata", settle)
+    with caplog.at_level(logging.WARNING):
+        worker.start()
+        try:
+            complete(worker)
+        finally:
+            worker.stop()
+    assert len(attempts) == syncing + 1
+    # The first failure has no earlier count to compare; each later one saw growth.
+    assert backoffs[0][1]["last_error"] == "rebuild_failed"
+    later = backoffs[1:]
+    assert len(later) == syncing
+    assert all(status["state"] == "queued" for _, status, _ in later)
+    assert all(status["last_error"] == "bridge_syncing" for _, status, _ in later)
+    assert all(public["state"] == "rebuilding" for _, _, public in later)
+    assert all(public["last_error"] == "bridge_syncing" for _, _, public in later)
+    # Capped exponential backoff of its own, never a permanent failure.
+    assert [seconds for seconds, _, _ in later][:7] == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0]
+    assert max(seconds for seconds, _, _ in backoffs) == autorebuild._MAX_RETRY_SECONDS
+    # A session started while Bridge still syncs keeps saying so.
+    assert running[2]["state"] == "running" and running[2]["last_error"] == "bridge_syncing"
+    assert worker.status()["state"] == "succeeded" and worker.status()["last_error"] is None
+    assert reader.search_index.coverage("All Mail")[1] == len(fake.folders["All Mail"])
+    assert any("reason=bridge_syncing" in row.message for row in caplog.records)
+    assert all("private-sync" not in row.message for row in caplog.records)
+    assert "private-sync" not in str(worker.status())
+
+
+def test_failures_after_the_mailbox_settles_use_the_retry_budget_again(settings, monkeypatch):
+    import proton_mail_mcp.index_autorebuild as autorebuild
+
+    fake = GluonSearchImap({"All Mail": items(1)}, uidnext=True)
+    reader, worker = job(settings, fake)
+    attempts, backoffs, _ = growing_failures(monkeypatch, reader, fake, 3)
+    worker.start()
+    try:
+        worker._thread.join(5)
+        assert not worker._thread.is_alive(), worker.status()
+    finally:
+        worker.stop()
+    reasons = [status["last_error"] for _, status, _ in backoffs]
+    assert reasons[1:4] == ["bridge_syncing"] * 3
+    assert reasons.count("bridge_syncing") == 3
+    # Three waited-out failures, then the usual budget of counted ones.
+    assert len(attempts) == autorebuild._MAX_FAILURES + 3
+    assert worker.status()["state"] == "failed"
+    assert worker.status()["last_error"] == "rebuild_failed"
+
+
 def test_persistent_later_folder_failure_keeps_retry_budget_and_backoff(settings, monkeypatch):
     import proton_mail_mcp.index_autorebuild as autorebuild
 

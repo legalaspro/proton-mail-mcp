@@ -193,9 +193,8 @@ class BridgeLogin:
     # Exits 0 while a Bridge --noninteractive process runs and 1 when none does; any
     # other answer proves nothing.
     processes: tuple[str, ...] = ()
-    # A stored password means a login most likely happened, so Enter leaves the service
-    # alone. The port cannot say: Bridge listens with no account logged in too.
-    password_stored: bool = False
+    # The IMAP username setup was given; Bridge's `info` must show the same one.
+    account: str = ""
 
 
 @dataclass(frozen=True)
@@ -210,6 +209,61 @@ class SelfCheck:
     summary: str
     hint: str = ""
     locations: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ConfigureClient:
+    """Add or update this server's entry in an MCP client's config.
+
+    Most clients get `command`, the stdio connect command, which reads the token itself; for a
+    client that takes HTTP directly the token is read from the credential store only when
+    applied, and goes only into that file: never into the plan, the output or an error. With
+    `native`, the client's own command line adds the entry; otherwise the installer merges it.
+    Every other key and server in the file stays; a changed file is first kept under a new,
+    dated .bak name, and an unchanged one is not touched."""
+
+    client: str
+    path: str
+    port: int
+    summary: str
+    command: tuple[str, ...] = ()
+    # The client's own program, by absolute path, when it is on PATH.
+    native: str = ""
+    store: str = ""
+    service: str = ""
+    account: str = ""
+    locations: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class StartBackground:
+    """Start the MCP service as a background process where no service manager runs it, such as
+    a container without systemd. The process id goes to `pidfile`; a rerun stops that process,
+    by that id only and only while it still runs the service, when something it reads changed."""
+
+    argv: tuple[str, ...]
+    log: str
+    pidfile: str
+    port: int
+    summary: str
+    # Tags that, changed by this run, mean a running copy is out of date.
+    restart_on: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class NeedsUser:
+    """Something only a person can do, said where it happens in the plan.
+
+    A run that cannot ask a person stops before any change for one that is blocking, or
+    that needs the terminal setup runs in. `when` tells an agent when to hand it over:
+    before the run, during it, or after it."""
+
+    id: str
+    text: str
+    when: str = "during"
+    blocking: bool = False
+    terminal: bool = False
+    command: str = ""
 
 
 @dataclass(frozen=True)
@@ -237,5 +291,8 @@ Step = (
     | WaitForPort
     | BridgeLogin
     | SelfCheck
+    | ConfigureClient
+    | StartBackground
+    | NeedsUser
     | Note
 )

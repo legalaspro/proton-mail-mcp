@@ -4,7 +4,7 @@
 
 An assistant connected to the server gets its instructions from the server itself, when it connects and in the tool list. These pages are for reading about the project, helping someone set it up, or explaining a result.
 
-Not on PyPI yet: until the first release is published, do not suggest `uvx proton-mail-mcp` or `pip install proton-mail-mcp`, because anyone could hold that name on PyPI. Install from a wheel built from the repository, as the README says.
+Not on PyPI yet: until the first release is published, do not suggest `uvx proton-mail-mcp` or `pip install proton-mail-mcp`, because anyone could hold that name on PyPI. Install from a clone of the repository, which is private for now, as the README says: `uvx --from . proton-mail-mcp setup --client <client>`. An agent setting it up for someone follows llms-install.md: it uses `--json`, which lists what only the person can do, and hands the person the Bridge login.
 
 ## Start here
 
@@ -14,8 +14,16 @@ Not on PyPI yet: until the first release is published, do not suggest `uvx proto
 
 ## Set up
 
-- [Install](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/install.md): The installer in full, manual install, launchd, Tailscale Serve, uninstall
-- [Connect an MCP client](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients.md): Settings for Claude Desktop, Claude Code, Codex, the ChatGPT Mac app and generic MCP over HTTP
+- [Install](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/install.md): The installer in full, its --json output for agents, manual install, launchd, Tailscale Serve, uninstall
+- [Install with an AI agent](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/llms-install.md): Steps for an agent installing the server for someone, with the human login hand-off
+- [Connect an MCP client](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients.md): The connect command, configure-client and --print-config, safe config merges, generic MCP over HTTP
+- [Claude Desktop](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/claude-desktop.md): The connect entry, the .mcpb bundle, MCP Apps views
+- [Claude Code](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/claude-code.md): claude mcp add at user scope, and a project's own entry
+- [ChatGPT Mac app](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/chatgpt.md): Direct HTTP in ~/.codex/config.toml, with the token
+- [Codex](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/codex.md): codex mcp add, or the config.toml table
+- [Gemini CLI](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/gemini.md): gemini mcp add at user scope, or settings.json
+- [Cursor](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/cursor.md): The mcp.json entry and one-click install links
+- [Grok Bot and other agents](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/grok-bot.md): The connector entry an agent on the same computer adds
 - [Configuration](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/configuration.md): Every environment variable, Bridge TLS, protected senders
 
 ## Reference

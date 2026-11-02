@@ -1,11 +1,14 @@
 """Installer command line: setup, install, uninstall or detect, each with --dry-run."""
 
 import argparse
+import functools
 import json
 import ntpath
 import os
 import posixpath
 import re
+import shutil
+import subprocess
 import sys
 import tomllib
 from dataclasses import asdict, replace
@@ -17,28 +20,46 @@ from urllib.request import url2pathname
 from .. import credential_store, localfs
 from ..config import default_attachments_dir, valid_attachments_dir
 from ..credential_store import STORES, TOKEN_SERVICE
+from . import bridge_cli, clients
+from .clients import CLIENTS
 from .detect import FAMILIES, Platform, detect_host, simulated
-from .execute import Executor, InstallError, on_terminal, terminal_available
+from .execute import (
+    Executor,
+    InstallError,
+    command_line,
+    on_terminal,
+    pasted,
+    terminal_available,
+)
 from .plan import (
     ATTACHMENTS_KEY,
     BRIDGE_VERSION,
+    VENV_KEY,
     CredentialsUnknown,
     Options,
     Paths,
     PlanError,
     Probe,
     bridge_account,
+    bridge_executable,
+    bridge_processes,
     choose_store,
+    configure_plan,
+    connector,
     credential_locations,
     default_attachments,
     existing_settings,
+    in_uv_cache,
     install_plan,
     is_pinned,
+    launcher,
     paths_for,
+    service_python,
     uninstall_plan,
+    with_venv,
 )
 from .probe import HostProbe, simulated_probe
-from .steps import PACKAGE, Note, Step, StoreSecret
+from .steps import PACKAGE, NeedsUser, Note, Step
 
 # Shown for the Bridge username in a dry run that has none yet; no store is asked about it.
 PLACEHOLDER_ACCOUNT = "you@proton.me"
@@ -46,6 +67,20 @@ PLACEHOLDER_ACCOUNT = "you@proton.me"
 _ADDRESS = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s.]+")
 # pip's `--trusted-host`: a host name or address, with an optional port.
 _TRUSTED_HOST = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:[0-9]+)?")
+# Answers without a prompt only while sudo still holds this user's credentials.
+SUDO_CACHED = ("sudo", "-n", "true")
+# Words that make a run ask nothing; a person running it in their own terminal drops them.
+_UNATTENDED = {"--json", "--non-interactive", "--yes", "-y", "--dry-run"}
+# Programs that take the token on stdin and keep it on the clipboard, by platform.
+_CLIPBOARDS = {
+    "macos": (("pbcopy",),),
+    "windows": (("clip",),),
+    "linux": (
+        ("wl-copy",),
+        ("xclip", "-selection", "clipboard"),
+        ("xsel", "--clipboard", "--input"),
+    ),
+}
 SERVICE_MANAGERS = {
     "debian": "systemd user units",
     "fedora": "systemd user units",
@@ -197,18 +232,58 @@ def recorded_index_args(source: str) -> tuple[str, ...]:
     return ()
 
 
-def build_parser(prog: str = "install") -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+class _Parser(argparse.ArgumentParser):
+    """argparse, whose usage errors under --json also come as the one JSON document on stdout,
+    so an agent's parser never meets an empty stdout."""
+
+    def __init__(self, *args, json_errors: bool = False, **kwargs) -> None:
+        # No abbreviations: --js would be --json to argparse, but not to the check for it.
+        super().__init__(*args, allow_abbrev=False, **kwargs)
+        self.json_errors = json_errors
+
+    def error(self, message: str):
+        if not self.json_errors:
+            super().error(message)
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        document = {
+            "schema": REPORT_SCHEMA,
+            "command": None,
+            "result": "refused",
+            "exit_code": 2,
+            "steps": [],
+            "needs_user": [],
+            "next": _NEXT["refused"],
+            "error": message,
+        }
+        print(json.dumps(document, indent=2), flush=True)
+        raise SystemExit(2)
+
+
+def build_parser(prog: str = "install", json_errors: bool = False) -> argparse.ArgumentParser:
+    parser = _Parser(
         prog=prog,
         description="Install or remove Proton Mail Bridge, proton-mail-mcp and their services.",
+        json_errors=json_errors,
     )
     actions = parser.add_subparsers(dest="action", required=True)
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--dry-run", action="store_true", help="print the plan; change nothing")
-    common.add_argument("--yes", "-y", action="store_true", help="apply without asking")
-    common.add_argument(
+    unattended = argparse.ArgumentParser(add_help=False)
+    unattended.add_argument("--dry-run", action="store_true", help="print the plan; change nothing")
+    unattended.add_argument("--yes", "-y", action="store_true", help="apply without asking")
+    unattended.add_argument(
         "--simulate", choices=FAMILIES, help="plan for another platform (needs --dry-run)"
     )
+    unattended.add_argument(
+        "--non-interactive",
+        action="store_true",
+        help="ask nothing and open no prompt; what needs a person stops the run first",
+    )
+    unattended.add_argument(
+        "--json",
+        action="store_true",
+        help="as --non-interactive, with one JSON result on stdout (progress on stderr)",
+    )
+    common = argparse.ArgumentParser(add_help=False, parents=[unattended])
     common.add_argument("--bridge-user", help="Bridge IMAP username (from Bridge's `info`)")
     common.add_argument("--credential-store", choices=STORES)
     common.add_argument(
@@ -234,27 +309,59 @@ def build_parser(prog: str = "install") -> argparse.ArgumentParser:
     target.add_argument(
         "--replace-credentials", action="store_true", help="store new credentials over old ones"
     )
-    actions.add_parser("install", parents=[common, target], help="install or update")
-    setup = actions.add_parser(
+    target.add_argument(
+        "--client",
+        action="append",
+        dest="clients",
+        choices=CLIENTS,
+        help="also add this server to this MCP client (repeatable)",
+    )
+    target.add_argument(
+        "--python", help="Python 3.12+ for the service's virtual environment, outside uv's cache"
+    )
+    shown = argparse.ArgumentParser(add_help=False)
+    shown.add_argument(
+        "--print-config",
+        action="store_true",
+        help="print each --client's config entry (the token, where one is needed, as a "
+        "placeholder) and change nothing",
+    )
+    add = functools.partial(actions.add_parser, json_errors=json_errors)
+    add("install", parents=[common, target], help="install or update")
+    setup = add(
         "setup",
-        parents=[common, target],
+        parents=[common, target, shown],
         help="guided install: Bridge check or install, login, password, services, self-check",
     )
     setup.add_argument(
         "--skip-bridge-login", action="store_true", help="do not offer to open Bridge's CLI"
     )
     setup.add_argument("--attachments-dir", help="the one folder attachment tools may use")
-    uninstall = actions.add_parser(
+    uninstall = add(
         "uninstall", parents=[common], help="stop and remove services and settings (keeps the venv)"
     )
     uninstall.add_argument("--remove-credentials", action="store_true")
     uninstall.add_argument("--remove-bridge", action="store_true")
-    show = actions.add_parser(
-        "show-token", help="print the stored MCP bearer token, to a terminal only"
+    configure = add(
+        "configure-client",
+        parents=[unattended, shown],
+        help="add this server to an MCP client's config",
     )
+    configure.add_argument(
+        "--client", action="append", dest="clients", choices=CLIENTS, required=True
+    )
+    configure.add_argument("--port", type=int, help="MCP port (default: the one setup saved)")
+    configure.add_argument("--bridge-user")
+    configure.add_argument("--credential-store", choices=STORES)
+    show = add("show-token", help="print the stored MCP bearer token, to a terminal only")
     show.add_argument("--bridge-user")
     show.add_argument("--credential-store", choices=STORES)
-    detect = actions.add_parser("detect", help="show what the installer would target")
+    show.add_argument(
+        "--copy",
+        action="store_true",
+        help="put it on the clipboard instead, at a terminal too; nothing is printed",
+    )
+    detect = add("detect", help="show what the installer would target")
     detect.add_argument("--json", action="store_true")
     detect.add_argument("--simulate", choices=FAMILIES)
     return parser
@@ -313,12 +420,52 @@ def _leave_current_folder() -> None:
         os.chdir(os.environ.get("SYSTEMROOT") or os.path.expanduser("~"))
 
 
+def _interpreter() -> str:
+    """The Python the service's environment is made from: this run's base Python, not the
+    environment uvx or pipx made around it, and outside uv's cache where one links out."""
+    base = getattr(sys, "_base_executable", "") or sys.executable
+    return service_python(base, HostProbe(detect_host()))
+
+
+def _given_python(python: str) -> str:
+    """--python as a path: a bare name such as python3.12 is looked up on PATH."""
+    if os.sep not in python and (os.altsep is None or os.altsep not in python):
+        python = shutil.which(python) or python
+    return os.path.abspath(python)
+
+
+# Exits 0 for Python 3.12 or newer, which the service needs.
+_NEW_ENOUGH = "import sys; raise SystemExit(sys.version_info < (3, 12))"
+
+
+def _new_enough(python: str) -> bool:
+    try:
+        result = subprocess.run(
+            [python, "-I", "-c", _NEW_ENOUGH],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
 def _options(args: argparse.Namespace) -> Options:
+    if args.action == "configure-client":
+        return Options(
+            bridge_user=args.bridge_user,
+            credential_store=args.credential_store,
+            clients=tuple(dict.fromkeys(args.clients)),
+        )
     common = {
         "bridge_user": args.bridge_user,
         "credential_store": args.credential_store,
         "venv": args.venv,
-        "python": sys.executable,
+        "python": _given_python(args.python) if getattr(args, "python", None) else _interpreter(),
+        "dry_run": bool(args.dry_run),
     }
     if args.action == "uninstall":
         return Options(
@@ -347,6 +494,7 @@ def _options(args: argparse.Namespace) -> Options:
         replace_credentials=args.replace_credentials,
         setup=args.action == "setup",
         skip_bridge_login=getattr(args, "skip_bridge_login", False),
+        clients=tuple(dict.fromkeys(args.clients or ())),
     )
 
 
@@ -355,7 +503,7 @@ def _ask_account() -> str:
     pasted here by mistake must not reach the plan, the settings file or the screen."""
     label = "Bridge IMAP username (your Proton address; Bridge's `info` command shows it): "
     for _attempt in range(3):
-        answer = input(label).strip()
+        answer = pasted(input(label))
         if _ADDRESS.fullmatch(answer):
             try:
                 return credential_store.validate_account(answer)
@@ -438,23 +586,36 @@ def _setup_plan(
 ) -> list[Step]:
     """The install plan, asking a person what install stops for and takes as a flag.
 
-    A dry run asks nothing and changes nothing: it shows a placeholder username and the
-    steps that a first setup takes. Without a terminal or with --yes, the refusals stand.
+    On a terminal, an outline of the plan comes first, then the questions, then the full
+    plan. A dry run asks nothing and changes nothing: it shows a placeholder username and
+    the steps that a first setup takes. Without a terminal, with --yes or with --json, the
+    refusals stand.
     """
     _text, settings = existing_settings(paths, probe)
-    can_ask = not args.dry_run and not args.yes and on_terminal()
+    can_ask = not args.dry_run and not args.yes and not _unattended(args) and on_terminal()
+    if can_ask:
+        _outline(platform, options, probe, paths, settings)
     notes: list[Step] = []
     if not options.bridge_user and not settings.get("PROTON_BRIDGE_USER"):
-        if args.dry_run:
-            options = replace(options, bridge_user=PLACEHOLDER_ACCOUNT, replace_credentials=True)
-            notes.append(
-                Note(
-                    f"No --bridge-user yet, so this plan shows {PLACEHOLDER_ACCOUNT}; setup "
-                    "asks for the username when applied."
-                )
+        if can_ask:
+            account = _login_first(platform, options, probe, paths)
+            options = replace(
+                options,
+                bridge_user=account or _ask_account(),
+                # Just logged in: the plan need not offer it again.
+                skip_bridge_login=options.skip_bridge_login or bool(account),
             )
-        elif can_ask:
-            options = replace(options, bridge_user=_ask_account())
+        else:
+            options = replace(options, bridge_user=PLACEHOLDER_ACCOUNT, replace_credentials=True)
+            notes.append(LOGIN_NEED)
+            if args.dry_run:
+                notes.append(
+                    Note(
+                        f"No --bridge-user yet, so this plan shows {PLACEHOLDER_ACCOUNT}. At a "
+                        "terminal, setup reads the username from Bridge's login where Bridge is "
+                        "installed already, and asks for it otherwise."
+                    )
+                )
     attachments_dir, attachments_note = _choose_attachments(
         args, platform, probe, settings, can_ask
     )
@@ -472,15 +633,277 @@ def _setup_plan(
             )
         elif not can_ask or not _confirm_new_credentials():
             raise
-        steps = install_plan(platform, replace(options, store_unreadable=True), probe, paths)
-    if not args.dry_run and not terminal_available():
-        if any(isinstance(step, StoreSecret) and step.source == "prompt" for step in steps):
-            raise PlanError(
-                "The Bridge password can only be typed at a terminal, and there is none here. "
-                "Nothing was changed. Run setup in a terminal, or add --skip-credentials and "
-                "run setup in a terminal later"
-            )
+        options = replace(options, store_unreadable=True)
+        steps = install_plan(platform, options, probe, paths)
+    if can_ask:
+        steps = _settle_bridge_app(platform, options, probe, paths, steps)
     return [*notes, *steps]
+
+
+LOGIN_NEED = NeedsUser(
+    "bridge_login",
+    "Setup does not know the Bridge account yet, and only a person can log in to Bridge. They "
+    "run the command below in their own terminal: setup opens Bridge's CLI there, where they "
+    "type their Proton email and password (pasting works) and the two-factor code, and open any "
+    "verification link Bridge prints in a browser. Setup then reads the IMAP username from "
+    "Bridge, takes the Bridge password at a hidden prompt and does the rest. Or pass "
+    "--bridge-user with the username Bridge's `info` shows.",
+    when="before",
+    blocking=True,
+    terminal=True,
+)
+
+
+def _login_first(platform: Platform, options: Options, probe: Probe, paths: Paths) -> str:
+    """Where Bridge is installed but no account is known yet, a person logs in first, in
+    Bridge's own CLI, and setup reads the IMAP username from it; "" to ask for it instead."""
+    if options.skip_bridge or options.skip_bridge_login or not bridge_cli.available():
+        return ""
+    exe = bridge_executable(platform, options, probe)
+    if not probe.exists(exe):
+        return ""
+    if probe.port_open(options.imap_port) or probe.succeeds(bridge_processes(platform, probe)):
+        print("Bridge is running, so its CLI cannot open here; setup asks for the username.")
+        return ""
+    answer = input(
+        "Bridge is installed, and setup does not know your Bridge account yet. Log in now, in "
+        "Bridge's CLI here, so setup can read your IMAP username from it? [Y/n] "
+    )
+    if answer.strip().lower() in {"n", "no"}:
+        return ""
+    print(bridge_cli.INSTRUCTIONS)
+    try:
+        status, username = bridge_cli.login_session((exe, "--cli"))
+    except OSError:
+        print(f"Bridge's CLI ({exe}) could not start; setup asks for the username instead.")
+        return ""
+    try:
+        account = credential_store.validate_account(username) if username else ""
+    except credential_store.CredentialStoreError:
+        account = ""
+    if not account:
+        print(
+            f"Bridge's CLI ended (status {status}) without showing an IMAP username; type it "
+            "below, as Bridge's `info` shows it."
+        )
+        return ""
+    print(f"Bridge's info shows the IMAP username {account}; setup uses it.")
+    return account
+
+
+def _outline(
+    platform: Platform, options: Options, probe: Probe, paths: Paths, settings: dict[str, str]
+) -> None:
+    """What setup does, before it asks anything; the full plan follows the answers."""
+    preview = replace(options, store_unreadable=True)
+    if not options.bridge_user and not settings.get("PROTON_BRIDGE_USER"):
+        # Like a dry run: no store is asked about the placeholder.
+        preview = replace(preview, bridge_user=PLACEHOLDER_ACCOUNT, replace_credentials=True)
+    steps = install_plan(platform, preview, probe, paths)
+    print(f"Setup on {platform.name} will:")
+    number = 0
+    for step in steps:
+        if isinstance(step, NeedsUser):
+            print(f"  ! For you: {step.text}")
+        elif not isinstance(step, Note):
+            number += 1
+            print(f"  {number}. {step.summary}")
+    print(
+        "It asks its questions next, then shows the full plan with every command; nothing "
+        "changes before you approve it."
+    )
+
+
+def _settle_bridge_app(
+    platform: Platform, options: Options, probe: Probe, paths: Paths, steps: list[Step]
+) -> list[Step]:
+    """Wait for a person to quit another Bridge, or to keep it running Bridge instead."""
+    for _attempt in range(3):
+        need = next((step for step in steps if _is_need(step, "quit_bridge_app")), None)
+        if need is None:
+            return steps
+        print(f"\n{need.text}")
+        answer = input(
+            "Press Enter once it has quit, to check again, or type k to keep it running "
+            "Bridge (as --skip-bridge-service): "
+        )
+        if answer.strip().lower() in {"k", "keep"}:
+            options = replace(options, skip_bridge_service=True)
+        steps = install_plan(platform, options, probe, paths)
+    if any(_is_need(step, "quit_bridge_app") for step in steps):
+        raise PlanError(
+            "Another Bridge still runs. Nothing was changed. Quit it and rerun, or rerun with "
+            "--skip-bridge-service to keep it"
+        )
+    return steps
+
+
+def _is_need(step: Step, name: str) -> bool:
+    return isinstance(step, NeedsUser) and step.id == name
+
+
+def _unattended(args: argparse.Namespace) -> bool:
+    """--json and --non-interactive: nothing is asked, and no prompt opens."""
+    return bool(getattr(args, "json", False) or getattr(args, "non_interactive", False))
+
+
+def _stops(steps: list[Step], args: argparse.Namespace, probe: Probe) -> list[NeedsUser]:
+    """What a person must do before this run may change anything: a blocking need, or one
+    at a terminal this run cannot or must not use."""
+    stops = []
+    for need in (step for step in steps if isinstance(step, NeedsUser)):
+        if need.blocking:
+            stops.append(need)
+        elif need.terminal and _unattended(args):
+            # sudo asks nothing while it still holds this user's credentials.
+            if not (need.id == "sudo" and probe.succeeds(SUDO_CACHED)):
+                stops.append(need)
+        elif need.id == "bridge_password" and args.action == "setup" and not terminal_available():
+            stops.append(need)
+    return stops
+
+
+def _stop_text(need: NeedsUser, args: argparse.Namespace, handoff: str) -> str:
+    if need.id == "bridge_login":
+        return f"{need.text} Nothing was changed. The command: {handoff}"
+    if need.id != "bridge_password":
+        return f"{need.text} Nothing was changed"
+    where = (
+        "--json and --non-interactive never open one" if _unattended(args) else "there is none here"
+    )
+    return (
+        f"The Bridge password can only be typed at a terminal, and {where}. Nothing was "
+        "changed. Run setup in a terminal, or add --skip-credentials and run setup in a "
+        "terminal later"
+    )
+
+
+def handoff_launcher() -> list[str]:
+    """How a person starts this same copy in their own terminal. Under uvx it is not on PATH,
+    so uvx and the source it came from; otherwise the script that runs, by absolute path."""
+    if in_uv_cache(sys.prefix, os.environ):
+        source = default_source()
+        if source:
+            return ["uvx", "--from", source, "proton-mail-mcp"]
+    script = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
+    if os.path.basename(script).startswith("proton-mail-mcp") and os.path.isfile(script):
+        return [script]
+    return ["proton-mail-mcp"]
+
+
+def _handoff(argv: list[str], windows: bool) -> str:
+    """This command as a person runs it in their own terminal, where it may ask."""
+    words: list[str] = []
+    rest = iter(argv)
+    for word in rest:
+        if word == "--simulate":
+            next(rest, None)
+        elif word not in _UNATTENDED and not word.startswith("--simulate="):
+            words.append(word)
+    return command_line([*handoff_launcher(), *words], windows)
+
+
+class _Report:
+    """The one JSON document --json prints on stdout. It holds step summaries, notes and
+    needs, which never carry a secret; human progress goes to stderr meanwhile."""
+
+    def __init__(self, args: argparse.Namespace, platform: Platform, argv: list[str]) -> None:
+        self.enabled = bool(getattr(args, "json", False))
+        self.args = args
+        self.handoff = _handoff(argv, platform.family == "windows")
+        self.planned: list[dict[str, object]] = []
+        self.needs: list[NeedsUser] = []
+        self.data: dict[str, object] = {
+            "schema": REPORT_SCHEMA,
+            "command": args.action,
+            "dry_run": bool(getattr(args, "dry_run", False)),
+            "platform": {
+                "family": platform.family,
+                "name": platform.name,
+                "machine": platform.machine,
+            },
+            "launcher": command_line(handoff_launcher(), platform.family == "windows"),
+        }
+
+    def plan(self, steps: list[Step], executor: Executor) -> None:
+        self.planned = [dict(record) for record in executor.records]
+        self.needs = [step for step in steps if isinstance(step, NeedsUser)]
+        self.data["notes"] = [step.text for step in steps if isinstance(step, Note)]
+
+    def finish(
+        self,
+        code: int,
+        result: str,
+        *,
+        error: str = "",
+        executor: Executor | None = None,
+        stops: list[NeedsUser] | tuple = (),
+    ) -> int:
+        if not self.enabled:
+            return code
+        steps = self.planned
+        if executor is not None:
+            applied = {record["n"]: record for record in executor.records}
+            steps = [
+                {**record, "status": applied.get(record["n"], {}).get("status", "not_run")}
+                for record in self.planned
+            ]
+            self.data["warnings"] = list(executor.warnings)
+        document = {
+            **self.data,
+            "result": result,
+            "exit_code": code,
+            "steps": steps,
+            "needs_user": [self._need(need, need in stops) for need in self.needs],
+            "next": _NEXT[result],
+        }
+        if error:
+            document["error"] = error
+        print(json.dumps(document, indent=2), flush=True)
+        return code
+
+    def _need(self, need: NeedsUser, stops: bool) -> dict[str, object]:
+        return {
+            "id": need.id,
+            "when": need.when,
+            "stops_run": stops,
+            "blocking": need.blocking,
+            "needs_terminal": need.terminal,
+            "text": need.text,
+            "command": self.handoff if need.terminal else need.command,
+        }
+
+    def refuse(self, prog: str, error: str, code: int = 2) -> int:
+        print(f"{prog}: {error}", file=sys.stderr)
+        return self.finish(code, "refused", error=error)
+
+
+REPORT_SCHEMA = "proton-mail-mcp/installer-report/1"
+_NEXT = {
+    "planned": (
+        "Nothing was changed. Tell the user about each needs_user entry first; stops_run says "
+        "which would stop this command run with --yes and --json. An entry with "
+        "needs_terminal is done by the user running its command in their own terminal; "
+        "otherwise apply this command with --yes."
+    ),
+    "printed": (
+        "Nothing was changed. Each configs entry is what that client needs; a token in one is "
+        "a placeholder, which configure-client replaces with the real one when it writes it."
+    ),
+    "needs_user": (
+        "Nothing was changed. A person must act first: relay each needs_user entry whose "
+        "stops_run is true. For one with needs_terminal, the user runs its command in their "
+        "own terminal; otherwise rerun this command once it is done."
+    ),
+    "refused": "Nothing was changed. error says why and what to do.",
+    "declined": "Nothing was changed.",
+    "failed": "Fix the cause in error and rerun; completed steps are skipped or repeated safely.",
+    "interrupted": "Rerun to continue; completed steps are skipped or repeated safely.",
+    "done": (
+        'Relay the needs_user entries whose when is "after", such as restarting the client. '
+        "connector is how any other MCP client on this computer reaches the server."
+    ),
+}
 
 
 def _confirm_new_credentials() -> bool:
@@ -496,8 +919,17 @@ def _confirm_new_credentials() -> bool:
 
 
 def _show_token(args: argparse.Namespace, platform: Platform, prog: str = "install") -> int:
-    """Reveal the token on explicit request; Credential Manager's UI cannot show it."""
-    if not sys.stdout.isatty():
+    """Reveal the token on explicit request; Credential Manager's UI cannot show it. With
+    --copy it goes to the clipboard instead, and nothing prints it. Either way only at a
+    terminal, where a person asked: a clipboard is as readable as a pipe to any process."""
+    if args.copy and not on_terminal():
+        print(
+            f"{prog}: show-token --copy works only at a terminal. To give a client the server, "
+            "use configure-client: clients start connect, which reads the token itself",
+            file=sys.stderr,
+        )
+        return 2
+    if not args.copy and not sys.stdout.isatty():
         print(f"{prog}: show-token prints only to a terminal, not a pipe or file", file=sys.stderr)
         return 2
     probe = HostProbe(platform)
@@ -516,9 +948,54 @@ def _show_token(args: argparse.Namespace, platform: Platform, prog: str = "insta
     if not token:
         print(f"{prog}: the stored MCP token is empty; rerun the installer", file=sys.stderr)
         return 2
+    if args.copy:
+        tool = copy_to_clipboard(token, platform.system)
+        if not tool:
+            names = ", ".join(argv[0] for argv in _CLIPBOARDS[platform.system])
+            print(
+                f"{prog}: no clipboard program worked here ({names}); run show-token in a "
+                "terminal instead, or configure-client to write the token into a client",
+                file=sys.stderr,
+            )
+            return 2
+        synced = (
+            " Universal Clipboard may also hand it to your other Apple devices."
+            if platform.system == "macos"
+            else ""
+        )
+        print(
+            f"Copied the MCP bearer token to the clipboard with {tool}; it was not shown. Paste "
+            "it into your client's secret storage, then copy something else: a clipboard "
+            f"history may keep it.{synced}"
+        )
+        return 0
     print("MCP bearer token (secret; paste it into your client's secret storage):", file=sys.stderr)
     print(token)
     return 0
+
+
+def copy_to_clipboard(token: str, system: str) -> str | None:
+    """The first clipboard program that took the token on stdin, or None. The token never
+    reaches an argument, and nothing it prints is read: xclip and wl-copy stay running to
+    hold the clipboard, so their output is not waited for."""
+    for argv in _CLIPBOARDS[system]:
+        if not shutil.which(argv[0]):
+            continue
+        try:
+            result = subprocess.run(
+                list(argv),
+                input=token,
+                text=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return argv[0]
+    return None
 
 
 def _shared_folder(paths: Paths) -> str | None:
@@ -530,11 +1007,92 @@ def _shared_folder(paths: Paths) -> str | None:
     return None
 
 
+def _client_target(
+    args: argparse.Namespace, platform: Platform, probe: Probe, paths: Paths
+) -> tuple[Paths, int]:
+    """The service environment and port clients reach: as given, else as setup saved them."""
+    _text, settings = existing_settings(paths, probe)
+    given = getattr(args, "venv", None)
+    saved_in = f"{VENV_KEY} in {paths.env_file}"
+    venv = given or settings.get(VENV_KEY)
+    located = with_venv(platform, paths, venv, "--venv" if given else saved_in)
+    if args.port:
+        if not 1 <= args.port <= 65535:
+            raise PlanError("--port must be between 1 and 65535")
+        return located, args.port
+    saved = settings.get("PROTON_MCP_PORT", "")
+    if not saved:
+        return located, Options().port
+    if not (saved.isdigit() and 1 <= int(saved) <= 65535):
+        raise PlanError(
+            f"PROTON_MCP_PORT in {paths.env_file} is not a port from 1 to 65535; fix it there, "
+            "or rerun setup with --port"
+        )
+    return located, int(saved)
+
+
+def _print_config(
+    args: argparse.Namespace, platform: Platform, probe: Probe, paths: Paths, report: "_Report"
+) -> int:
+    """Each client's entry as a person or agent adds it by hand; no token is read."""
+    windows = platform.family == "windows"
+    located, port = _client_target(args, platform, probe, paths)
+    command = clients.connect_command(launcher(platform, located), located.env_file)
+    configs = []
+    names = tuple(dict.fromkeys(args.clients or CLIENTS))
+    notes = []
+    if "chatgpt" in names and "codex" in names:
+        # One file, one table: pasting both entries would make it invalid.
+        names = tuple(name for name in names if name != "codex")
+        notes.append(
+            "ChatGPT and Codex share ~/.codex/config.toml and one proton-mail table there, so "
+            "only ChatGPT's entry is shown; Codex uses it too. --client codex alone shows "
+            "Codex's connect entry."
+        )
+    for name in names:
+        client = CLIENTS[name]
+        server = clients.entry(name, port, clients.TOKEN_PLACEHOLDER, command)
+        config: dict[str, object] = {
+            "client": name,
+            "label": client.label,
+            "path": clients.config_path(name, platform.family, probe.env, probe.home) or None,
+            "format": "toml" if client.form == "toml" else "json",
+            "snippet": clients.snippet(name, server),
+        }
+        if client.native:
+            add = clients.native_commands(name, client.native, command)[1]
+            config["command"] = command_line(add, windows)
+        if name == "cursor":
+            config["link"] = clients.cursor_link(server)
+        configs.append(config)
+    if report.enabled:
+        report.data["configs"] = configs
+        report.data["notes"] = notes
+        report.data["connector"] = connector(platform, located, port)
+        return report.finish(0, "printed")
+    for config in configs:
+        print(f"# {config['label']}: {config['path'] or 'its MCP servers'}")
+        print(config["snippet"], end="")
+        if "command" in config:
+            print(f"# or, with its own command line: {config['command']}")
+        if "link" in config:
+            print(f"# or open this link: {config['link']}")
+        print()
+    for note in notes:
+        print(note)
+    print(
+        "Nothing was changed. A token shown is a placeholder: configure-client writes the real "
+        "one, and connect reads it itself."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None, prog: str = "install") -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or (argv[0].startswith("-") and argv[0] not in {"-h", "--help"}):
         argv.insert(0, "install")
-    parser = build_parser(prog)
+    json_errors = any(word.partition("=")[0] == "--json" for word in argv)
+    parser = build_parser(prog, json_errors=json_errors)
     args = parser.parse_args(argv)
     simulate = getattr(args, "simulate", None)
     platform = simulated(simulate) if simulate else detect_host()
@@ -546,35 +1104,45 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
             for key, value in report.items():
                 print(f"{key}: {value}")
         return 0
-    if not platform.supported:
-        print(f"{prog}: {platform.refusal}", file=sys.stderr)
-        return 2
     if args.action == "show-token":
+        if not platform.supported:
+            print(f"{prog}: {platform.refusal}", file=sys.stderr)
+            return 2
         return _show_token(args, platform, prog)
-    if args.simulate and not args.dry_run:
+    printing = getattr(args, "print_config", False)
+    if args.simulate and not (args.dry_run or printing):
         parser.error("--simulate only plans; add --dry-run")
+    if _unattended(args) and not (args.dry_run or args.yes or printing):
+        parser.error("--json and --non-interactive ask nothing: add --dry-run or --yes")
+    report = _Report(args, platform, argv)
+    if not platform.supported:
+        return report.refuse(prog, platform.refusal)
     if args.action in {"install", "setup"} and args.source:
         source = Path(args.source)
         if not is_source(source) and not is_wheel(source):
             parser.error("--source must be a proton-mail-mcp checkout or wheel file")
+    if args.action in {"install", "setup"} and args.python and not printing:
+        python = _given_python(args.python)
+        # A simulated plan has no such host to run the interpreter on.
+        if not os.path.isfile(python) or not (args.simulate or _new_enough(python)):
+            parser.error("--python must name a Python 3.12 or newer interpreter")
     if not args.simulate and hasattr(os, "geteuid") and os.geteuid() == 0:
-        print(
-            f"{prog}: run as your normal user; package steps use sudo themselves",
-            file=sys.stderr,
-        )
-        return 2
+        return report.refuse(prog, "run as your normal user; package steps use sudo themselves")
     refusal = None if args.simulate else _windows_refusal(args)
     if refusal:
-        print(f"{prog}: {refusal}", file=sys.stderr)
-        return 2
+        return report.refuse(prog, refusal)
     probe = simulated_probe(platform) if args.simulate else HostProbe(platform)
     paths = paths_for(platform, probe.env, probe.home)
+    if printing:
+        try:
+            return _print_config(args, platform, probe, paths, report)
+        except PlanError as error:
+            return report.refuse(prog, str(error))
     refusal = None
     if args.action in {"install", "setup"} and platform.family == "windows" and not args.simulate:
         refusal = _shared_folder(paths)
     if refusal:
-        print(f"{prog}: {refusal}", file=sys.stderr)
-        return 2
+        return report.refuse(prog, refusal)
     try:
         # After _options, which makes the paths given relative to this folder absolute.
         options = _options(args)
@@ -582,22 +1150,58 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
             _leave_current_folder()
         if args.action == "setup":
             steps = _setup_plan(args, platform, options, probe, paths)
+        elif args.action == "configure-client":
+            steps = configure_plan(platform, options, probe, paths, args.port)
         else:
             build = install_plan if args.action == "install" else uninstall_plan
             steps = build(platform, options, probe, paths)
+        # A dry run reports what would stop the same command run with --yes.
+        stops = _stops(steps, args, probe)
+        if args.action in {"setup", "configure-client"}:
+            report.data["connector"] = connector(
+                platform, *_client_target(args, platform, probe, paths)
+            )
     except PlanError as error:
-        print(f"{prog}: {error}", file=sys.stderr)
-        return 2
+        return report.refuse(prog, str(error))
     except (EOFError, KeyboardInterrupt):
         print(f"\n{prog}: interrupted; nothing was changed.", file=sys.stderr)
-        return 130
-    print(f"{args.action} plan for {platform.name} ({platform.family}, {platform.machine})")
+        return report.finish(130, "interrupted", error="interrupted; nothing was changed")
+    if stops and not report.enabled and not args.dry_run:
+        # Said before the plan: nothing of it runs until a person has done these.
+        for need in stops:
+            print(f"{prog}: {_stop_text(need, args, report.handoff)}", file=sys.stderr)
+        return 2
+    # With --json, stdout carries only the JSON document.
+    out = sys.stderr if report.enabled else sys.stdout
+    quiet = {"out": out} if report.enabled else {}
+    print(
+        f"{args.action} plan for {platform.name} ({platform.family}, {platform.machine})",
+        file=out,
+    )
     windows = platform.family == "windows"
+    force = getattr(args, "force", False)
+    # An unattended run never lets sudo ask: one whose cached login ran out fails instead.
+    sudo = ("sudo", "-n") if _unattended(args) else ("sudo",)
+    executor = None
+    planned = Executor(dry_run=True, force=force, windows=windows, sudo=sudo, **quiet)
     try:
-        Executor(dry_run=True, force=args.force, windows=windows).run(steps)
+        planned.run(steps)
+    except InstallError as error:
+        # The plan refuses before any step runs, as a file a step could not merge: the same
+        # with --dry-run as with --yes.
+        report.plan(steps, planned)
+        print(f"{prog}: {error}", file=sys.stderr)
+        print("Nothing was changed.", file=out)
+        return report.finish(2, "refused", error=str(error), executor=planned)
+    try:
+        report.plan(steps, planned)
         if args.dry_run:
-            print("Dry run: nothing was changed.")
-            return 0
+            print("Dry run: nothing was changed.", file=out)
+            return report.finish(0, "planned", stops=stops, executor=planned)
+        if stops:
+            for need in stops:
+                print(f"{prog}: {_stop_text(need, args, report.handoff)}", file=sys.stderr)
+            return report.finish(2, "needs_user", stops=stops)
         if not args.yes:
             if not (sys.stdin and sys.stdin.isatty()):
                 print(f"{prog}: confirm with --yes when not on a terminal", file=sys.stderr)
@@ -605,17 +1209,30 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
             if input("Apply these steps? [y/N] ").strip().lower() not in {"y", "yes"}:
                 print("Nothing was changed.")
                 return 1
-        executor = Executor(dry_run=False, force=args.force, windows=windows, assume_yes=args.yes)
+        if _unattended(args):
+            # No prompt opens: anything that needed one stopped the run above.
+            quiet["terminal"] = lambda: False
+        session = bridge_cli.login_session if bridge_cli.available() else None
+        executor = Executor(
+            dry_run=False,
+            force=force,
+            windows=windows,
+            assume_yes=args.yes,
+            sudo=sudo,
+            bridge_session=session,
+            **quiet,
+        )
         executor.run(steps)
     except InstallError as error:
         print(f"{prog}: {error}", file=sys.stderr)
-        print("Fix the cause and rerun; completed steps are skipped or repeated safely.")
-        return 1
+        print("Fix the cause and rerun; completed steps are skipped or repeated safely.", file=out)
+        return report.finish(1, "failed", error=str(error), executor=executor)
     except (EOFError, KeyboardInterrupt):
         print(f"\n{prog}: interrupted; rerun to continue.", file=sys.stderr)
-        return 130
+        return report.finish(130, "interrupted", error="interrupted", executor=executor)
     print(
         f"{args.action} finished"
-        + (f" with {len(executor.warnings)} warning(s)." if executor.warnings else ".")
+        + (f" with {len(executor.warnings)} warning(s)." if executor.warnings else "."),
+        file=out,
     )
-    return 0
+    return report.finish(0, "done", executor=executor)

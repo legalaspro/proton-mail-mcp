@@ -14,7 +14,7 @@ from .. import credential_store
 from ..config import default_attachments_dir, windows_attachments_dir
 from ..credential_store import BRIDGE_SERVICE, TOKEN_SERVICE
 from ..service_entry import parse_env_file
-from . import templates
+from . import clients, templates
 from .detect import FAMILIES, Platform
 from .steps import (
     DIR_MARKER,
@@ -29,12 +29,15 @@ from .steps import (
     CheckSameCopy,
     CheckStopped,
     Command,
+    ConfigureClient,
     DeleteSecret,
     Download,
     EnsureDir,
+    NeedsUser,
     Note,
     RemovePath,
     SelfCheck,
+    StartBackground,
     Step,
     StoreSecret,
     WaitForPort,
@@ -146,6 +149,22 @@ TASK_NOT_RUNNING = 3
 BRIDGE_PROCESSES = r"^([^ ]| [^-])* ?[Bb]ridge([^ ]| [^-])* (.* )?--noninteractive( |$)"
 # Its launcher, its core and its window, as PowerShell's Get-Process names them.
 BRIDGE_WINDOWS_PROCESSES = "'proton-bridge','bridge','bridge-gui'"
+# Bridge's window, which only the desktop app runs: the installer's service runs Bridge
+# with --noninteractive and no window.
+BRIDGE_GUI = "bridge-gui"
+# Asks the session bus which names it has and which it can start.
+_DBUS_QUERY = (
+    "dbus-send",
+    "--session",
+    "--print-reply",
+    "--dest=org.freedesktop.DBus",
+    "/org/freedesktop/DBus",
+)
+SECRET_SERVICE = "org.freedesktop.secrets"
+# Where the background service, on a host without systemd, keeps its process id.
+SERVICE_PIDFILE = "service.pid"
+# uv keeps the environments `uvx` runs in under its cache, which `uv cache clean` empties.
+_UV_CACHE = re.compile(r"[\\/]uv[\\/](?:cache[\\/])?archive-v\d+[\\/]")
 
 
 class PlanError(ValueError):
@@ -185,6 +204,8 @@ class Probe(Protocol):
 
     def can_make_venv(self, python: str) -> bool: ...
 
+    def port_open(self, port: int) -> bool: ...
+
     def has_secret(
         self, store: str, service: str, account: str, locations: Mapping[str, str] | None = None
     ) -> bool | None: ...
@@ -217,6 +238,12 @@ class Options:
     store_unreadable: bool = False
     # Written to the env file, and created: the server only creates its own default.
     attachments_dir: str | None = None
+    # MCP clients whose configs get this server.
+    clients: tuple[str, ...] = ()
+    # Only planned, never applied: what a real run must stop for becomes a hand-off instead.
+    dry_run: bool = False
+    # No service manager runs here, so setup starts the service as a background process.
+    background: bool = False
 
 
 @dataclass(frozen=True)
@@ -308,13 +335,14 @@ def paths_for(platform: Platform, env: dict[str, str], home: str) -> Paths:
     )
 
 
-def with_venv(platform: Platform, paths: Paths, venv: str | None) -> Paths:
-    """Relocate the virtual environment to --venv or the path an earlier run saved."""
+def with_venv(platform: Platform, paths: Paths, venv: str | None, given: str = "--venv") -> Paths:
+    """Relocate the virtual environment to --venv or the path an earlier run saved; given
+    names where it came from, for the refusal."""
     if not venv:
         return paths
     root = _path_type(platform)(venv)
     if not root.is_absolute():
-        raise PlanError("--venv must be an absolute path")
+        raise PlanError(f"{given} must be an absolute path")
     return replace(paths, **_venv_paths(platform, root))
 
 
@@ -520,8 +548,16 @@ def _linux_bridge_steps(platform: Platform, options: Options, probe: Probe, path
     steps: list[Step] = []
     if platform.family == "debian":
         package = f"protonmail-bridge_{version}-1_amd64.deb"
+        # A broken third-party source fails the refresh, but not the install of a local
+        # package whose dependencies the cached lists still name.
         steps.append(
-            Command(("apt-get", "update"), "Refresh apt package lists", sudo=True, interactive=True)
+            Command(
+                ("apt-get", "update"),
+                "Refresh apt package lists",
+                sudo=True,
+                interactive=True,
+                allow_failure=True,
+            )
         )
         if not probe.which("debsig-verify") or not probe.which("gpg"):
             steps.append(
@@ -701,19 +737,29 @@ def _mcp_steps(platform: Platform, options: Options, probe: Probe, paths: Paths)
         ),
     ]
     if not probe.exists(paths.venv_python):
-        if not probe.can_make_venv(options.python):
+        python = service_python(options.python, probe)
+        if in_uv_cache(python, probe.env):
+            raise PlanError(
+                f"{python} lies in uv's cache, which `uv cache clean` empties, and the service's "
+                "virtual environment would stop working with it. Nothing was changed. Pass "
+                "--python with a Python 3.12 or newer that stays, for example the path "
+                "`uv python find 3.12` prints after `uv python install 3.12`"
+            )
+        if not probe.can_make_venv(python):
             # venv would leave a Python without pip behind, which a rerun would then reuse.
             raise PlanError(
-                f"{options.python} cannot create a virtual environment: its ensurepip module "
+                f"{python} cannot create a virtual environment: its ensurepip module "
                 f"is missing. {_ENSUREPIP_HINTS.get(platform.family, _ENSUREPIP_HINT)}, then "
                 "rerun; nothing was changed"
             )
         steps.append(
             Command(
-                (options.python, "-m", "venv", paths.venv),
+                (python, "-m", "venv", paths.venv),
                 "Create the MCP virtual environment",
             )
         )
+    else:
+        steps += _cached_venv_note(platform, probe, paths)
     # pip keeps an installed version when given a wheel of that same version, which a
     # rebuilt wheel is. A checkout is always rebuilt and an index name is pinned.
     rebuilt = ("--force-reinstall",) if options.source.endswith(".whl") else ()
@@ -750,6 +796,56 @@ def _mcp_steps(platform: Platform, options: Options, probe: Probe, paths: Paths)
             )
         )
     return steps
+
+
+def in_uv_cache(path: str, env: Mapping[str, str]) -> bool:
+    """Whether path lies in uv's cache: under UV_CACHE_DIR, or in one of its archives."""
+    custom = env.get("UV_CACHE_DIR", "").rstrip("/\\")
+    if custom and (path == custom or path.startswith((custom + "/", custom + "\\"))):
+        return True
+    return bool(_UV_CACHE.search(path))
+
+
+def service_python(python: str, probe: Probe) -> str:
+    """The Python the service's virtual environment is made from: python, unless it lies in
+    uv's cache, where `uvx` runs. Then each symbolic link is followed one step at a time and
+    the first path outside the cache is used, so a stable name such as
+    /opt/homebrew/bin/python3.12 is never resolved to a versioned path an upgrade removes.
+    A path that leads nowhere else stays as it is, and the plan then refuses it."""
+    flavor = ntpath if "\\" in python else posixpath
+    path = python
+    for _hop in range(40):
+        if not in_uv_cache(path, probe.env):
+            return path
+        target = probe.readlink(path)
+        if target is None:
+            break
+        path = flavor.normpath(flavor.join(flavor.dirname(path), target))
+    return python
+
+
+def _cached_venv_note(platform: Platform, probe: Probe, paths: Paths) -> list[Step]:
+    """An existing environment made from a Python in uv's cache stops working when the cache
+    is cleaned; only its own pyvenv.cfg, in the installer's directory, is read."""
+    text = probe.read_text(_join(platform, paths.venv, "pyvenv.cfg")) or ""
+    home = next(
+        (
+            value.strip()
+            for key, _sep, value in (line.partition("=") for line in text.splitlines())
+            if key.strip() == "home"
+        ),
+        "",
+    )
+    if not home or not in_uv_cache(home, probe.env):
+        return []
+    return [
+        Note(
+            f"Warning: the virtual environment {paths.venv} runs on a Python in uv's cache "
+            f"({home}), so `uv cache clean` would stop the service. Move that directory away "
+            "and rerun, which builds a new one on a Python outside the cache, or rerun with "
+            "--venv and a new path."
+        )
+    ]
 
 
 def is_pinned(source: str) -> bool:
@@ -1391,6 +1487,262 @@ def _login_note(platform: Platform, options: Options, probe: Probe, paths: Paths
     return Note(text)
 
 
+def _stored_password_note(
+    platform: Platform, account: str, options: Options, probe: Probe, paths: Paths
+) -> Note:
+    """Said instead of the login steps when a Bridge password is already stored."""
+    offered = "setup does not offer Bridge's login" if options.setup else "no login is needed"
+    again = _login_note(platform, options, probe, paths).text.removeprefix(
+        "Bridge login (once per account): "
+    )
+    return Note(
+        f"A Bridge password is already stored for {account}, so Bridge is most likely logged "
+        f"in and {offered}. To log in to Bridge again and keep everything else: {again} If "
+        "Bridge's password changed, rerun setup with --replace-credentials, which also makes a "
+        "new MCP token."
+    )
+
+
+SUDO_NEED = NeedsUser(
+    "sudo",
+    "Installing Bridge runs sudo, which asks for your login password at the terminal this runs in.",
+    terminal=True,
+)
+KEYCHAIN_NEED = NeedsUser(
+    "keychain_prompt",
+    "macOS may ask whether to allow access to the login Keychain, when the services first "
+    "start or when the token is read for a client: choose Always Allow (it asks for your Mac "
+    "login password). Until then the service cannot read its credentials.",
+)
+
+
+def _password_need(options: Options, credentials: list[Step], stored: bool) -> NeedsUser | None:
+    """The hidden prompt for the Bridge password, with Bridge's login before it in setup."""
+    if not any(isinstance(step, StoreSecret) and step.source == "prompt" for step in credentials):
+        return None
+    text = (
+        "The Bridge password is typed or pasted at a hidden prompt, so a person runs this in "
+        "their own terminal. It is the password Bridge's `info` command (or the Bridge app's "
+        "mailbox settings) shows, not the Proton account password."
+    )
+    if options.setup and not (options.skip_bridge or options.skip_bridge_login or stored):
+        text += (
+            " If Bridge is not logged in yet, setup first offers Bridge's CLI there, to log in "
+            "with the Proton account (email, password and two-factor code; a verification link "
+            "Bridge prints opens in any browser); setup then types `info` and `exit` itself."
+        )
+    return NeedsUser("bridge_password", text, terminal=True)
+
+
+def _own_bridge_running(platform: Platform, probe: Probe, paths: Paths) -> bool:
+    """Whether the installer's own Bridge service is up, and so may be what holds the port."""
+    if platform.family == "windows":
+        task = windows_tasks(probe)[0]
+        return _task_owner(probe, task) == "installer" and _task_running(probe, task)
+    if platform.family == "macos":
+        label = templates.BRIDGE_LABEL
+        path = f"{paths.agents_dir}/{label}.plist"
+        loaded, elsewhere = _launchd_state(probe, label, path)
+        return loaded and not elsewhere and _owner(probe, path) == "installer"
+    unit = templates.BRIDGE_UNIT
+    if (
+        _systemd_state(probe)[0] != "ready"
+        or _unit_owner(probe, paths.unit_dir, unit, True) != "installer"
+    ):
+        return False
+    query = ("systemctl", "--user", "show", "--property=ActiveState", "--value", unit)
+    return (probe.output(query) or "").strip() in {"active", "activating", "reloading"}
+
+
+def _bridge_app_running(platform: Platform, probe: Probe) -> bool:
+    """Whether Bridge's window runs, which only the desktop app shows."""
+    if platform.family == "windows":
+        check = _POWERSHELL_MODULES + (
+            f"if (Get-Process -Name '{BRIDGE_GUI}' -ErrorAction SilentlyContinue | "
+            "Where-Object { $_.Path -like '*Proton*' }) { exit 0 }; exit 1"
+        )
+        return probe.succeeds(("powershell", "-NoProfile", "-NonInteractive", "-Command", check))
+    return probe.succeeds(("pgrep", "-u", probe.user_id, "-x", BRIDGE_GUI))
+
+
+def _bridge_app_need(
+    platform: Platform, options: Options, probe: Probe, paths: Paths
+) -> NeedsUser | None:
+    """Another Bridge, most likely the desktop app, would keep the installer's Bridge service
+    from starting, at every login. The installer never stops what it did not start."""
+    if options.skip_services or options.skip_bridge_service:
+        return None
+    if _bridge_app_running(platform, probe):
+        seen = "The Proton Mail Bridge app is running"
+    elif probe.port_open(options.imap_port) and not _own_bridge_running(platform, probe, paths):
+        seen = (
+            f"Something already listens on Bridge's IMAP port 127.0.0.1:{options.imap_port}, "
+            "most likely the Proton Mail Bridge app,"
+        )
+    else:
+        return None
+    return NeedsUser(
+        "quit_bridge_app",
+        f"{seen} and the installer runs Bridge as a background service, which cannot run "
+        "beside it. Quit the app (in its menu, Quit Bridge) and turn off its start-at-login "
+        "setting; its login carries over to the service. Or keep the app running Bridge by "
+        "rerunning with --skip-bridge-service.",
+        when="before",
+        blocking=True,
+    )
+
+
+def _stale_agents(probe: Probe, paths: Paths) -> list[Step]:
+    """LaunchAgents a manual install set aside; launchd ignores them, but one may hold a token."""
+    notes: list[Step] = []
+    for label in (templates.MCP_LABEL, templates.BRIDGE_LABEL):
+        stale = f"{paths.agents_dir}/{label}.plist.disabled"
+        if probe.exists(stale):
+            notes.append(
+                Note(
+                    f"{stale} is left from an earlier install. launchd ignores it, but it may "
+                    "still hold an old bearer token: once the new service works, delete it with "
+                    f"`rm -f -- {shlex.quote(stale)}`."
+                )
+            )
+    return notes
+
+
+def launcher(platform: Platform, paths: Paths) -> str:
+    """The service environment's own proton-mail-mcp, which clients start as `connect`."""
+    if platform.family == "windows":
+        return _join_windows(paths.venv, "Scripts", "proton-mail-mcp.exe")
+    return str(PurePosixPath(paths.venv) / "bin" / "proton-mail-mcp")
+
+
+def connector(platform: Platform, paths: Paths, port: int) -> dict[str, object]:
+    """How any MCP client on this computer reaches the server, without the token."""
+    command = clients.connect_command(launcher(platform, paths), paths.env_file)
+    return {
+        "name": clients.SERVER_NAME,
+        "transport": "stdio",
+        "command": command[0],
+        "args": list(command[1:]),
+        "url": clients.server_url(port),
+        "token": "not shown: connect reads it from the credential store each time it starts",
+    }
+
+
+def client_steps(
+    platform: Platform,
+    names: tuple[str, ...],
+    paths: Paths,
+    port: int,
+    probe: Probe,
+    secret: tuple[str, str, Mapping[str, str]],
+) -> list[Step]:
+    """Put this server into each client's config, then say what each needs to read it. secret
+    is the store, account and locations of the token, for a client that takes it directly."""
+    store, account, locations = secret
+    command = clients.connect_command(launcher(platform, paths), paths.env_file)
+    steps: list[Step] = []
+    if "chatgpt" in names and "codex" in names:
+        names = tuple(name for name in names if name != "codex")
+        steps.append(
+            Note(
+                "ChatGPT and Codex share ~/.codex/config.toml and one proton-mail entry there, so "
+                "only ChatGPT's is written; Codex uses it too."
+            )
+        )
+    for name in names:
+        client = clients.CLIENTS[name]
+        if client.form == "none":
+            text = json.dumps(
+                {"mcpServers": {clients.SERVER_NAME: clients.entry(name, port, "", command)}},
+                indent=2,
+            )
+            steps.append(
+                Note(
+                    f"{client.label}, or any agent on this computer: add this stdio server to its "
+                    f"MCP servers. It holds no token; connect reads it each time it starts:\n"
+                    f"{text}"
+                )
+            )
+            continue
+        steps.append(
+            ConfigureClient(
+                name,
+                clients.config_path(name, platform.family, probe.env, probe.home),
+                port,
+                f"Add the {clients.SERVER_NAME} server to {client.label}'s config",
+                command=() if client.http else command,
+                native=(probe.which(client.native) or "") if client.native else "",
+                store=store if client.http else "",
+                service=TOKEN_SERVICE if client.http else "",
+                account=account if client.http else "",
+                locations=tuple(locations.items()) if client.http else (),
+            )
+        )
+    for name in names:
+        client = clients.CLIENTS[name]
+        steps.append(NeedsUser("restart_client", f"{client.label}: {client.restart}", "after"))
+    return steps
+
+
+def configure_plan(
+    platform: Platform, options: Options, probe: Probe, paths: Paths, port: int | None = None
+) -> list[Step]:
+    """Give clients the server setup configured: the connect command, or the token setup
+    stored for a client that takes it directly."""
+    if platform.refusal:
+        raise PlanError(platform.refusal)
+    validate_options(options, platform)
+    _existing, settings = existing_settings(paths, probe)
+    if not settings:
+        raise PlanError(
+            f"{paths.env_file} is missing, so setup has not run here; run setup first, with "
+            "--client to configure a client in the same run. Nothing was changed"
+        )
+    account = bridge_account(options, settings)
+    store = choose_store(platform, options, probe, settings)
+    locations = credential_locations(store, probe, settings, prefer_saved=True)
+    paths = with_venv(platform, paths, settings.get(VENV_KEY), f"{VENV_KEY} in {paths.env_file}")
+    if port is None:
+        saved = settings.get("PROTON_MCP_PORT", "")
+        port = int(saved) if saved.isdigit() and 1 <= int(saved) <= 65535 else options.port
+    elif not 1 <= port <= 65535:
+        raise PlanError("--port must be between 1 and 65535")
+    steps: list[Step] = []
+    if any(not clients.CLIENTS[name].http for name in options.clients):
+        program = launcher(platform, paths)
+        if not probe.exists(program):
+            raise PlanError(
+                f"{program} is missing, so there is no connect command for a client to start; "
+                "run setup first. Nothing was changed"
+            )
+        if not probe.succeeds((program, "connect", "--help")):
+            raise PlanError(
+                f"{program} has no connect command: it was installed by an older setup. Rerun "
+                "setup, which updates it, then this. Nothing was changed"
+            )
+    if any(clients.CLIENTS[name].http for name in options.clients):
+        found = probe.has_secret(store, TOKEN_SERVICE, account, locations)
+        if found is False:
+            raise PlanError(
+                f"No MCP bearer token is stored for {account} in {store}, so there is none to "
+                "give a client. Run setup first, which stores one; nothing was changed"
+            )
+        if found is None:
+            steps.append(
+                Note(
+                    f"{store} cannot show whether a token is stored; it is read when this is "
+                    "applied, and a missing one stops the run before any file changes."
+                )
+            )
+    if platform.family == "macos":
+        steps.append(KEYCHAIN_NEED)
+    steps += client_steps(
+        platform, options.clients, paths, port, probe, (store, account, locations)
+    )
+    steps.append(Note(f"MCP endpoint: {clients.server_url(port)} (bearer token required)."))
+    return steps
+
+
 def _implicit_homes(platform: Platform, probe: Probe) -> dict[str, str]:
     """GnuPG's and pass's default homes, which those tools use wherever no variable
     names another, whatever the settings say; path -> what it is."""
@@ -1610,11 +1962,22 @@ def _service_preflight(probe: Probe, paths: Paths, options: Options) -> tuple[Op
     state, why = _systemd_state(probe)
     start = f"`{shlex.join([paths.service_exe, '--env-file', paths.env_file])}`"
     if state == "absent":
-        note = Note(
-            f"Services: {why}, so the installer sets up no service, as with "
-            f"--skip-services. Have your own service manager run {start} at login."
-        )
-        return replace(options, skip_services=True), [note]
+        background = f"`nohup {start[1:-1]} >> {paths.state_dir}/service.log 2>&1 &`"
+        if options.setup:
+            text = (
+                f"Services: {why}, so the installer sets up no service. Setup starts the MCP "
+                "server as a background process instead, which stops when this host restarts; "
+                f"setup starts it again, or have your own init system run {start} at boot. "
+                f"Bridge must run too, as `{options.bridge_bin or 'protonmail-bridge'} "
+                "--noninteractive` (the same way, in the background)."
+            )
+        else:
+            text = (
+                f"Services: {why}, so the installer sets up no service, as with "
+                f"--skip-services. Have your own service manager run {start} at login, or start "
+                f"it in the background now with {background}."
+            )
+        return replace(options, skip_services=True, background=options.setup), [Note(text)]
     if state == "unreachable" and "PATH" in why:
         raise PlanError(
             f"{why}, so the installer can neither set up nor check its services. Put "
@@ -1653,11 +2016,26 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
     store = choose_store(platform, options, probe, settings)
     # The service does not inherit this shell: it must use the same store and keys.
     located, pass_notes = _pass_steps(probe, settings) if store == "pass" else ({}, [])
+    prerequisites: list[Step] = []
     if platform.system == "linux" and not options.skip_credentials:
-        _check_store_tools(platform, store, probe, settings)
+        try:
+            _check_store_tools(platform, store, probe, settings)
+        except PlanError as error:
+            if not options.dry_run:
+                raise
+            # A dry run still shows the whole plan, and what a real run stops for first.
+            prerequisites.append(NeedsUser("store_tools", f"{error}.", "before", blocking=True))
+        if store == "libsecret":
+            prerequisites += _secret_service_need(probe)
     saved_venv = settings.get(VENV_KEY)
-    candidates = [*_pending_venvs(platform, settings), with_venv(platform, paths, saved_venv).venv]
-    paths = with_venv(platform, paths, options.venv or saved_venv)
+    saved_in = f"{VENV_KEY} in {paths.env_file}"
+    candidates = [
+        *_pending_venvs(platform, settings),
+        with_venv(platform, paths, saved_venv, saved_in).venv,
+    ]
+    paths = with_venv(
+        platform, paths, options.venv or saved_venv, "--venv" if options.venv else saved_in
+    )
     preflight: list[Step] = []
     if platform.system == "linux":
         options, preflight = _service_preflight(probe, paths, options)
@@ -1701,10 +2079,22 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
     ]
     # Secrets, the service and the token hint all use the pass locations written now.
     locations = credential_store.pass_locations(located)
-    steps: list[Step] = []
+    credentials = _credential_steps(store, account, options, probe, locations)
+    # Kept, not replaced or skipped: an account most likely logged in already. A store that
+    # cannot say counts as no password.
+    stored = not options.skip_credentials and not any(
+        isinstance(step, StoreSecret) and step.service == BRIDGE_SERVICE for step in credentials
+    )
+    steps: list[Step] = [*prerequisites]
+    app = _bridge_app_need(platform, options, probe, paths)
+    if app:
+        steps.append(app)
     steps += bridge_steps(platform, options, probe, paths)
     if not options.skip_bridge:
-        steps.append(_login_note(platform, options, probe, paths))
+        if stored:
+            steps.append(_stored_password_note(platform, account, options, probe, paths))
+        else:
+            steps.append(_login_note(platform, options, probe, paths))
     elif not (options.skip_services or options.skip_bridge_service) and not probe.exists(
         bridge_executable(platform, options, probe)
     ):
@@ -1712,15 +2102,31 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
             f"Bridge is not at {bridge_executable(platform, options, probe)}; pass --bridge-bin "
             "or --skip-bridge-service"
         )
+    sudo = [step for step in steps if isinstance(step, Command) and step.sudo]
+    if sudo:
+        steps.insert(steps.index(sudo[0]), SUDO_NEED)
     if platform.family == "windows":
         steps += _windows_update_steps(options, probe)
     steps += _mcp_steps(platform, options, probe, paths)
+    login: list[Step] = []
     if options.setup:
-        stored = _bridge_password_stored(store, account, options, probe, locations)
-        steps += _setup_steps_before_credentials(platform, options, probe, paths, stored)
-    steps += _credential_steps(store, account, options, probe, locations)
+        check, *login = _setup_steps_before_credentials(
+            platform, options, probe, paths, stored, account
+        )
+        steps.append(check)
+    # Said right before the login offer and the prompt it is about.
+    prompt = _password_need(options, credentials, stored)
+    if prompt:
+        steps.append(prompt)
+    steps += login
+    steps += credentials
     steps += _config_steps(store, account, options, paths, existing, extra)
+    if platform.family == "macos" and (not options.skip_services or prompt or options.clients):
+        steps.append(KEYCHAIN_NEED)
     steps += _service_steps(platform, options, probe, paths)
+    if platform.family == "macos":
+        steps += _stale_agents(probe, paths)
+    steps += _stale_token_file(platform, probe, paths, store)
     steps += kept
     if platform.family == "windows":
         steps.append(
@@ -1731,8 +2137,8 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
         )
     steps += [
         *notes,
-        Note(f"MCP endpoint: http://127.0.0.1:{options.port}/mcp (bearer token required)."),
-        Note(token_hint(store, account, locations, venv=paths.venv)),
+        Note(f"MCP endpoint: {clients.server_url(options.port)} (bearer token required)."),
+        Note(token_hint(paths.venv, platform.family == "windows")),
         Note(
             f"Audit and undo logs: {resolved['PROTON_MCP_ACTION_LOG']}; identity index: "
             f"{resolved['PROTON_MCP_IDENTITY_INDEX_DIR']}. The env file pins both for the "
@@ -1740,25 +2146,81 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
         ),
     ]
     if options.setup:
-        steps += _self_check_steps(platform, store, account, options, paths, locations)
+        bridge = bridge_executable(platform, options, probe) if options.background else ""
+        steps += _self_check_steps(platform, store, account, options, paths, locations, bridge)
+    if options.clients:
+        # Without --skip-credentials this run keeps or stores a token either way.
+        if (
+            options.skip_credentials
+            and probe.has_secret(store, TOKEN_SERVICE, account, locations) is False
+        ):
+            steps.append(
+                Note(
+                    "No MCP token is stored yet (--skip-credentials), so no client is configured "
+                    "now: the run that stores the credentials, with --client, configures it."
+                )
+            )
+        else:
+            steps += client_steps(
+                platform, options.clients, paths, options.port, probe, (store, account, locations)
+            )
     return steps
 
 
-def _bridge_password_stored(
-    store: str, account: str, options: Options, probe: Probe, locations: Mapping[str, str]
-) -> bool:
-    """A store that cannot say counts as no password; a run that replaces the password, or
-    skips credentials, does not ask the store about it, as _credential_steps does not."""
-    if options.skip_credentials or options.replace_credentials:
-        return False
-    return probe.has_secret(store, BRIDGE_SERVICE, account, locations) is True
+def _secret_service_need(probe: Probe) -> list[Step]:
+    """secret-tool, and Bridge's own vault key, need a Secret Service on this D-Bus session. A
+    host with several sessions may have it on another bus than this shell's, which shows only
+    later as a failed store; said first instead. A bus that cannot be asked says nothing."""
+    if not probe.which("dbus-send"):
+        return []
+    names = [
+        probe.output((*_DBUS_QUERY, f"org.freedesktop.DBus.{method}"))
+        for method in ("ListNames", "ListActivatableNames")
+    ]
+    if any(answer is None for answer in names) or any(SECRET_SERVICE in answer for answer in names):
+        return []
+    bus = probe.env.get("DBUS_SESSION_BUS_ADDRESS", "")
+    seen = f" ({bus})" if bus else ""
+    return [
+        NeedsUser(
+            "secret_service",
+            f"No Secret Service answers on this D-Bus session{seen}, so secret-tool can neither "
+            "store nor read the credentials, and Bridge cannot keep its vault key. Run setup in "
+            "the desktop session whose keyring (gnome-keyring or KeePassXC) is unlocked, or set "
+            "DBUS_SESSION_BUS_ADDRESS to that session's bus, or use --credential-store pass.",
+            "before",
+            blocking=True,
+        )
+    ]
+
+
+def _stale_token_file(platform: Platform, probe: Probe, paths: Paths, store: str) -> list[Step]:
+    """A token file from an earlier manual setup goes stale once setup stores a new token, and
+    whatever still reads it gets 401. The installer never deletes a file it did not write."""
+    path = _join(platform, paths.config_dir, "token")
+    if not probe.exists(path):
+        return []
+    return [
+        Note(
+            f"Warning: {path} is left from an earlier manual setup. The service uses only the "
+            f"token in {store}, so anything that reads this file is refused (401) once the two "
+            f"differ. Delete it ({_file_removal_command(platform, path)}) and let clients use "
+            "`proton-mail-mcp connect`, which reads the current token itself."
+        )
+    ]
 
 
 def _setup_steps_before_credentials(
-    platform: Platform, options: Options, probe: Probe, paths: Paths, password_stored: bool
+    platform: Platform,
+    options: Options,
+    probe: Probe,
+    paths: Paths,
+    password_stored: bool,
+    account: str = "",
 ) -> list[Step]:
     """A broken environment stops here, not as a service that keeps restarting; the
-    Bridge login comes right before the password prompt it gives the answer to."""
+    Bridge login comes right before the password prompt it gives the answer to, and only
+    while no Bridge password is stored: one that is means a login already happened."""
     # -I: the environment's own copy, whatever PYTHONPATH the installer runs with.
     steps: list[Step] = [
         Command(
@@ -1766,7 +2228,7 @@ def _setup_steps_before_credentials(
             "Check the virtual environment can load the server",
         )
     ]
-    if not (options.skip_bridge or options.skip_bridge_login):
+    if not (options.skip_bridge or options.skip_bridge_login or password_stored):
         exe = bridge_executable(platform, options, probe)
         steps.append(
             BridgeLogin(
@@ -1774,14 +2236,14 @@ def _setup_steps_before_credentials(
                 "Offer Bridge's CLI to log in",
                 options.imap_port,
                 service=_bridge_service(platform, probe, paths),
-                processes=_bridge_processes(platform, probe),
-                password_stored=password_stored,
+                processes=bridge_processes(platform, probe),
+                account=account,
             )
         )
     return steps
 
 
-def _bridge_processes(platform: Platform, probe: Probe) -> tuple[str, ...]:
+def bridge_processes(platform: Platform, probe: Probe) -> tuple[str, ...]:
     """A command that exits 0 for a running Bridge and 1 for none."""
     if platform.family == "windows":
         # By name and folder: another program's Bridge.exe (Adobe's, say) is not this Bridge.
@@ -1800,6 +2262,7 @@ def _self_check_steps(
     options: Options,
     paths: Paths,
     locations: Mapping[str, str],
+    bridge: str = "",
 ) -> list[Step]:
     if platform.family == "windows":
         command = _join_windows(paths.venv, "Scripts", "proton-mail-mcp.exe")
@@ -1808,7 +2271,29 @@ def _self_check_steps(
         command = str(PurePosixPath(paths.venv) / "bin" / "proton-mail-mcp")
         later = shlex.join([command, "show-token"])
     steps: list[Step] = [Note(f"To read the token later: `{later}` (prints to a terminal only).")]
-    if options.skip_services:
+    started: list[Step] = []
+    if options.background and not options.skip_credentials:
+        if bridge and not options.skip_bridge_service:
+            started.append(
+                StartBackground(
+                    (bridge, "--noninteractive"),
+                    f"{paths.state_dir}/bridge.log",
+                    f"{paths.state_dir}/bridge.pid",
+                    options.imap_port,
+                    "Start Bridge in the background (no service manager here)",
+                )
+            )
+        started.append(
+            StartBackground(
+                (paths.service_exe, "--env-file", paths.env_file),
+                f"{paths.state_dir}/service.log",
+                f"{paths.state_dir}/{SERVICE_PIDFILE}",
+                options.port,
+                "Start the MCP server in the background (no service manager here)",
+                restart_on=MCP_RESTART_TAGS,
+            )
+        )
+    elif options.skip_services:
         return [*steps, Note("Self-check: no service was set up here, so none was checked.")]
     if options.skip_credentials:
         return [
@@ -1823,11 +2308,15 @@ def _self_check_steps(
         logs, bridge_logs = _join_windows(paths.log_dir, "mcp.log"), "Task Scheduler"
     elif platform.family == "macos":
         logs, bridge_logs = f"{paths.log_dir}/stderr.log", f"{paths.log_dir}/bridge-stderr.log"
+    elif options.background:
+        logs = f"{paths.state_dir}/service.log"
+        bridge_logs = "the Bridge you started, which must run with --noninteractive"
     else:
         logs = f"journalctl --user -u {templates.MCP_UNIT}"
         bridge_logs = f"journalctl --user -u {templates.BRIDGE_UNIT}"
     return [
         *steps,
+        *started,
         WaitForPort(
             options.imap_port,
             "Check Bridge listens on 127.0.0.1",
@@ -1846,29 +2335,19 @@ def _self_check_steps(
     ]
 
 
-def token_hint(
-    store: str, account: str, locations: Mapping[str, str] | None = None, venv: str = ""
-) -> str:
-    # The same store and keys the service reads, whatever the reading shell exports.
-    located = "".join(f"{name}={shlex.quote(value)} " for name, value in (locations or {}).items())
-    # Accounts may hold shell syntax such as $ or ;, so the pasted command quotes them.
-    quoted = shlex.quote(account)
-    commands = {
-        "keychain": f"security find-generic-password -s {TOKEN_SERVICE} -a {quoted} -w",
-        "libsecret": f"secret-tool lookup service {TOKEN_SERVICE} account {quoted}",
-        "pass": f"{located}pass show {shlex.quote(f'{TOKEN_SERVICE}/{account}')}",
-        # Credential Manager's window never reveals generic credential secrets.
-        "wincred": f"& {powershell_literal(_join_windows(venv, 'Scripts', 'proton-mail-mcp.exe'))}"
-        " show-token"
-        if venv
-        else "proton-mail-mcp show-token",
-    }
+def token_hint(venv: str, windows: bool) -> str:
+    """How a client gets the server without anything printing the token."""
+    if windows:
+        command = f"& {powershell_literal(_join_windows(venv, 'Scripts', 'proton-mail-mcp.exe'))}"
+    else:
+        command = shlex.quote(str(PurePosixPath(venv) / "bin" / "proton-mail-mcp"))
+    names = ", ".join(clients.CLIENTS)
     return (
-        "The installer never prints the bearer token. Copy it into your MCP client's secret "
-        f"storage from `{commands[store]}` (prints to a terminal only)."
-        if store == "wincred"
-        else "The installer never prints the bearer token. Copy it into your MCP client's "
-        f"secret storage from `{commands[store]}`."
+        "The installer never prints the bearer token. To add this server to a client, run "
+        f"`{command} configure-client --client <name>` ({names}); clients then start "
+        f"`{command} connect`, which reads the token itself, so their configs hold none. "
+        f"`{command} show-token --copy`, at a terminal, puts it on the clipboard without "
+        "showing it."
     )
 
 
@@ -2088,7 +2567,8 @@ def uninstall_steps(platform: Platform, options: Options, probe: Probe, paths: P
         raise PlanError(f"Unsupported platform: {platform.name}")
     validate_options(options, platform)
     _existing, settings = existing_settings(paths, probe)
-    paths = with_venv(platform, paths, options.venv or settings.get(VENV_KEY))
+    saved_in = "--venv" if options.venv else f"{VENV_KEY} in {paths.env_file}"
+    paths = with_venv(platform, paths, options.venv or settings.get(VENV_KEY), saved_in)
     previous = _pending_venvs(platform, settings)
     if platform.family == "macos":
         services = _macos_services(probe, paths)
@@ -2140,6 +2620,8 @@ def uninstall_steps(platform: Platform, options: Options, probe: Probe, paths: P
             )
         )
     if options.remove_bridge:
+        if platform.system == "linux":
+            steps.append(SUDO_NEED)
         steps += _bridge_removal(platform, probe)
     else:
         steps.append(Note("Bridge stays installed (--remove-bridge removes the package)."))
@@ -2178,4 +2660,21 @@ def uninstall_steps(platform: Platform, options: Options, probe: Probe, paths: P
     if paths.log_dir:
         note += f" Service logs in {paths.log_dir} are kept."
     steps.append(Note(note))
+    steps.append(
+        Note(
+            f"MCP client configs keep their {clients.SERVER_NAME} entry, and each change setup "
+            "made left a dated .bak copy next to the file; a ChatGPT entry, and those copies, "
+            "may hold an old bearer token. Remove the entry in each client (its page in "
+            "docs/clients/ says where) and delete the .bak files you no longer need."
+        )
+    )
+    for name in ("service", "bridge"):
+        pidfile = _join(platform, paths.state_dir, f"{name}.pid")
+        if platform.system == "linux" and probe.exists(pidfile):
+            steps.append(
+                Note(
+                    f"Setup started a process in the background here (no systemd); stop it "
+                    f'with `kill "$(cat {shlex.quote(pidfile)})"` if it still runs.'
+                )
+            )
     return steps

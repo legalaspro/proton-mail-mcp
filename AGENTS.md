@@ -34,7 +34,8 @@ in Markdown, which `make lint` does not.
 | `src/proton_mail_mcp/send.py` | Guarded send, the only module that may use SMTP |
 | `src/proton_mail_mcp/folder_rules.py`, `saved_rules.py`, `sieve.py` | Folder rules and Sieve filters |
 | `src/proton_mail_mcp/action_log.py` | The append-only action and audit log |
-| `src/proton_mail_mcp/installer/` | The `setup`, `uninstall`, `show-token` and `detect` commands |
+| `src/proton_mail_mcp/installer/` | The `setup`, `configure-client`, `uninstall`, `show-token` and `detect` commands |
+| `src/proton_mail_mcp/connect.py` | `proton-mail-mcp connect`, the stdio server MCP clients start; it relays to the service and reads the token itself |
 | `src/proton_mail_mcp/ui/`, `mcp_apps.py`, `views.py` | MCP Apps views |
 | `tests/` | The suite: fake IMAP connections and local sockets, no live services |
 | `docs/` | Documentation; [`docs/README.md`](docs/README.md) is the map |

@@ -2,11 +2,13 @@
 
 import email.message
 import io
+import json
 import urllib.error
 
 import pytest
 from starlette.testclient import TestClient
 
+from proton_mail_mcp import __version__
 from proton_mail_mcp.config import Settings
 from proton_mail_mcp.installer import selfcheck
 from proton_mail_mcp.server import create_app
@@ -101,3 +103,25 @@ def test_a_timed_out_count_on_the_real_server_is_not_a_pass():
     mail = Mail({"folder": "INBOX", "count": 0, "partial": True, "timed_out": True})
     with pytest.raises(selfcheck.SelfCheckError, match="cannot read INBOX"):
         check(mail)
+
+
+def test_the_server_reports_the_packages_own_version_not_the_sdks():
+    settings = Settings(token=TOKEN, bridge_user="you@example.com")
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": selfcheck._initialize_params(),
+    }
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+    }
+    with TestClient(
+        create_app(settings, mail_client=Mail({})), base_url="http://127.0.0.1:8765"
+    ) as http:
+        reply = http.post("/mcp", json=body, headers=headers)
+    data = next(line for line in reply.text.splitlines() if line.startswith("data:"))
+    info = json.loads(data[5:])["result"]["serverInfo"]
+    assert info["name"] == "proton-mail-mcp" and info["version"] == __version__

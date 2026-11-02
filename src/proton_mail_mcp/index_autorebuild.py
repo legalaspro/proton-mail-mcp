@@ -27,6 +27,8 @@ _RETRY_SECONDS = 1.0
 _MAX_RETRY_SECONDS = 60.0
 _MAX_HEADER_ATTEMPTS = 3
 _MAX_FAILURES = 10
+# Reasons that end recovery at once, whatever the mailbox does meanwhile.
+_TERMINAL = {"authentication_failed", "no_all_mail", "index_unavailable", "invalid_inventory"}
 
 
 class _Yielded(MailError):
@@ -67,6 +69,11 @@ class IndexAutoRebuild:
         self._rate = RebuildRate()
         self._header_attempts: dict[tuple[str, str, int], dict[str, int]] = {}
         self._incomplete: dict[tuple[str, str, int], set[str]] = {}
+        # Each folder's last EXISTS and how often any folder grew: Bridge's first sync
+        # after a login keeps adding mail, and no inventory taken meanwhile holds still.
+        self._exists: dict[str, int] = {}
+        self._growth = 0
+        self._syncing = False
         self.manual_run_id: str | None = None
         self._state: dict[str, Any] = {
             "state": "idle" if self._on else "disabled",
@@ -93,6 +100,8 @@ class IndexAutoRebuild:
         self._rate = RebuildRate()
         self._header_attempts.clear()
         self._incomplete.clear()
+        self._exists.clear()
+        self._syncing = False
         self._update(state="queued", last_error=None, eta_seconds=None)
         self._thread = threading.Thread(
             target=self._run, name="proton-mail-index-autorebuild", daemon=True
@@ -168,7 +177,8 @@ class IndexAutoRebuild:
             self._check()
             # This guard excludes a manual run, including its final swap.
             self.manual_run_id = self.client.reindex.status().get("run_id")
-            self._update(state="running", last_error=None)
+            # While Bridge still syncs, a running session keeps saying so.
+            self._update(state="running", last_error="bridge_syncing" if self._syncing else None)
             seconds = min(_SESSION_SECONDS, self.settings.call_timeout)
             deadline = _Deadline(seconds, min(seconds, self.settings.timeout))
             with self.client._session(deadline=deadline, on_connect=self._register) as (
@@ -190,6 +200,12 @@ class IndexAutoRebuild:
             with self._lock:
                 self._connection = None
             os.close(guard)
+
+    def _observe(self, folder: str, exists: int) -> None:
+        before = self._exists.get(folder)
+        self._exists[folder] = exists
+        if before is not None and exists > before:
+            self._growth += 1
 
     @staticmethod
     def _valid_inventory(members: list[str], state: dict[str, Any]) -> None:
@@ -226,6 +242,7 @@ class IndexAutoRebuild:
         index = self.client.search_index
         with self._session() as (connection, _):
             state = self.client._select(connection, folder)
+            self._observe(folder, state["exists"])
             validity = _uidvalidity(connection)
             key = (folder, validity, index.generation)
             for ledger in (self._header_attempts, self._incomplete):
@@ -312,7 +329,7 @@ class IndexAutoRebuild:
         index = self.client.search_index
         batch = work.pending[: min(200, self.settings.reindex_batch_size)]
         with self._session() as (connection, deadline):
-            self.client._select(connection, work.folder)
+            self._observe(work.folder, self.client._select(connection, work.folder)["exists"])
             if _uidvalidity(connection) != work.validity or index.generation != work.generation:
                 raise _Retry("epoch_changed")
             self.client._metadata(
@@ -360,6 +377,7 @@ class IndexAutoRebuild:
         index = self.client.search_index
         with self._session() as (connection, _):
             state = self.client._select(connection, work.folder)
+            self._observe(work.folder, state["exists"])
             if _uidvalidity(connection) != work.validity or index.generation != work.generation:
                 raise _Retry("epoch_changed")
             connection._search_selection = None
@@ -414,6 +432,8 @@ class IndexAutoRebuild:
         retry = _RETRY_SECONDS
         failures: dict[tuple[str, str | None], int] = {}
         operation: tuple[str, str | None] = ("discover", None)
+        growth = self._growth
+        waits = 0
         while not self._stop.is_set():
             try:
                 self._check()
@@ -436,6 +456,8 @@ class IndexAutoRebuild:
                     failures.pop(operation, None)
                     if not finished:
                         continue
+                    # A certified folder held still: whatever synced has settled.
+                    self._syncing = False
                     position += 1
                     work = None
                     if position == len(folders):
@@ -496,24 +518,31 @@ class IndexAutoRebuild:
                         if isinstance(error, CallDeadlineExceeded)
                         else "rebuild_failed"
                     )
+                    # A mailbox that grew since the last failure is still being
+                    # downloaded, as in Bridge's first sync after a login. Such a
+                    # failure keeps the backoff but not the retry budget, so a long
+                    # sync is waited out instead of ending recovery for good.
+                    self._syncing = reason not in _TERMINAL and self._growth > growth
+                    growth = self._growth
+                    if self._syncing:
+                        reason = "bridge_syncing"
                     self._update(state="queued", last_error=reason)
-                    # Replaying an already certified earlier folder must not
-                    # reset a persistent failure in a later folder or phase.
-                    failures[operation] = failures.get(operation, 0) + 1
-                    if (
-                        reason
-                        in {
-                            "authentication_failed",
-                            "no_all_mail",
-                            "index_unavailable",
-                            "invalid_inventory",
-                        }
-                        or failures[operation] >= _MAX_FAILURES
-                    ):
-                        _LOG.warning("Search index auto rebuild stopped reason=%s", reason)
-                        self._update(state="failed", last_error=reason)
-                        return
-                    retry = min(_MAX_RETRY_SECONDS, _RETRY_SECONDS * 2 ** (failures[operation] - 1))
+                    if self._syncing:
+                        # Its own backoff: a successful step between two such failures
+                        # must not bring back one-second rereads of a large inventory.
+                        waits += 1
+                        retry = min(_MAX_RETRY_SECONDS, _RETRY_SECONDS * 2 ** (waits - 1))
+                    else:
+                        # Replaying an already certified earlier folder must not
+                        # reset a persistent failure in a later folder or phase.
+                        failures[operation] = failures.get(operation, 0) + 1
+                        if reason in _TERMINAL or failures[operation] >= _MAX_FAILURES:
+                            _LOG.warning("Search index auto rebuild stopped reason=%s", reason)
+                            self._update(state="failed", last_error=reason)
+                            return
+                        retry = min(
+                            _MAX_RETRY_SECONDS, _RETRY_SECONDS * 2 ** (failures[operation] - 1)
+                        )
                 _LOG.warning("Search index auto rebuild retry reason=%s", reason)
                 # A changed epoch or partial FETCH needs a new authoritative
                 # inventory. Already committed header batches remain reusable.

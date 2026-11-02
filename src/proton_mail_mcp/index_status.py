@@ -126,7 +126,8 @@ def attach_index_status(
     if not active:
         progress["eta_seconds"] = None
     result["index_status"] = {"state": state, **progress}
-    if state in {"failed", "partial"} and worker.get("last_error"):
+    syncing = active and worker.get("last_error") == "bridge_syncing"
+    if (state in {"failed", "partial"} or syncing) and worker.get("last_error"):
         result["index_status"]["last_error"] = worker["last_error"]
     indexed = progress["indexed_count"]
     if progress["target"] is None:
@@ -138,5 +139,11 @@ def attach_index_status(
         "failed": "search index recovery failed",
         "partial": "search index recovery incomplete",
     }.get(state, f"search index {state}")
+    if syncing:
+        label = (
+            "search index waiting for Bridge, which is still downloading the mailbox (most "
+            "likely its first sync after a login); the index catches up by itself once Bridge "
+            "finishes"
+        )
     result["index_note"] = f"{label}: {detail}; results may be incomplete"
     return result

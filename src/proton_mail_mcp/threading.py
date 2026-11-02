@@ -235,8 +235,13 @@ def read_thread(
             )
         except Exception:
             # Keep known sizes and transfer progress if the stream timed out.
+            if "text" in details and details.get("body_type") != "text/html":
+                details["text"] = mail._collapse_filler(details["text"])
             item.update(details, truncated=True)
             raise
+        if details.get("body_type") != "text/html":
+            # Only markup for a view keeps its characters as they are.
+            body = mail._collapse_filler(body)
         item.update(
             details,
             text=body[:MAX_THREAD_BODY_BYTES],

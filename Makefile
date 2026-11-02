@@ -7,10 +7,10 @@ PYTEST_ARGS ?=
 
 # Run the same checks per interpreter, e.g. make check PYTHON=python3.14 RUFF=ruff
 
-.PHONY: lint check docs wheel-smoke
+.PHONY: lint check docs wheel-smoke mcpb
 lint:
-	$(RUFF) check src tests scripts/wheel_smoke.py scripts/generate_tool_docs.py
-	$(RUFF) format --check src tests scripts/wheel_smoke.py scripts/generate_tool_docs.py
+	$(RUFF) check src tests mcpb scripts/wheel_smoke.py scripts/generate_tool_docs.py scripts/build_mcpb.py
+	$(RUFF) format --check src tests mcpb scripts/wheel_smoke.py scripts/generate_tool_docs.py scripts/build_mcpb.py
 
 check: lint
 	$(PYTHON) -m pytest -q -p no:cacheprovider -n $(JOBS) --maxprocesses=12 --dist worksteal --durations=15 $(PYTEST_ARGS)
@@ -22,3 +22,7 @@ docs:
 # Needs uv and network access for the dependencies; uploads nothing.
 wheel-smoke:
 	$(PYTHON) scripts/wheel_smoke.py
+
+# Writes dist/proton-mail-mcp-<version>.mcpb, the Claude Desktop bundle; uploads nothing.
+mcpb:
+	$(PYTHON) scripts/build_mcpb.py

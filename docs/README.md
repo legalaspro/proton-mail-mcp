@@ -9,9 +9,15 @@ Pages are grouped by what you need right now, following [Diátaxis](https://diat
 
 ## Do a task
 
-- [Install](install.md): the installer in full, manual install, launchd, Tailscale Serve, uninstall.
-- [Connect an MCP client](clients.md): Claude Desktop, Claude Code, Codex, the ChatGPT Mac app and
-  generic MCP over HTTP.
+- [Install](install.md): the installer in full, its `--json` output for agents, manual install,
+  launchd, Tailscale Serve, uninstall.
+- [Connect an MCP client](clients.md): the `connect` command, the installer writing a client's
+  config, and generic MCP over HTTP. Each client has its own page:
+  [Claude Desktop](clients/claude-desktop.md), [Claude Code](clients/claude-code.md),
+  [ChatGPT](clients/chatgpt.md), [Codex](clients/codex.md), [Gemini CLI](clients/gemini.md),
+  [Cursor](clients/cursor.md) and [Grok Bot and other agents](clients/grok-bot.md).
+- [Installing with an AI agent](../llms-install.md): the steps an agent follows, with the one
+  hand-off to you.
 - [Windows](windows.md): native Windows support, what was and was not checked, and WSL2.
 - [IMAP IDLE](imap-idle.md): turn on the optional new-mail watcher.
 - [Recovery](RECOVERY.md): recover from a lost response, use the action log and undo, read the audit

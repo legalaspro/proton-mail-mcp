@@ -6,6 +6,75 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Fixed
 
+- **Setup shows what it will do before it asks anything.** On a terminal it lists its steps and what
+  only you can do, then asks for the Bridge username and the attachments folder, then prints the
+  full plan.
+- **Setup stops for a running Bridge app.** It installed its own Bridge service beside the desktop
+  app, which then could not start. Now the app's window, or a Bridge port held while the
+  installer's own service is not running, stops the plan before any change. On a terminal, setup
+  waits for you to quit the app, or keeps it with `--skip-bridge-service`.
+- **A stored Bridge password skips Bridge's login.** Setup no longer offers Bridge's CLI when a
+  Bridge password is already stored. Its note gives the commands to log in again by hand, which
+  keeps the token; `--replace-credentials` also stores a new password and a new token.
+- **The token hint no longer names commands that print the token.** It named
+  `security find-generic-password ... -w`, `secret-tool lookup` and `pass show`. It now names
+  `configure-client`, `connect` and `show-token --copy`.
+- **The service's virtual environment no longer depends on uv's cache.** It was made from the
+  Python `uvx` ran, which can lie in uv's cache, so `uv cache clean` broke the service. It is now
+  made from the run's base Python, followed out of the cache through its links. If none leads out,
+  setup stops and asks for the new `--python`. A rerun reports an existing environment made from a
+  cached Python.
+- **A stale `com.proton-mail-mcp.plist.disabled` is reported.** launchd ignores it, but it may hold
+  an old token, so the plan names it with the command that removes it.
+- **The package has one version, which the server reports.** The wheel said 1.0.0, while the
+  server's `serverInfo` reported 1.30.0, the MCP SDK's version, because none was given. Both now
+  come from `proton_mail_mcp.__version__`, set to 1.30.0.
+- **The install docs start from a clone of the repository**, which is private for now, with
+  `uvx --from .`, not from PyPI, where the package is not published yet. Installing from PyPI and
+  a listing in the MCP Registry are marked as later.
+- **Bridge's login works where its window cannot.** On a host without a desktop, the app's
+  human-verification step could leave it waiting. Setup now runs Bridge's CLI through a
+  pseudo-terminal: you type your email, password and code there, open any verification link in a
+  browser, and setup types `info` and `exit` and reads your IMAP username, keeping only that line.
+  Where no username is known yet, it logs in first instead of asking. A username that differs from
+  the one given stops the run before anything is stored. Windows keeps the plain CLI.
+- **Pasted answers work.** The Bridge username and password prompts drop the marks some terminals
+  put around a paste and the spaces and line break a copied line brings along.
+- **Without a Bridge username, an unattended run hands over the login.** `--yes`, `--json` or no
+  terminal used to stop with "Pass --bridge-user"; it now stops with a `bridge_login` hand-off and
+  the command a person runs in a terminal.
+- **Hosts without systemd get a running server.** Setup used to set up nothing there and skip its
+  self-check. It now starts Bridge and the MCP server as background processes, with pid files in
+  the state directory, runs the self-check, and on a rerun restarts the server, by its pid only,
+  when something it reads changed. Uninstall names those processes.
+- **A missing `secret-tool` no longer ends a dry run.** The dry run shows the whole plan with a
+  `store_tools` hand-off; a real run still stops first.
+- **A D-Bus session without a Secret Service is found first.** Where `dbus-send` can ask, setup
+  stops before any change with a `secret_service` hand-off, instead of failing at the first store.
+- **A failed `apt-get update` no longer stops the Bridge install** on Debian and Ubuntu. The install
+  docs give a manual path, and the dependencies a minimal image lacks.
+- **A stale token file is named.** A `token` file left in the settings folder by an earlier manual
+  setup gets `401` once setup stores a new token; setup names it, with the command that deletes it.
+- **The search index waits out Bridge's first sync.** While Bridge is still downloading the mailbox
+  after a login, recovery failures no longer use up its retries and end in `rebuild_failed`;
+  results report `bridge_syncing` and say the index catches up by itself.
+- **An unattended run never lets sudo ask.** `--json` and `--non-interactive` run `sudo -n`, so a
+  sudo login that runs out mid-run fails with a hint to run `sudo -v`, instead of prompting.
+- **`--python` takes a name on `PATH`** and is checked to be Python 3.12 or newer before planning.
+- **Installer options must be spelled out.** argparse took an abbreviation such as `--js` for
+  `--json`, but then a usage error was not printed as JSON. Abbreviations are now refused, and
+  `--json=1` gets its usage error as JSON.
+- **A bad saved setting is named.** A saved `PROTON_MCP_PORT` or virtual environment path that is
+  not valid used to be blamed on `--port` or `--venv`, which were never given; the refusal now
+  names the setting and the env file.
+- **A stopped Bridge is named.** When nothing answers on Bridge's IMAP address, tools said
+  "Mailbox operation failed; check Bridge configuration and availability". They now say
+  "Proton Mail Bridge is not running: nothing answers on 127.0.0.1:1143", with how to start it.
+  Other backend errors still give no details.
+- **Invisible preheader filler no longer fills `read_thread`'s text.** Marketing mail pads its
+  preheader with long runs of zero-width and other invisible characters. Each run of two or more
+  becomes one space in `read_thread` and `show_thread` text; a single one, as in an emoji
+  sequence, stays.
 - **A message sent to yourself now has a canonical handle.** It is listed in both INBOX and Sent,
   which the lookup treated as copies it could not tell apart, so `read_thread` and `show_thread`
   returned null `folder`, `uidvalidity` and `uid`, and a search of All Mail dropped the row. Those
@@ -52,6 +121,42 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Added
 
+- **`proton-mail-mcp connect`.** A local stdio MCP server that relays every message, unchanged, to
+  the installed service, and reads the bearer token from the credential store each time it starts,
+  so a client's config holds no token. It replaces `npx mcp-remote` for Claude Desktop, so no
+  Node.js is needed. A service that is down, or takes the connection and does not answer
+  `initialize` within a minute, a refused token or a missing one reaches the client as a JSON-RPC
+  error that says what to do; a restarted service gets its session set up again. A
+  `--token-file` that is not a regular file, such as a folder or a named pipe, is refused at once.
+- **Setup adds the server to seven MCP clients.** `setup --client` and the new `configure-client`
+  take `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`, `cursor` and `grok-bot`.
+  Every client but ChatGPT starts connect. Claude Code, Codex and Gemini CLI get it through their
+  own `mcp add` when their command is on `PATH`, then `mcp list`; a failed `mcp add` never loses
+  an entry that was there. ChatGPT gets a direct HTTP entry, with the token, in
+  `~/.codex/config.toml`, which Codex also reads: Codex keeps that entry rather than replace it,
+  and ChatGPT replacing a Codex entry warns. Grok Bot, or another agent, gets the entry shown to
+  add. Each change keeps every other server, the file's line endings, and in TOML the comments
+  outside the replaced table; it keeps the old file as a dated `.bak`, writes owner-only and says
+  when it replaced an entry; an unchanged entry leaves the file alone. A dry run shows the change
+  without any value already in the file, and a file a run could not edit safely refuses the plan
+  before any step runs, in a dry run too. The token is read only for ChatGPT, only when applied,
+  and never printed.
+- **`--print-config`** prints each client's entry, its own `mcp add` command and, for Cursor, a
+  one-click link, without reading the token. Cursor and VS Code install buttons are in the docs.
+- **`--json` and `--non-interactive` for agents.** `setup`, `install`, `uninstall` and
+  `configure-client` then ask nothing and open no prompt. `--json` prints one document with each
+  step's status and `needs_user`: what only a person can do, when, whether it is `blocking`,
+  whether it stops this run, or in a dry run would stop the same run with `--yes`, and the command
+  to hand over. That command, and `launcher`, start the same copy, through `uvx --from <source>`
+  when the run came from uvx. `connector` gives the command any client can start, without the
+  token. A usage error is a JSON document too.
+- **`show-token --copy`** puts the token on the clipboard without printing it, at a terminal only.
+- **Files for the MCP Registry and Claude Desktop, published nowhere.** `server.json` and the
+  README's `mcp-name` line describe the package for a later registry listing, and `make mcpb`
+  builds a Claude Desktop bundle that runs connect with uv.
+- **Install docs for agents and a page per client.** `llms-install.md` is the steps an agent
+  follows, with the one hand-off of the Bridge login to the person; `docs/clients/` has a page for
+  each client.
 - **Native Windows support, so far run only on Windows Server runners.** The server, `setup` and `uninstall`
   now run on Windows instead of refusing it. File locks use `LockFileEx`, private state lives in
   `%LOCALAPPDATA%\proton-mail-mcp`, and the action log, saved rules, indexes, attachments folder

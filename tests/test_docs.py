@@ -1,9 +1,12 @@
 """The docs agree with the code, and each reader's entry point keeps its shape."""
 
 import asyncio
+import base64
 import importlib.util
+import json
 import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -17,7 +20,9 @@ PAGES = [
     ROOT / "AGENTS.md",
     ROOT / "CONTRIBUTING.md",
     ROOT / "CHANGELOG.md",
+    ROOT / "llms-install.md",
     *sorted(DOCS.glob("*.md")),
+    *sorted((DOCS / "clients").glob("*.md")),
 ]
 LLMS_BASE = "https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/"
 CONFIGS = {
@@ -214,6 +219,46 @@ def test_every_page_is_on_the_map():
     for page in DOCS.glob("*.md"):
         if page.name != "README.md":
             assert f"]({page.name})" in documentation_map, page.name
+    for page in (DOCS / "clients").glob("*.md"):
+        assert f"](clients/{page.name})" in documentation_map, page.name
+    assert "](../llms-install.md)" in documentation_map
+
+
+def test_every_client_setup_knows_has_a_page_and_no_other():
+    from proton_mail_mcp.installer.clients import CLIENTS
+
+    pages = {page.stem for page in (DOCS / "clients").glob("*.md")}
+    assert pages == set(CLIENTS)
+    overview = read(DOCS / "clients.md")
+    for name in CLIENTS:
+        assert f"[`{name}`](clients/{name}.md)" in overview, name
+
+
+def test_the_install_buttons_add_the_connect_command_and_no_token():
+    page = read(DOCS / "clients" / "cursor.md")
+    cursor = re.findall(r"\((https://cursor\.com/en/install-mcp\?[^)\s]+)\)", page)
+    vscode = re.findall(r"\((https://insiders\.vscode\.dev/redirect/mcp/install\?[^)\s]+)\)", page)
+    assert len(cursor) == len(vscode) == 2
+    entries = []
+    for link in cursor:
+        query = parse_qs(urlsplit(link).query)
+        assert query["name"] == ["proton-mail"]
+        entries.append(json.loads(base64.b64decode(query["config"][0])))
+    for link in vscode:
+        query = parse_qs(urlsplit(link).query)
+        assert query["name"] == ["proton-mail"]
+        entry = json.loads(query["config"][0])
+        assert entry.pop("type") == "stdio"
+        entries.append(entry)
+    for entry in entries:
+        assert set(entry) == {"command", "args"}
+        assert entry["command"].startswith("${userHome}/")
+        assert entry["command"].endswith("/venv/bin/proton-mail-mcp")
+        assert entry["args"][:2] == ["connect", "--env-file"]
+        assert entry["args"][2].endswith("/proton-mail-mcp/proton-mail-mcp.env")
+        assert "Bearer" not in json.dumps(entry) and "token" not in json.dumps(entry)
+    # The same paths in both apps, one pair for macOS and one for Linux.
+    assert entries[:2] == entries[2:]
 
 
 def test_the_pypi_warning_stands_or_falls_on_every_page():

@@ -4,6 +4,7 @@ import ntpath
 import os
 import posixpath
 import shutil
+import socket
 import stat
 import subprocess
 from collections.abc import Mapping
@@ -111,6 +112,14 @@ class HostProbe:
         """`python -m venv` needs ensurepip, a separate package on Debian and Ubuntu."""
         return self.succeeds((python, "-c", "import ensurepip"))
 
+    def port_open(self, port: int) -> bool:
+        """Whether something accepts connections on 127.0.0.1:port; nothing is sent."""
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except OSError:
+            return False
+
     def has_secret(
         self, store: str, service: str, account: str, locations: Mapping[str, str] | None = None
     ) -> bool | None:
@@ -139,6 +148,7 @@ class FakeProbe:
     # The pass locations each has_secret call used.
     secret_locations: list[dict[str, str]] = field(default_factory=list)
     venv_module: bool = True
+    open_ports: set[int] = field(default_factory=set)
 
     def which(self, name: str) -> str | None:
         return self.tools.get(name)
@@ -190,6 +200,9 @@ class FakeProbe:
 
     def can_make_venv(self, python: str) -> bool:
         return self.venv_module
+
+    def port_open(self, port: int) -> bool:
+        return port in self.open_ports
 
     def has_secret(
         self, store: str, service: str, account: str, locations: Mapping[str, str] | None = None

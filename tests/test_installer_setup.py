@@ -1,6 +1,5 @@
 """`setup`: the guided install, from an installed wheel, with its credential guarantees."""
 
-import dataclasses
 import email.message
 import getpass
 import io
@@ -40,8 +39,10 @@ from proton_mail_mcp.installer.steps import (
     CheckStopped,
     Command,
     EnsureDir,
+    NeedsUser,
     Note,
     SelfCheck,
+    StartBackground,
     StoreSecret,
     WaitForPort,
 )
@@ -79,6 +80,12 @@ def kinds(steps, kind):
 
 def position(steps, kind):
     return next(index for index, step in enumerate(steps) if isinstance(step, kind))
+
+
+@pytest.fixture(autouse=True)
+def no_pseudo_terminal(monkeypatch):
+    """Bridge's CLI goes through the scripted runner, not a real pseudo-terminal."""
+    monkeypatch.setattr(cli.bridge_cli, "available", lambda: False)
 
 
 @pytest.fixture(autouse=True)
@@ -197,13 +204,30 @@ def test_the_self_check_is_skipped_with_a_reason_when_it_cannot_run(flag, text):
     assert any(text in step.text for step in kinds(steps, Note) if "Self-check" in step.text)
 
 
-def test_a_host_without_systemd_gets_no_self_check_of_a_service():
+def test_a_host_without_systemd_starts_both_in_the_background_then_checks_them():
+    # F28: a container without systemd had nothing running the server, and no self-check.
     probe = simulated_probe(simulated("fedora"))
     del probe.files[SYSTEMD_BOOTED]
     del probe.outputs[MANAGER_ENVIRONMENT]
     steps = plan("fedora", probe)
-    assert not kinds(steps, SelfCheck)
-    assert any("Self-check: no service" in step.text for step in kinds(steps, Note))
+    bridge, server = kinds(steps, StartBackground)
+    assert bridge.argv == ("/usr/bin/protonmail-bridge", "--noninteractive")
+    assert server.argv[1:] == (
+        "--env-file",
+        "/home/you/.config/proton-mail-mcp/proton-mail-mcp.env",
+    )
+    assert server.argv[0].endswith("/venv/bin/proton-mail-mcp-service")
+    assert server.pidfile == "/home/you/.local/state/proton-mail-mcp/service.pid"
+    assert server.restart_on and not bridge.restart_on
+    [check] = kinds(steps, SelfCheck)
+    assert steps.index(server) < steps.index(check)
+    assert check.hint == "/home/you/.local/state/proton-mail-mcp/service.log"
+    assert any(
+        "starts the MCP server as a background process" in step.text for step in kinds(steps, Note)
+    )
+    # Asked for no service: nothing is started, and nothing checked.
+    steps = plan("fedora", probe, skip_services=True)
+    assert not kinds(steps, StartBackground) and not kinds(steps, SelfCheck)
 
 
 def test_self_check_points_at_each_platforms_logs():
@@ -900,7 +924,8 @@ def test_a_dry_run_without_a_username_shows_a_placeholder_and_asks_no_store(host
     assert cli.main(["setup", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert f"this plan shows {cli.PLACEHOLDER_ACCOUNT}" in out
-    assert "setup asks for the username when applied" in out
+    assert "setup reads the username from Bridge's login where Bridge is installed" in out
+    assert "! For you: Setup does not know the Bridge account yet" in out
     assert host.probe.secret_locations == []
 
 
@@ -984,13 +1009,16 @@ def test_ending_the_consent_question_changes_nothing(host, monkeypatch, capsys, 
 def test_without_a_terminal_setup_asks_nothing_and_names_the_flag(host, monkeypatch, capsys):
     answers(monkeypatch, on_terminal=False)
     assert cli.main(["setup"]) == 2
-    assert "Pass --bridge-user" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "pass --bridge-user" in err and "The command: proton-mail-mcp setup" in err
+    assert not host.home.exists()
 
 
 def test_yes_asks_nothing_and_names_the_flag(host, monkeypatch, capsys):
     answers(monkeypatch, on_terminal=True)
     assert cli.main(["setup", "--yes"]) == 2
-    assert "Pass --bridge-user" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "pass --bridge-user" in err and "only a person can log in to Bridge" in err
 
 
 def test_an_invalid_flag_username_is_refused_like_install(host, capsys):
@@ -1532,7 +1560,6 @@ LOGIN_AROUND = BridgeLogin(
     service=BRIDGE_UNIT,
     processes=tuple(PGREP),
 )
-LOGIN_WITH_PASSWORD = dataclasses.replace(LOGIN_AROUND, password_stored=True)
 
 
 class ScriptedHost:
@@ -1649,25 +1676,6 @@ def test_the_cli_opens_only_after_the_stop_is_proven():
     assert after_stop == [STATE, PGREP]
 
 
-@pytest.mark.parametrize("reply", ["y", "Y", "yes", " YES "])
-def test_a_stored_password_still_lets_a_person_log_in(reply):
-    host = ScriptedHost(reply=reply)
-    host.executor.run([LOGIN_WITH_PASSWORD])
-    assert "A Bridge password is stored" in host.questions[0]
-    assert "`info`" in host.questions[0] and host.questions[0].rstrip().endswith("[y/N]")
-    assert host.changes() == [STOP, CLI, START]
-    assert host.cli_beside_a_bridge is False
-
-
-@pytest.mark.parametrize("reply", ["", "n", "no", "anything"])
-def test_a_stored_password_means_enter_stops_nothing(reply):
-    # A healthy rerun stays healthy unless someone wants another login.
-    host = ScriptedHost(reply=reply)
-    host.executor.run([LOGIN_WITH_PASSWORD])
-    assert host.changes() == []
-    assert host.running is True and host.executor.warnings == []
-
-
 @pytest.mark.parametrize("reply", ["n", "N", "no", " no "])
 def test_declining_with_no_stored_password_stops_nothing(reply):
     host = ScriptedHost(reply=reply)
@@ -1677,20 +1685,16 @@ def test_declining_with_no_stored_password_stops_nothing(reply):
 
 
 @pytest.mark.parametrize("listening", [True, False])
-@pytest.mark.parametrize(
-    ("login", "default"), [(LOGIN_AROUND, "[Y/n]"), (LOGIN_WITH_PASSWORD, "[y/N]")]
-)
-def test_the_port_does_not_change_the_question(login, default, listening):
+def test_the_port_does_not_change_the_question(listening):
     host = ScriptedHost(listening=listening, reply="n")
-    host.executor.run([login])
-    assert host.questions[0].rstrip().endswith(default)
+    host.executor.run([LOGIN_AROUND])
+    assert host.questions[0].rstrip().endswith("[Y/n]")
 
 
 @pytest.mark.parametrize("settings", [{"terminal": False}, {"assume_yes": True}])
-@pytest.mark.parametrize("login", [LOGIN_AROUND, LOGIN_WITH_PASSWORD])
-def test_without_a_person_nothing_is_stopped_or_even_asked(settings, login):
+def test_without_a_person_nothing_is_stopped_or_even_asked(settings):
     host = ScriptedHost(**settings)
-    host.executor.run([login])
+    host.executor.run([LOGIN_AROUND])
     assert host.calls == [] and host.questions == []
     assert "not opened: it needs a person" in host.said()
 
@@ -1949,30 +1953,50 @@ def test_a_first_setup_has_no_service_to_stop_but_still_checks_for_a_bridge():
     login = plan_login()
     assert login.service is None
     assert login.processes == ("pgrep", "-u", "1000", "-f", BRIDGE_PROCESSES)
-    assert login.password_stored is False
 
 
-def test_the_login_offer_knows_a_stored_password():
+def logins_and_notes(steps):
+    said = " ".join(step.text for step in steps if isinstance(step, (Note, NeedsUser)))
+    return kinds(steps, BridgeLogin), said
+
+
+@pytest.mark.parametrize("setup", [True, False])
+def test_a_stored_password_means_no_login_offer_and_no_login_hint(setup):
+    # The new user's rerun was offered a login, and told how to log in, though logged in.
     probe = simulated_probe(simulated("debian"))
     probe.secrets = {("libsecret", BRIDGE_SERVICE, USER)}
-    assert plan_login(probe=probe).password_stored is True
-    # The token alone says nothing about Bridge.
+    logins, said = logins_and_notes(plan(probe=probe, setup=setup))
+    assert logins == []
+    # Only as the way to log in again, without --replace-credentials and a new token (N5).
+    assert "Bridge login (once per account)" not in said
+    again = said[said.index("To log in to Bridge again and keep everything else:") :]
+    assert "protonmail-bridge --cli" in again and "`login`" in again
+    assert f"A Bridge password is already stored for {USER}" in said
+    assert "--replace-credentials" in said
+    assert "hidden prompt" not in said
+
+
+def test_the_token_alone_says_nothing_about_bridge():
+    probe = simulated_probe(simulated("debian"))
     probe.secrets = {("libsecret", TOKEN_SERVICE, USER)}
-    assert plan_login(probe=probe).password_stored is False
+    logins, said = logins_and_notes(plan(probe=probe))
+    assert len(logins) == 1 and "--cli" in said and "already stored" not in said
 
 
 def test_a_store_that_cannot_say_counts_as_no_password():
     probe = simulated_probe(simulated("debian"))
     probe.has_secret = lambda *_args, **_kwargs: None
-    assert plan_login(probe=probe, store_unreadable=True).password_stored is False
+    logins, said = logins_and_notes(plan(probe=probe, store_unreadable=True))
+    assert len(logins) == 1 and "already stored" not in said
 
 
 @pytest.mark.parametrize("flag", ["replace_credentials", "skip_credentials"])
-def test_a_run_that_leaves_the_stored_password_aside_does_not_ask_about_it(flag):
+def test_a_run_that_leaves_the_stored_password_aside_still_offers_the_login(flag):
     # A dry run without a username relies on this: it asks no store about the placeholder.
     probe = simulated_probe(simulated("debian"))
     probe.secrets = {("libsecret", BRIDGE_SERVICE, USER)}
-    assert plan_login(probe=probe, **{flag: True}).password_stored is False
+    logins, _said = logins_and_notes(plan(probe=probe, **{flag: True}))
+    assert len(logins) == 1
     assert probe.secret_locations == []
 
 
@@ -2178,14 +2202,15 @@ def test_a_rerun_with_no_password_logs_in_around_the_service_then_stores_it(
     assert PASSWORD not in captured.out + captured.err
 
 
-def test_a_healthy_rerun_is_left_alone_on_enter(rerun, monkeypatch, capsys):
+def test_a_healthy_rerun_offers_no_login_and_stops_nothing(rerun, monkeypatch, capsys):
     rerun.host.probe.secrets.add(("libsecret", BRIDGE_SERVICE, USER))
-    asked = answers(monkeypatch, "", "y", "")
+    asked = answers(monkeypatch, "", "y")
     assert cli.main(["setup", "--bridge-user", USER]) == 0
-    assert "A Bridge password is stored" in asked[2]
+    assert len(asked) == 2 and asked[1].startswith("Apply these steps")
     assert rerun.stop not in rerun.commands and rerun.cli_argv not in rerun.commands
     assert rerun.checks == [8765]
-    assert "setup finished." in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "setup finished." in out and "Offer Bridge's CLI" not in out
 
 
 def test_a_rerun_with_yes_never_stops_the_service(rerun, monkeypatch, capsys):
@@ -2193,7 +2218,7 @@ def test_a_rerun_with_yes_never_stops_the_service(rerun, monkeypatch, capsys):
     answers(monkeypatch, on_terminal=True)
     assert cli.main(["setup", "--yes", "--bridge-user", USER]) == 0
     assert rerun.stop not in rerun.commands and rerun.cli_argv not in rerun.commands
-    assert "not opened: it needs a person" in capsys.readouterr().out
+    assert "already stored" in capsys.readouterr().out
 
 
 def test_a_dry_run_of_a_rerun_shows_the_way_and_changes_nothing(host, monkeypatch, capsys):
@@ -2608,7 +2633,7 @@ def test_closed_standard_streams_count_as_no_terminal(monkeypatch):
 def test_setup_with_stdin_closed_refuses_instead_of_crashing(host, monkeypatch, capsys):
     monkeypatch.setattr(sys, "stdin", None)
     assert cli.main(["setup"]) == 2
-    assert "Pass --bridge-user" in capsys.readouterr().err
+    assert "pass --bridge-user" in capsys.readouterr().err
     assert cli.main(["setup", "--bridge-user", USER]) == 2
     assert "confirm with --yes" in capsys.readouterr().err
 

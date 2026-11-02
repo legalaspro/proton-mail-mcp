@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "proton-mail-mcp"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Unofficial MCP server for Proton Mail Bridge: read mail, create drafts and run guarded cleanup. Not affiliated with or endorsed by Proton AG."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -44,6 +44,9 @@ proton-mail-mcp = "proton_mail_mcp.cli:main"
 proton-mail-mcp-rules-run = "proton_mail_mcp.rules_timer:main"
 proton-mail-mcp-service = "proton_mail_mcp.service_entry:main"
 
+[tool.hatch.version]
+path = "src/proton_mail_mcp/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/proton_mail_mcp"]
 
@@ -54,6 +57,10 @@ packages = ["src/proton_mail_mcp"]
 "examples/protected-senders.example.json" = "proton_mail_mcp/examples/protected-senders.example.json"
 "examples/systemd/proton-mail-mcp-rules.service" = "proton_mail_mcp/examples/systemd/proton-mail-mcp-rules.service"
 "examples/systemd/proton-mail-mcp-rules.timer" = "proton_mail_mcp/examples/systemd/proton-mail-mcp-rules.timer"
+
+# `uvx --from <checkout>` rebuilds when the code changes, not only this file.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**" }, { git = { commit = true } }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

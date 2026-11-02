@@ -416,7 +416,7 @@ POWERSHELL_PATHS = [
 @pytest.mark.parametrize(("venv", "literal"), POWERSHELL_PATHS)
 def test_both_token_commands_quote_the_path_as_a_powershell_literal(venv, literal):
     command = f"& '{literal}\\Scripts\\proton-mail-mcp.exe' show-token"
-    assert f"`{command}`" in planner.token_hint("wincred", USER, venv=venv)
+    assert f"`{command} --copy`" in planner.token_hint(venv, windows=True)
     platform = simulated("windows")
     probe = simulated_probe(platform)
     paths = dataclasses.replace(paths_for(platform, probe.env, probe.home), venv=venv)
@@ -451,12 +451,12 @@ def pasted_powershell(path):
     probe = simulated_probe(platform)
     paths = dataclasses.replace(paths_for(platform, probe.env, probe.home), venv=path)
     token = planner._self_check_steps(platform, "wincred", USER, Options(), paths, {})[0].text
-    hint = planner.token_hint("wincred", USER, venv=path)
+    hint = planner.token_hint(path, windows=True)
     login = planner._login_note(platform, Options(bridge_bin=path), probe, paths).text
     tool = f"{path}\\Scripts\\proton-mail-mcp.exe"
     return [
         (re.search(r"`(& .*)` \(prints", token, re.S)[1], [tool]),
-        (re.search(r"`(& .*)` \(prints", hint, re.S)[1], [tool]),
+        (re.search(r"`(& .*)`, which puts it", hint, re.S)[1], [tool]),
         (re.search(r"run `(& .*)`, then", login, re.S)[1], [path]),
         (planner._removal_command(platform, path, "C:\\b"), [path, "C:\\b"]),
         (planner._file_removal_command(platform, path), [path]),
@@ -597,7 +597,7 @@ def test_every_windows_powershell_command_starts_from_the_machines_module_path()
     reset = "$env:PSModulePath = [Environment]::GetEnvironmentVariable('PSModulePath', 'Machine');"
     assert planner.AUTHENTICODE_CHECK.startswith(reset)
     assert planner._task_running_argv("\\task")[-1].startswith(reset)
-    processes = planner._bridge_processes(platform, probe)[-1]
+    processes = planner.bridge_processes(platform, probe)[-1]
     assert processes.startswith(reset)
     # Another program's Bridge.exe, Adobe's say, is not this Bridge.
     assert "$_.Path -like '*Proton*'" in processes
@@ -611,8 +611,8 @@ def test_task_names_of_accounts_that_differ_only_in_other_letters_stay_apart():
 
 def test_the_token_hint_names_a_command_that_exists_without_a_checkout():
     venv = "C:\\Users\\you\\AppData\\Local\\proton-mail-mcp\\venv"
-    hint = planner.token_hint("wincred", USER, venv=venv)
-    assert f"& '{venv}\\Scripts\\proton-mail-mcp.exe' show-token" in hint
+    hint = planner.token_hint(venv, windows=True)
+    assert f"& '{venv}\\Scripts\\proton-mail-mcp.exe' show-token --copy" in hint
     assert "install.ps1" not in hint
 
 

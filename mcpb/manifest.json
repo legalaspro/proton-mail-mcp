@@ -1,0 +1,36 @@
+{
+  "manifest_version": "0.4",
+  "name": "proton-mail-mcp",
+  "display_name": "Proton Mail (Bridge)",
+  "version": "1.30.0",
+  "description": "Search and read Proton Mail, write drafts and tidy the mailbox through Proton Mail Bridge, with a preview you approve before anything changes.",
+  "long_description": "This bundle is only the connector. It runs `proton-mail-mcp connect`, which passes Claude Desktop's requests to the proton-mail-mcp service on 127.0.0.1 and reads the service's bearer token from the system credential store each time it starts, so the token is never in Claude Desktop's settings. Run `proton-mail-mcp setup` on this computer first: it installs Proton Mail Bridge, stores the credentials and starts the service. Unofficial: not affiliated with or endorsed by Proton AG.",
+  "author": {
+    "name": "Dmitri Manajev",
+    "email": "dmitri@manajev.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/legalaspro/proton-mail-mcp"
+  },
+  "homepage": "https://github.com/legalaspro/proton-mail-mcp",
+  "documentation": "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/README.md",
+  "support": "https://github.com/legalaspro/proton-mail-mcp/issues",
+  "server": {
+    "type": "uv",
+    "entry_point": "server/main.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["run", "--directory", "${__dirname}", "server/main.py"]
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"],
+    "runtimes": {
+      "python": ">=3.12"
+    }
+  },
+  "keywords": ["mcp", "proton-mail", "proton-bridge", "email", "imap"],
+  "license": "Apache-2.0"
+}

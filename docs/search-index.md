@@ -412,6 +412,17 @@ roughly four minutes. Successfully revisiting an earlier folder cannot reset tha
 budget, and foreground calls cannot shorten the backoff. After a terminal stop,
 restore the underlying service or configuration, then restart the server to resume
 recovery or run a manual `reindex(op="preview")` / `reindex(op="execute")` rebuild.
+
+Right after a Bridge login, Bridge spends minutes to hours on its first sync, and the
+mailbox keeps growing meanwhile, so no inventory holds still. A failure seen while a
+folder's message count rose since the previous failure gets the reason
+`bridge_syncing`: it keeps the capped backoff but does not count toward the ten
+attempts, so recovery waits the sync out instead of stopping. `reindex_status()`
+then reports `state="rebuilding"` with `last_error="bridge_syncing"`, and incomplete
+search results say in `index_note` that Bridge is still downloading the mailbox and
+that the index catches up by itself. Nothing needs doing but waiting; the Bridge app's
+window shows its sync progress.
+
 Fresh coverage still requires an authoritative inventory and current mailbox
 epoch; a high maximum UID alone cannot prove completeness.
 

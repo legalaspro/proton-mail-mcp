@@ -77,6 +77,21 @@ class CallDeadlineExceeded(MailError):
     """The bounded mailbox call ran out of time; retain any available results."""
 
 
+class BridgeUnavailable(MailError):
+    """Nothing answers on Bridge's IMAP address; the text names only that address."""
+
+    def __init__(self, host: str, port: int):
+        address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+        super().__init__(
+            f"Proton Mail Bridge is not running: nothing answers on {address}. Start Bridge "
+            "(its app, its service, or `bridge --noninteractive`), then retry"
+        )
+
+
+class _ConnectTimedOut(ConnectionError):
+    """The connect to Bridge got no answer within the whole socket timeout."""
+
+
 def _imap_unescape(match: re.Match) -> bytes:
     value = match.group(1)
     if value in _IMAP_ESCAPES:
@@ -238,6 +253,16 @@ class _DeadlineIMAP4(imaplib.IMAP4):
         except Exception:
             with suppress(Exception):
                 self.shutdown()
+            raise
+
+    def _create_socket(self, timeout: Any) -> socket.socket:
+        try:
+            return super()._create_socket(timeout)
+        except TimeoutError:
+            # With the whole socket timeout nothing answered there; a shorter one is only
+            # the call's own budget running out.
+            if timeout is not None and timeout >= self._call_deadline.socket_timeout:
+                raise _ConnectTimedOut from None
             raise
 
     def open(self, host: str = "", port: int = imaplib.IMAP4_PORT, timeout: Any = None) -> None:
@@ -586,6 +611,26 @@ class _HtmlText(HTMLParser):
     def handle_data(self, data: str) -> None:
         if not self.hidden:
             self.parts.append(data)
+
+
+# Marketing mail pads its preheader with long runs of invisible characters, often between
+# spaces, which would fill the text a read returns. A run holding two or more of them, with the
+# spaces among them, becomes one space; a single one, such as the joiner in an emoji sequence or
+# a Persian zero-width non-joiner, stays.
+_INVISIBLE = frozenset(
+    "\u00ad\u034f\u115f\u1160\u180e\u200b\u200c\u200d"
+    "\u2060\u2061\u2062\u2063\u2064\u2800\u3164\ufeff\uffa0"
+)
+_ANY_INVISIBLE = re.compile("[" + "".join(sorted(_INVISIBLE)) + "]")
+_FILLER_RUN = re.compile("[" + "".join(sorted(_INVISIBLE)) + " \t\u00a0\u2007\u202f]+")
+
+
+def _collapse_filler(text: str) -> str:
+    def collapse(match: re.Match) -> str:
+        run = match.group()
+        return " " if sum(char in _INVISIBLE for char in run) >= 2 else run
+
+    return _FILLER_RUN.sub(collapse, text) if _ANY_INVISIBLE.search(text) else text
 
 
 def _text_body(
@@ -1109,9 +1154,12 @@ class MailClient:
                 if self.imap_factory is _DeadlineIMAP4
                 else {}
             )
-            connection = self.imap_factory(
-                host, self.settings.imap_port, timeout=timeout, **options
-            )
+            try:
+                connection = self.imap_factory(
+                    host, self.settings.imap_port, timeout=timeout, **options
+                )
+            except (ConnectionRefusedError, _ConnectTimedOut):
+                raise BridgeUnavailable(self.settings.imap_host, self.settings.imap_port) from None
             if on_connect is not None and self.imap_factory is not _DeadlineIMAP4:
                 on_connect(connection)
             timed = _TimedConnection(connection, deadline)

@@ -23,6 +23,8 @@ Windows has no dir_fd, O_NOFOLLOW, flock, file owner or mode bits, so there:
   anything exists to open. The environment only says where to stop: a root it names is checked too.
 
 On POSIX acl_refusal, parent_refusal, name_refusal and path_refusal return None and call nothing.
+
+terminal_session runs a program through a pseudo-terminal, which Windows does not have.
 """
 
 import errno
@@ -39,6 +41,10 @@ try:
     import fcntl
 except ImportError:  # Windows
     fcntl = None
+try:
+    import pty
+except ImportError:  # Windows
+    pty = None
 
 # O_CLOEXEC and O_NONBLOCK have nothing to add on Windows: its descriptors are never inherited,
 # and no FIFO can appear at a file's path. The other two are spare bits only open below reads.
@@ -584,3 +590,11 @@ def plain_name(name: str) -> str:
         return name
     plain = _RESERVED_CHARS.sub("_", name).rstrip(" .") or "_"
     return f"_{plain}" if reserved_name(plain) else plain
+
+
+def terminal_session(argv: list[str], read) -> int:
+    """Run argv on this terminal through a pseudo-terminal, where read(descriptor) takes each
+    chunk of its output before it is shown; its exit status. OSError where there is none."""
+    if pty is None:
+        raise OSError(errno.ENOSYS, "this system has no pseudo-terminals")
+    return os.waitstatus_to_exitcode(pty.spawn(argv, read))

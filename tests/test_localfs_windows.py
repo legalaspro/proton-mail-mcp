@@ -897,7 +897,7 @@ def test_only_the_seam_imports_what_windows_lacks():
             elif isinstance(node, ast.ImportFrom) and not node.level:
                 imported.add(node.module.partition(".")[0])
         if name == "localfs.py":
-            assert imported & POSIX_ONLY_MODULES == {"fcntl"}
+            assert imported & POSIX_ONLY_MODULES == {"fcntl", "pty"}
         else:
             assert not imported & POSIX_ONLY_MODULES, name
 

@@ -29,7 +29,14 @@ from .confirmation import (
     require_confirmation,
 )
 from .guarded import TokenStore, approval_hash
-from .mail import MAX_DRAFT_BYTES, MailError, MailValidationError, _draft_message_id, _HtmlText
+from .mail import (
+    MAX_DRAFT_BYTES,
+    BridgeUnavailable,
+    MailError,
+    MailValidationError,
+    _draft_message_id,
+    _HtmlText,
+)
 from .security import tls_context, verify_certificate
 from .send_address import (
     FORWARD_SUBJECT,
@@ -494,6 +501,8 @@ class SendService:
         draft_id = _draft_message_id(draft_id)
         try:
             row = self.client.read_draft(draft_id)
+        except BridgeUnavailable:
+            raise
         except Exception:
             raise MailError("Draft read failed; request a new preview") from None
         return _snapshot(row, draft_id, self.settings)

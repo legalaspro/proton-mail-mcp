@@ -8,18 +8,23 @@ own [page](windows.md).
 ## Quick start
 
 **Not on PyPI yet:** until the first release is published, the by-name commands below do not
-install this project, and must not be run: anyone could hold that name on PyPI. Install
-from a wheel you built from this repository instead:
+install this project, and must not be run: anyone could hold that name on PyPI. Install from a
+clone of this repository instead. It is private for now, so your GitHub account needs access to
+`legalaspro/proton-mail-mcp`:
 
 ```sh
-uv build --wheel
-uvx --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp setup
-# or, with uv's own Python: uvx --managed-python --from dist/proton_mail_mcp-1.0.0-py3-none-any.whl proton-mail-mcp setup
-# or: pipx install dist/proton_mail_mcp-1.0.0-py3-none-any.whl && proton-mail-mcp setup
+gh repo clone legalaspro/proton-mail-mcp && cd proton-mail-mcp
+uvx --from . proton-mail-mcp setup --dry-run
+uvx --from . proton-mail-mcp setup --client claude-desktop
+# or, with uv's own Python: uvx --managed-python --from . proton-mail-mcp setup
+# or: pipx install . && proton-mail-mcp setup
 ```
 
-Once it is published, [uv](https://docs.astral.sh/uv/) does it in one command. uv finds or fetches
-a compatible Python; Debian and Ubuntu may also need `python3-venv`, as below:
+`uvx --from .` builds the clone it runs in, and builds it again after a `git pull` or an edit.
+
+Later, once it is published (see [PyPI and the MCP Registry](#later-pypi-and-the-mcp-registry)),
+[uv](https://docs.astral.sh/uv/) does it in one command. uv finds or fetches a compatible Python;
+Debian and Ubuntu may also need `python3-venv`, as below:
 
 ```sh
 uvx proton-mail-mcp setup
@@ -32,26 +37,42 @@ pipx install proton-mail-mcp
 proton-mail-mcp setup
 ```
 
-`setup` asks for your Bridge username, prints its full plan and asks before it
-changes anything (add `--dry-run` to stop after the plan). Then it:
+`setup` first lists what it will do, then finds your Bridge username, prints its full plan and
+asks before it changes anything (add `--dry-run` to stop after the plan). Where Bridge is
+installed but no username is known yet, it offers Bridge's CLI first and reads the username from
+it ([Bridge login](#bridge-login)); otherwise it asks. Then it:
 
 1. checks for Bridge, and installs it from official sources if it is missing;
 2. installs proton-mail-mcp into its own private virtual environment, so the service
    keeps running after `pipx uninstall` or `uv cache clean`;
-3. offers to open Bridge's CLI on your terminal, where you log in (`login`, `info`,
-   `exit`);
+3. offers to open Bridge's CLI on your terminal, where you log in, unless a Bridge password is
+   stored already or you just logged in;
 4. asks for the **Bridge** password (the one `info` shows, not your Proton password)
-   with a hidden prompt, and stores it and a new bearer token in the operating
-   system's credential store;
+   with a hidden prompt, where pasting works, and stores it and a new bearer token in the
+   operating system's credential store;
 5. writes and starts per-user services for Bridge and the MCP server, which binds only
    to `127.0.0.1`;
 6. runs a self-check: the server must refuse a request without the token, accept the
    stored one, and read `INBOX` through Bridge with the stored password. A failure
-   exits with status 1 and says what to fix; rerunning is safe.
+   exits with status 1 and says what to fix; rerunning is safe;
+7. with `--client` (repeatable: `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`,
+   `cursor` or `grok-bot`), adds the server to that client, as
+   [Connect an MCP client](clients.md#let-the-installer-write-the-config) describes, and says
+   how to restart the client. Every client but ChatGPT starts
+   [`proton-mail-mcp connect`](clients.md#the-connect-command), which reads the token itself.
 
-Then point your MCP client at `http://127.0.0.1:8765/mcp` with the header
-`Authorization: Bearer <token>`. The last lines of the run name the command that prints
-the token.
+Without `--client`, `configure-client --client <name>` adds a client later. The token is never
+shown: [Copy the token](#copy-the-token) says how to get it otherwise.
+
+### Before you start: a running Bridge app
+
+`setup` runs Bridge as a background service, which cannot run beside the Bridge desktop app. If it
+finds the app's window process (`bridge-gui`), or something listening on Bridge's IMAP port while
+its own Bridge service is not running, it stops before changing anything. On a terminal it waits:
+quit the app (in its menu, Quit Bridge), turn off its start-at-login setting and press Enter, or
+type `k` to keep the app running Bridge, as `--skip-bridge-service` does. The app's login and
+Bridge password carry over to the service, so copy the password from the app first if it is
+handy. The installer never quits the app itself.
 
 Python 3.12 or newer is required: `uvx` finds or fetches one, and `pipx` uses the one
 it runs on. On Debian and Ubuntu, `setup` needs `python3-venv` and stops before changing
@@ -63,16 +84,18 @@ anything if it is missing: run `sudo apt-get install python3-venv`, or add
 | Command | What it does |
 | --- | --- |
 | `proton-mail-mcp` or `proton-mail-mcp serve` | Start the server from `PROTON_*` settings in the foreground, as before. Configure Bridge and authentication first. |
-| `proton-mail-mcp setup` | The guided install above. |
+| `proton-mail-mcp setup` | The guided install above. `--print-config` prints each `--client`'s entry and changes nothing. |
+| `proton-mail-mcp configure-client --client <name>` | Add the server to a client: `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`, `cursor` or `grok-bot`. `--print-config` prints the entry instead. |
+| `proton-mail-mcp connect` | The [stdio server](clients.md#the-connect-command) a client starts: it relays to the service and reads the token itself. |
 | `proton-mail-mcp uninstall` | [Stop and remove](#uninstall) the services and settings. |
-| `proton-mail-mcp show-token` | Print the stored bearer token, to a terminal only. |
+| `proton-mail-mcp show-token` | Print the stored bearer token, to a terminal only; `--copy` puts it on the clipboard instead, also only at a terminal. |
 | `proton-mail-mcp detect` | Show the detected platform, credential store and paths. `--json` for scripts. |
 | `proton-mail-mcp --version` | Print the installed version. |
 
 Services do not use this command: they keep running
 `proton-mail-mcp-service --env-file <settings>` from the private environment.
 
-With `uvx`, put `uvx` before each of these. `setup` also leaves
+With `uvx`, put `uvx --from <clone>` (later, `uvx`) before each of these. `setup` also leaves
 `~/.local/share/proton-mail-mcp/venv/bin/proton-mail-mcp` (on macOS under
 `~/Library/Application Support/proton-mail-mcp/venv/bin/`), which works without `uvx`.
 
@@ -111,27 +134,99 @@ pip download --no-deps --index-url <your index> proton-mail-mcp==<version>
 proton-mail-mcp setup --source ./proton_mail_mcp-<version>-py3-none-any.whl
 ```
 
+### The service's Python
+
+The private environment is made from the base Python of the run, never from the temporary
+environment `uvx` or pipx made around it. uv keeps those environments in its cache, which
+`uv cache clean` empties: a Python found there is followed out of the cache through its links, to
+the first path outside it, such as uv's own install under `~/.local/share/uv/python/`. A stable
+name such as `/opt/homebrew/bin/python3.12` is kept as it is, not resolved to a versioned path an
+upgrade removes. If no link leads out of the cache, the plan stops before anything changes and asks
+for `--python` with a Python that stays, for example the path `uv python find 3.12` prints. A rerun
+whose existing environment was made from a Python in uv's cache says so, and how to rebuild it.
+
 ### Agents and scripts
 
-An agent can preview everything and install everything but the password:
+An AI agent can drive setup and hand over only what needs a person;
+[llms-install.md](../llms-install.md) is its step-by-step guide. `--json` asks nothing, opens no
+prompt and prints one JSON document on stdout, with the usual progress on stderr; it needs
+`--dry-run`, `--yes` or `--print-config`. `--non-interactive` does the same with the usual output.
+Put the launcher you use, such as `uvx --from <clone>`, in front:
 
 ```sh
-proton-mail-mcp setup --dry-run --bridge-user you@proton.me
-proton-mail-mcp setup --yes --skip-credentials --bridge-user you@proton.me
+proton-mail-mcp setup --dry-run --json --client claude-desktop
+proton-mail-mcp setup --yes --json --client claude-desktop
+proton-mail-mcp configure-client --client cursor --yes --json
+proton-mail-mcp configure-client --client grok-bot --print-config --json
 proton-mail-mcp detect --json
 ```
 
+The document holds:
+
+- `result`: `planned`, `printed`, `done`, `needs_user`, `refused`, `failed` or `interrupted`;
+  `exit_code`; `error`; and `next`, what to do now.
+- `steps`: each step's number, kind, summary and status; `notes` and `warnings`.
+- `launcher`: how a person starts this same copy in their own terminal. Under `uvx` that is
+  `uvx --from <source> proton-mail-mcp`, since `proton-mail-mcp` is not on `PATH` there;
+  otherwise the running script, by absolute path.
+- `connector`, for `setup` and `configure-client`: the `command` and `args` any MCP client on
+  this computer can start, the server's `url`, and a `token` field that only says it is not
+  shown.
+- `configs`, with `--print-config`: each client's entry, as
+  [Let the installer write the config](clients.md#let-the-installer-write-the-config) says.
+- `needs_user`: what only a person can do. Each has an `id`, `when` it comes (`before`, `during`
+  or `after` the run), the `text` to relay, `blocking` (it stops any run that asks nothing),
+  `stops_run` (this run stopped, or in a dry run would stop with `--yes`, before changing
+  anything until it is done), `needs_terminal`, and for those the `command` the person runs in
+  their own terminal, with the launcher in front.
+
+A usage error, such as a missing `--yes` or an unknown `--client`, is a document too, with
+`result` `refused` and `exit_code` 2. The token never appears in the document, the plan or any
+output.
+
+| `id` | What the person does |
+| --- | --- |
+| `quit_bridge_app` | Quit the Bridge app, or rerun with `--skip-bridge-service` to keep it. Blocking |
+| `bridge_login` | No Bridge username is known yet: run `command` in their own terminal, which logs in to Bridge first ([Bridge login](#bridge-login)). Blocking |
+| `bridge_password` | Run `command` in their own terminal: Bridge's login if needed, then the Bridge password at a hidden prompt. Stops a `--json` run |
+| `sudo` | Linux, to install Bridge: the sudo password, in their own terminal. Stops a `--json` run unless sudo still holds their credentials |
+| `store_tools` | A dry run only: install `secret-tool` or set up `pass`, as `text` says; a real run refuses until then |
+| `secret_service` | Linux: no Secret Service answers on this D-Bus session; run setup in the desktop session whose keyring is unlocked, or use `--credential-store pass`. Blocking |
+| `keychain_prompt` | macOS: choose Always Allow when Keychain asks, during the run |
+| `restart_client` | Restart the client, after the run |
+
+A typical agent run: plan with `--dry-run --json` and tell the person what they will be asked to
+do; ask them to quit the Bridge app if `quit_bridge_app` is listed; if `bridge_login`,
+`bridge_password` or `sudo` would stop the run, hand them its `command`, which does the whole
+setup in their terminal; then apply with `--yes --json`, which finds everything done. Last, relay
+`restart_client` and the `connector`. An agent can also install everything but the credentials
+with `--yes --skip-credentials --bridge-user <username>`, and leave the person one short `setup`
+in a terminal.
+
 The Bridge password is never read from an argument, an environment variable or a pipe,
 so it needs a person at a terminal. Without a terminal, a `setup` that would have to ask
-for it stops before changing anything. After `--skip-credentials`, a person runs
-`proton-mail-mcp setup` in a terminal once; everything else is skipped or repeated
-safely. Bridge's own login also needs a person at a terminal; setup does not open it
-with `--yes` or without a terminal, and prints the command instead.
+for it stops before changing anything. Bridge's own login also needs a person at a terminal;
+setup does not open it with `--yes` or without a terminal, and hands over the command instead.
+
+A run that asks nothing calls `sudo -n`, which never prompts: if sudo's cached login runs out
+during the run, the step fails and says to run `sudo -v` in a terminal, then rerun.
 
 `setup` exits 0 when it finished, warnings included; 1 when a step or the self-check
 failed, the plan was declined, or a file the installer did not write sits at a path it
 would write (it refuses that before any change); 2 when it refused anything else before
-changing anything; and 130 when interrupted.
+changing anything, a person's turn (`needs_user`) and a usage error included; and 130 when
+interrupted.
+
+### Later: PyPI and the MCP Registry
+
+Not done yet, and each needs the maintainer's approval of a release: publishing the package to
+PyPI, after which `uvx proton-mail-mcp setup` and `pipx install proton-mail-mcp` work by name and
+the clone step goes away; and a listing in the [MCP Registry](https://registry.modelcontextprotocol.io/),
+so that people and clients can find the server there. The repository already holds that listing's
+`server.json`, which names the PyPI package and its `connect` command, and the README's
+`mcp-name` line that proves the package's ownership. `make mcpb` builds a Claude Desktop bundle
+locally ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)). Nothing in this repository
+publishes or registers anything.
 
 ## Running from a checkout
 
@@ -169,6 +264,19 @@ The installer never:
 | Fedora, RHEL and clones (x86_64) | Proton's `.rpm`; `rpm --checksig` against a temporary rpm database that holds only the pinned key must report `digests signatures OK` before `dnf` runs | libsecret or `pass` | systemd user units |
 | Arch Linux and derivatives | `protonmail-bridge-core` from Arch `[extra]`; pacman checks the repository signature | libsecret or `pass` | systemd user units |
 | macOS | Homebrew cask `proton-mail-bridge` (the cask pins the download's SHA-256), then `codesign --verify`, Gatekeeper `spctl --assess` and a Proton Developer ID check | login Keychain | launchd LaunchAgents |
+
+On Debian and Ubuntu a failed `apt-get update`, such as from one broken third-party source,
+no longer stops the install: the local package installs from the package lists apt still has.
+If apt cannot install it at all, install Bridge by hand, then rerun with `--skip-bridge`:
+
+1. From `proton.me/download/bridge`, download `protonmail-bridge_<version>-1_amd64.deb`,
+   `bridge_pubkey.gpg` and `bridge.pol`.
+2. Check that the key's fingerprint is `D51E64D3E63EDC3EEF7864CEE2C75D68E6234B07`
+   (`gpg --show-keys bridge_pubkey.gpg`), and verify the package with `debsig-verify` against
+   that key and policy, as [Proton describes](https://proton.me/support/verifying-bridge-package).
+3. `sudo apt-get install ./protonmail-bridge_<version>-1_amd64.deb`. Where apt cannot help,
+   `sudo dpkg -i` needs Bridge's dependencies first; a minimal image may lack
+   `libpulse-mainloop-glib0` and `fonts-dejavu`, which only apt resolves for you.
 
 Proton officially supports Bridge on the latest Ubuntu LTS and the latest Fedora.
 Proton publishes Linux packages for x86_64 only; elsewhere install Bridge
@@ -221,13 +329,18 @@ Python from Cygwin or MSYS2 is refused; use Python for Windows, or
   headless host. Bridge itself also needs one of these for its own vault.
   Services read secrets unattended: a libsecret keyring unlocks at desktop login,
   and `pass` needs a GPG key without a passphrase or a gpg-agent that has it
-  cached.
+  cached. Without the tool, a real run stops before anything changes; a dry run still shows the
+  whole plan, with a `store_tools` hand-off that names the package.
+- Linux with libsecret: a Secret Service, such as gnome-keyring or KeePassXC, on the D-Bus session
+  setup runs in. On a host with several sessions, a shell's `DBUS_SESSION_BUS_ADDRESS` may point
+  at a bus without one, which shows only later as a failed store, and Bridge then cannot keep its
+  vault key. Where `dbus-send` is there to ask, setup checks first and stops with a
+  `secret_service` hand-off: run it in the desktop session whose keyring is unlocked, set
+  `DBUS_SESSION_BUS_ADDRESS` to that session's bus, or use `--credential-store pass`.
 - Linux services: systemd with a reachable user manager (`systemctl --user`
   works in a normal login session). On a host systemd does not run at all (a
-  container, or a distribution with another init system such as Artix) the
-  preflight says so and the plan goes on without services, as with
-  `--skip-services`; have your own service manager run the printed
-  `<venv>/bin/proton-mail-mcp-service --env-file <settings>` command at login. On a
+  container, or a distribution with another init system such as Artix), see
+  [Hosts without systemd](#hosts-without-systemd). On a
   systemd host where `systemctl` is missing from `PATH` or cannot reach the user
   manager (no login session), services may be running unseen, so the installer
   stops before anything changes; rerun in a login session, or pass
@@ -260,24 +373,28 @@ question; without a terminal it is required). The steps are:
 5. Write, enable and start the Bridge and MCP services, then check that
    `127.0.0.1:8765` accepts connections.
 
-`setup` adds four things. It asks for `--bridge-user` on a terminal if neither the flag
-nor the settings file gives it. It shows the folder attachment tools use and lets you
-change it, at a question on a terminal or with `--attachments-dir`. Just before step 3 it
-offers Bridge's CLI on this terminal (`--skip-bridge-login` turns that off). Last, it
-runs the self-check described in the [quick start](#quick-start).
+`setup` adds these. On a terminal it first lists what it will do, before any question. If
+neither `--bridge-user` nor the settings file gives the Bridge username, it reads it from Bridge
+after a login, or asks for it on a terminal ([Bridge login](#bridge-login)). It
+shows the folder attachment tools use and lets you change it, at a question on a terminal or
+with `--attachments-dir`. Just before step 3 it offers Bridge's CLI on this terminal
+(`--skip-bridge-login` turns that off). Then it runs the self-check described in the
+[quick start](#quick-start), and last it adds each `--client`.
 
-The CLI cannot run beside a running Bridge. On a rerun where the installer's own Bridge
-service runs, the offer is to stop that service, open the CLI and start the service
-again, even if the CLI fails. Bridge listens on its IMAP port whether or not an account is
-logged in, so the port cannot tell the installer which case this is. If no Bridge password
-is stored yet, the answer defaults to yes; if one is stored, to no, so pressing Enter on a
-healthy rerun stops nothing. Any other Bridge, shown by something on that port or by a
-`--noninteractive` process (`pgrep`), means no CLI: the installer stops only its own
-service. If `pgrep` cannot answer, it also opens no CLI. A person at a terminal has to
-agree, so `--yes` or no terminal never stops anything or opens the CLI.
+A stored Bridge password means an account most likely logged in already, so then `setup`
+does not offer the CLI; its note gives the commands to log in again by hand, which keeps the
+token. `--replace-credentials` stores a new Bridge password and also a new token, which each
+client then needs again. The CLI cannot run beside a running Bridge. On a rerun where the
+installer's own Bridge service runs and no password is stored yet, the offer is to stop that
+service, open the CLI and start the service again, even if the CLI fails; Enter agrees. Any
+other Bridge, shown by something on that port or by a `--noninteractive` process (`pgrep`),
+means no CLI: the installer stops only its own service. If `pgrep` cannot answer, it also opens
+no CLI. A person at a terminal has to agree, so `--yes`, `--json` or no terminal never stops
+anything or opens the CLI.
 
 On a dry run with no username, `setup` shows `you@proton.me` as a placeholder and asks no
-credential store about it.
+credential store about it. With `--yes`, `--json` or no terminal it cannot log in for you, so it
+stops before any change with the `bridge_login` hand-off and the command to run in a terminal.
 
 `secret-tool` answers the same for "no entry" and for a locked one, so on a first
 install it cannot show that nothing is stored. `install` then stops and asks you to pass
@@ -286,10 +403,9 @@ the store cannot show, so a token it can read is kept. Without a terminal, or wi
 `--yes`, it stops like `install`.
 
 At step 3 the installer asks for the **Bridge** password, not your Proton account
-password. If Bridge is not signed in yet, open another terminal, run Bridge's CLI
-(`protonmail-bridge --cli`; the plan prints the exact path), use `login`, then
-`info` to see the IMAP username and password, and `exit`. On macOS the Keychain
-`security` tool prompts for the password itself. Press Enter to skip the prompt and
+password: the one Bridge's `info` showed. Pasting works: the marks some terminals put around a
+paste, and the spaces and line break a copied line brings along, are dropped. On macOS the
+Keychain `security` tool prompts for the password itself. Press Enter to skip the prompt and
 rerun the installer later. If the terminal cannot hide what you type, the
 installer stops rather than read the password with echo; rerun it in a terminal,
 or pass `--skip-credentials` and store the password yourself under the names in
@@ -302,18 +418,70 @@ service keeps running meanwhile: on Linux
 its unit only `Wants=` the Bridge unit, so stopping Bridge does not stop it, and
 it reaches Bridge again on its next request.
 
-The token is never shown. Copy it into your MCP client's secret storage with:
+### Bridge login
 
-| Store | Command |
+Bridge needs one login per Proton account, which only you can do. Its desktop app does it in a
+window, which on a host without a desktop, or over a remote desktop, may be unusable: a
+human-verification step there has left the app waiting. `setup` uses Bridge's CLI instead, on
+your terminal:
+
+1. You type `login`, then your Proton email and password, and the two-factor code if it asks.
+   Pasting works, which helps where a remote desktop drops keys.
+2. If Bridge prints a human-verification link, open it in any browser, on any device, finish the
+   check there, then press Enter in the terminal. Bridge waits for that.
+3. Once Bridge says the account was added, setup types `info` and then `exit` for you, and reads
+   the IMAP username from what `info` prints. Already logged in? Type `info` instead of `login`.
+
+Setup runs the CLI through a pseudo-terminal so it can read the username; it keeps only that
+line, and `info`'s other lines, the Bridge password among them, are dropped as they pass. The
+password still reaches the credential store only through the hidden prompt. If no username shows,
+setup asks for it. On Windows, which has no pseudo-terminals, the CLI runs in the terminal
+directly and setup asks for the username. If the username Bridge shows differs from the one setup
+was given, setup stops before storing anything and names the right one.
+
+After a first login Bridge downloads the whole mailbox, which can take from minutes to hours.
+Meanwhile searches may come back incomplete: the search index reports `bridge_syncing` and
+catches up by itself, as [Automatic startup recovery](search-index.md#automatic-startup-recovery)
+says. Bridge's own window or CLI shows the sync's progress.
+
+### Hosts without systemd
+
+In a container, or on a system another init system runs, the installer sets up no service.
+`setup` then starts Bridge (`--noninteractive`) and the MCP server as background processes
+itself, so its self-check can run:
+
+- Their output goes to `bridge.log` and `service.log`, and their process ids to `bridge.pid` and
+  `service.pid`, all in the state directory (`~/.local/state/proton-mail-mcp/`).
+- A rerun leaves a running server alone, or stops it by that process id, and only while it still
+  runs the server, when something it reads changed, then starts it again. Something already on a
+  port is left alone.
+- They stop when the host restarts: rerun setup then, or have your own init system run
+  `<venv>/bin/proton-mail-mcp-service --env-file <settings>`, and Bridge, at boot.
+- To stop one, run `kill "$(cat ~/.local/state/proton-mail-mcp/service.pid)"`, or `bridge.pid`
+  for Bridge.
+
+`install` starts nothing there: it prints the command, and a `nohup` line that runs it in the
+background. `--skip-services` starts nothing either.
+
+### Copy the token
+
+The token is never shown. To give it to a client:
+
+| Command | What it does |
 | --- | --- |
-| Keychain | `security find-generic-password -s proton-mail-mcp-token -a you@proton.me -w` |
-| libsecret | `secret-tool lookup service proton-mail-mcp-token account you@proton.me` |
-| pass | `pass show proton-mail-mcp-token/you@proton.me` |
-| Any | `proton-mail-mcp show-token`, or `scripts/install.sh show-token` from a checkout |
+| `proton-mail-mcp configure-client --client <name>` | Adds the server to a client. Most clients start `connect`, which reads the token itself; ChatGPT's config gets the token; nothing prints it |
+| `proton-mail-mcp show-token --copy` | Puts it on the clipboard (`pbcopy`, `clip`, or `wl-copy`, `xclip` or `xsel`) without showing it, at a terminal only |
+| `proton-mail-mcp show-token` | Prints it, to a terminal only; or `scripts/install.sh show-token` from a checkout |
 
-`show-token` prints only to a terminal and refuses when its output is redirected.
-Configure the client with `http://127.0.0.1:8765/mcp` and the header
+Both `show-token` forms refuse unless a person runs them at a terminal: any process can read a
+clipboard, as it can a pipe. After pasting from the clipboard, copy something else: a clipboard
+history may keep it, and on macOS Universal Clipboard may hand it to your other devices.
+Configure any other client with `http://127.0.0.1:8765/mcp` and the header
 `Authorization: Bearer <token>`.
+
+A `token` file in the settings folder (`~/.config/proton-mail-mcp/token` on Linux), left from an
+earlier manual setup, goes stale once setup stores a new token, and whatever still reads it gets
+`401`. Setup names it, with the command that deletes it, and never reads or deletes it itself.
 
 ## What goes where
 
@@ -445,11 +613,16 @@ uses nor shows its values, only its keys. Move it elsewhere, then rerun.
 | `--venv PATH` | Virtual environment path, new or made by the installer; saved for later runs. The previous one stays. |
 | `--source PATH` | The proton-mail-mcp checkout or wheel file to install. Default: see [where the service's copy comes from](#where-the-services-copy-comes-from). |
 | `--skip-bridge-login` | `setup` only: do not offer to open Bridge's CLI. |
+| `--client NAME` | Also add the server to this client: `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`, `cursor` or `grok-bot`. Repeatable. |
+| `--print-config` | `setup` only: print each `--client`'s entry, or every client's, and change nothing. |
+| `--python PATH` | The Python 3.12 or newer the private environment is made from: a path, or a name found on `PATH`, which setup checks before it plans; see [the service's Python](#the-services-python). |
+| `--json` | Ask nothing and print one JSON document on stdout; needs `--dry-run`, `--yes` or `--print-config`. See [Agents and scripts](#agents-and-scripts). |
+| `--non-interactive` | Ask nothing and open no prompt, with the usual output; needs `--dry-run` or `--yes`. |
 | `--attachments-dir` | `setup` only: a folder that differs from the one in use is written to the settings file as `PROTON_MCP_ATTACHMENTS_DIR` and created, mode `0700`. On a terminal, `setup` asks instead, showing the folder in use. |
 | `--skip-bridge` | Do not install or verify Bridge. |
 | `--skip-bridge-service` | Leave Bridge to its own autostart, for example the desktop app. |
 | `--skip-credentials` | Do not prompt or store credentials. |
-| `--skip-services` | Install files only; no service is written, stopped or started. Implied on a Linux host that does not run systemd. |
+| `--skip-services` | Install files only; no service is written, stopped or started. On a Linux host that does not run systemd, `setup` [starts the processes itself](#hosts-without-systemd) instead. |
 | `--replace-credentials` | Prompt again and generate a new token. |
 | `--force` | Replace a file the installer did not write (not the settings file), keeping it in a new `.bak` file beside it; an earlier backup is never replaced. |
 | `--simulate FAMILY` | With `--dry-run`, print the plan for another platform. |
@@ -465,7 +638,9 @@ file or without the installer's file. Unload the old agent (`launchctl bootout g
 move the plist away or rerun with `--force`, which keeps it in a new file such as
 `com.proton-mail-mcp.plist.k2x9q1.bak` (the run prints the name; an earlier backup
 is never replaced). That backup still contains the old token: delete it once the
-new agent works, and give clients the new token.
+new agent works, and give clients the new token. A `com.proton-mail-mcp.plist.disabled`, or the
+same for the Bridge agent, left from an earlier install is named in the plan with the command
+that removes it: launchd ignores it, but it may still hold an old token.
 
 ## Uninstall
 
@@ -474,8 +649,8 @@ proton-mail-mcp uninstall --dry-run
 proton-mail-mcp uninstall
 ```
 
-With uv, use `uvx proton-mail-mcp uninstall`, or until the first release
-`uvx --from <wheel> proton-mail-mcp uninstall`; from a checkout, `scripts/install.sh uninstall`.
+With uv, use `uvx --from <clone> proton-mail-mcp uninstall`, or once it is published
+`uvx proton-mail-mcp uninstall`; from a checkout, also `scripts/install.sh uninstall`.
 All of them run the same plan.
 
 Uninstall stops the installer's own services, then proves each one stopped before it
@@ -515,7 +690,12 @@ Uninstall keeps:
   where each data setting points;
 - the stored credentials, unless `--remove-credentials`;
 - Bridge, unless `--remove-bridge`, which runs the package manager's removal.
-  Bridge's own settings and cache always stay.
+  Bridge's own settings and cache always stay;
+- the `proton-mail` entry in each MCP client's config, and the dated `.bak` copies setup left
+  beside them, which for ChatGPT may hold an old token. Remove the entry in each client (its page
+  under [Connect an MCP client](clients.md) says where) and delete the copies you no longer need;
+- a server or Bridge setup started in the background on a host without systemd: uninstall says so
+  when their pid files are there, with the `kill` command.
 
 ## Install and run on your Mac
 
