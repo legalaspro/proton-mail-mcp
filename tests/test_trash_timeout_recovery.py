@@ -344,7 +344,7 @@ def test_replay_rejects_progress_outside_its_approved_batch(chunk_mailbox, chang
     "kwargs",
     [
         {"since": "2026-10-18T12:00:00"},
-        {"before": "2026-10-18"},
+        {"before": "2026-13-18"},
         {"since": "invalid-private-input"},
         {"limit": 0},
         {"limit": True},

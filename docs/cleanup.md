@@ -538,9 +538,11 @@ delimiter. Unsupported mailto fields
 (including Cc/Bcc), ambiguous addresses, malformed escapes, and header injection
 are refused. Approving `unsubscribe(token)` creates an **unsent draft**, reports
 `pending_send`, and returns its `send_preview`. Review that preview and approve it
-before calling `send_draft(send_preview.token)`. The draft must match the discovered
-recipient list, subject and body before a send token is issued; subsequent edits
-invalidate that token. A draft is never counted as a completed unsubscribe.
+before calling `send_draft(send_preview.token, send_preview.draft_id)`. `draft_id` is
+required when `send_preview.approval` is `typed_ok`: a call without it refuses and uses
+up the token. The draft must match the discovered recipient list, subject and body
+before a send token is issued; subsequent edits invalidate that token. A draft is
+never counted as a completed unsubscribe.
 
 The existing guarded-send rules still apply: `PROTON_MCP_SEND_SELF_NO_FORM=1` allows
 token-only sending solely to the user's own addresses; third-party unsubscribe mail

@@ -92,6 +92,23 @@ class Unplaced(NamedTuple):
 
     fingerprint: tuple[str, float, int]
     holders: tuple[str, ...]
+    # Those cached rows as (folder, uidvalidity, uid). They can be stale; a FETCH confirms them.
+    rows: tuple[tuple[str, str, str], ...] = ()
+    # A proven Sent copy, which stands unless the cached INBOX row is confirmed too.
+    sent: dict[str, str] | None = None
+
+
+def single_copy(copies: list[dict[str, str]]) -> dict[str, str] | None:
+    """The real-folder copy that stands for one All Mail message, or None.
+
+    A message sent to yourself is one message listed in both INBOX and Sent, and its
+    INBOX copy stands for it. Any other set of several copies is never guessed.
+    """
+    inbox = [copy for copy in copies if copy["folder"].upper() == "INBOX"]
+    sent = [copy for copy in copies if copy["folder"] == "Sent"]
+    if len(copies) == 2 and len(inbox) == 1 and len(sent) == 1:
+        return inbox[0]
+    return copies[0] if len(copies) == 1 else None
 
 
 _ERRORS = (sqlite3.Error, OSError, ValueError, TypeError, AttributeError, IndexError, _Unavailable)
@@ -671,6 +688,25 @@ class SearchIndex:
 
         return self._run(query)
 
+    def thread_hints(self, folder: str, validity: str, identifiers: list[str]) -> list[str] | None:
+        """Related UIDs from whatever links are cached, with no claim to be complete.
+
+        A live FETCH must confirm each one. None if no cached row has links to read.
+        """
+
+        def query(database: sqlite3.Connection) -> list[str] | None:
+            rows = database.execute(
+                "SELECT uid, thread_ids FROM messages WHERE folder = ? AND uidvalidity = ? "
+                "AND thread_ids IS NOT NULL",
+                (folder, validity),
+            ).fetchall()
+            if not rows:
+                return None
+            wanted = set(identifiers)
+            return [uid for uid, links in rows if wanted.intersection(json.loads(links))]
+
+        return self._run(query)
+
     def seed_uid(self, folder: str, validity: str, message_id: str) -> str | None:
         """A cheap positive hint that must be confirmed by a live header FETCH.
 
@@ -900,7 +936,8 @@ class SearchIndex:
         their rows may be stale, so they only name the likely ``holders``.
 
         Each handle gets its location, None when All Mail or the proven folders show
-        several copies, or ``Unplaced`` when no proven folder has a row. The whole
+        several copies that ``single_copy`` cannot settle, or ``Unplaced`` when no proven
+        folder has a row or only Sent's is proven beside a cached INBOX row. The whole
         result is None without All Mail's proof or a handle's fingerprint.
         """
         if (
@@ -955,16 +992,48 @@ class SearchIndex:
                     "AND d.internaldate = ? AND d.size = ?",
                     fingerprint,
                 ).fetchall()
-                proven = [row for row in rows if row[0] in epochs and row[1] == epochs[row[0]][0]]
-                if copies != 1 or len(proven) > 1:
+                proven = [
+                    dict(zip(("folder", "uidvalidity", "uid"), row))
+                    for row in rows
+                    if row[0] in epochs and row[1] == epochs[row[0]][0]
+                ]
+                location = single_copy(proven)
+                inbox_unconfirmed = (
+                    location is not None
+                    and location["folder"] == "Sent"
+                    and any(row[0].upper() == "INBOX" for row in rows)
+                )
+                if copies != 1 or (proven and location is None):
                     result.append(None)
-                elif proven:
-                    result.append(dict(zip(("folder", "uidvalidity", "uid"), proven[0])))
+                elif location is not None and not inbox_unconfirmed:
+                    result.append(location)
                 else:
-                    result.append(Unplaced(fingerprint, tuple(sorted({row[0] for row in rows}))))
+                    result.append(
+                        Unplaced(
+                            fingerprint,
+                            tuple(sorted({row[0] for row in rows})),
+                            tuple(tuple(row) for row in rows),
+                            location,
+                        )
+                    )
             return result
 
         return self._run(query)
+
+    def unfingerprinted(self, folder: str, validity: str, limit: int) -> list[str]:
+        """Up to ``limit`` of a folder's rows stored without a date, envelope or size."""
+
+        def query(database: sqlite3.Connection) -> list[str]:
+            rows = database.execute(
+                "SELECT m.uid FROM messages m LEFT JOIN search_metadata d ON d.folder = m.folder "
+                "AND d.uidvalidity = m.uidvalidity AND d.uid = m.uid "
+                "WHERE m.folder = ? AND m.uidvalidity = ? AND (d.internaldate IS NULL "
+                "OR d.envelope_digest IS NULL OR d.size IS NULL) LIMIT ?",
+                (folder, validity, limit),
+            ).fetchall()
+            return [row[0] for row in rows]
+
+        return self._run(query, [])
 
     def may_hold_unfingerprinted(self, folder: str, validity: str, stamps: set[float]) -> bool:
         """Whether a proven folder has a row its fingerprints cannot rule out for these dates.

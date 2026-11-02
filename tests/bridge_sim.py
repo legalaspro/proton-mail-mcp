@@ -717,6 +717,9 @@ class BridgeSim:
                     fm = re.search(
                         rb"BODY\.PEEK\[HEADER\.FIELDS \(([^)]*)\)\]", query, re.IGNORECASE
                     )
+                    if whole := re.search(rb"BODY\.PEEK\[\]<0\.(\d+)>", query, re.IGNORECASE):
+                        block = (msg.headers + b"\r\n" + msg.body)[: int(whole.group(1))]
+                        item += f" BODY[]<0> {{{len(block)}}}\r\n".encode() + block
                     if fm:
                         names = {n.decode().upper() for n in fm.group(1).split()}
                         block = self._fetch_headers(msg, names)

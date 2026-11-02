@@ -397,6 +397,36 @@ def test_duplicate_fingerprints_remain_unresolved_in_complete_canonical_index(se
     ]
 
 
+def test_self_sent_copies_give_the_inbox_row_and_keep_sent_only_as_a_fallback(settings):
+    index, inventories, epochs = canonical_index(settings)
+    index.observe("Sent", "1", {"301": inventories["INBOX"]["101"]})
+    assert index.record_coverage("Sent", "1", {"exists": 1, "uidnext": "302"}, ["301"])
+    epochs["Sent"] = ("1", 1, "302")
+    handle = canonical.handle("All Mail", "1", "1")
+    real = {"INBOX", "Sent", "Archive", "Empty"}
+    inbox_copy = canonical.handle("INBOX", "1", "101")
+    sent_copy = canonical.handle("Sent", "1", "301")
+
+    assert index.indexed_locations([handle], real, "All Mail", epochs) == [inbox_copy]
+    only_inbox = {name: epochs[name] for name in ("All Mail", "INBOX")}
+    assert index.indexed_locations([handle], real, "All Mail", only_inbox) == [inbox_copy]
+    # Only Sent's proof matched: its row waits while the cached INBOX row may be confirmed.
+    only_sent = {name: epochs[name] for name in ("All Mail", "Sent")}
+    [unplaced] = index.indexed_locations([handle], real, "All Mail", only_sent)
+    assert isinstance(unplaced, Unplaced) and unplaced.sent == sent_copy
+    assert unplaced.holders == ("INBOX", "Sent")
+    # With neither proven, nothing is there to fall back on.
+    [unplaced] = index.indexed_locations(
+        [handle], real, "All Mail", {"All Mail": epochs["All Mail"]}
+    )
+    assert isinstance(unplaced, Unplaced) and unplaced.sent is None
+    # A third proven copy leaves nothing to choose between.
+    index.observe("Archive", "1", {"202": inventories["INBOX"]["101"]})
+    assert index.record_coverage("Archive", "1", {"exists": 2, "uidnext": "203"}, ["201", "202"])
+    epochs["Archive"] = ("1", 2, "203")
+    assert index.indexed_locations([handle], real, "All Mail", epochs) == [None]
+
+
 def test_cached_canonical_proofs_need_only_the_holder_to_match_live_status(settings):
     index, inventories, epochs = canonical_index(settings)
     fake = CoverageImap(

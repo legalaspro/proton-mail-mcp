@@ -21,7 +21,8 @@ from proton_mail_mcp import canonical, guarded
 from proton_mail_mcp.canonical import listed_name, row_identity
 from proton_mail_mcp.config import Settings
 from proton_mail_mcp.folder_rules import FolderRulesService
-from proton_mail_mcp.mail import MailValidationError
+from proton_mail_mcp.mail import MailError, MailValidationError
+from proton_mail_mcp.search_index import single_copy
 
 KEYS = ("folder", "uidvalidity", "uid")
 NEWS = "News <news@example.invalid>"
@@ -255,6 +256,89 @@ def test_message_without_a_real_folder_keeps_only_its_alias(mailbox):
     unresolved_search(found)
 
 
+def test_message_sent_to_yourself_reports_its_inbox_copy(mailbox):
+    sim, client = mailbox
+    sim.add(Msg(hdr("<other@example.invalid>"), folder="Sent"))
+    mine = sim.add(Msg(hdr("<mine@example.invalid>"), folder="INBOX", labels={"Sent"}))
+    assert handle(sim, "INBOX", mine) != handle(sim, "Sent", mine)
+
+    # With nothing indexed yet, this is the live lookup over every real folder.
+    thread = client.read_thread(mine.message_id())
+    [read] = thread["messages"]
+    assert triple(read) == handle(sim, "INBOX", mine)
+    assert read["alias"] == alias(sim, "All Mail", mine)
+    assert "canonical_reason" not in read and thread["partial"] is False
+
+    found = client.search_mail(folder="All Mail", since="2026-10-01", include_snippets=False)
+    [hit] = [item for item in found["messages"] if item["message_id"] == mine.message_id()]
+    assert triple(hit) == handle(sim, "INBOX", mine)
+    # A real folder's own handle is canonical regardless of copies elsewhere.
+    sent = client.search_mail(folder="Sent", include_snippets=False)["messages"]
+    [own] = [item for item in sent if item["message_id"] == mine.message_id()]
+    assert triple(own) == handle(sim, "Sent", mine)
+    assert mutations(sim) == []
+
+
+@pytest.mark.parametrize("extra", ["Archive", "Spam", "Trash"])
+def test_a_sent_copy_beside_another_folder_is_never_guessed(mailbox, extra):
+    sim, client = mailbox
+    mine = sim.add(Msg(hdr("<mine@example.invalid>"), folder=extra, labels={"Sent"}))
+    [read] = client.read_thread(mine.message_id())["messages"]
+    assert triple(read) == (None, None, None)
+    assert read["canonical_reason"] == "no_single_copy"
+
+
+@pytest.mark.parametrize(
+    "folders,expected",
+    [
+        ([], None),
+        (["Archive"], "Archive"),
+        (["Sent"], "Sent"),
+        (["Sent", "INBOX"], "INBOX"),
+        (["inbox", "Sent"], "inbox"),
+        (["INBOX", "Archive"], None),
+        (["INBOX", "INBOX"], None),
+        (["Sent", "Sent"], None),
+        (["sent", "INBOX"], None),
+        (["INBOX", "Sent", "Archive"], None),
+        (["INBOX", "INBOX", "Sent"], None),
+    ],
+)
+def test_single_copy_settles_only_one_copy_or_inbox_with_sent(folders, expected):
+    copies = [canonical.handle(folder, "1", str(uid)) for uid, folder in enumerate(folders)]
+    copy = single_copy(copies)
+    assert (copy and copy["folder"]) == expected
+
+
+def test_reason_says_why_each_read_has_no_canonical_handle(mailbox, monkeypatch):
+    sim, client = mailbox
+    placed = sim.add(Msg(hdr("<placed@example.invalid>")))
+    orphan = sim.add(Msg(hdr("<orphan@example.invalid>"), folder=None))
+
+    assert "canonical_reason" not in client.read_thread(placed.message_id())["messages"][0]
+    [read] = client.read_thread(orphan.message_id())["messages"]
+    assert read["canonical_reason"] == "no_single_copy"
+    [direct] = client.read_thread(placed.message_id(), include_thread=False)["messages"]
+    assert triple(direct) == (None, None, None)
+    assert direct["canonical_reason"] == "lookup_skipped"
+
+    def refuse(*args, **kwargs):
+        raise MailError("Mailbox changed during canonical lookup")
+
+    monkeypatch.setattr(canonical, "resolve_views", refuse)
+    monkeypatch.setattr(canonical, "resolve_indexed_views", lambda *args, **kwargs: None)
+    [failed] = client.read_thread(placed.message_id())["messages"]
+    assert triple(failed) == (None, None, None)
+    assert failed["canonical_reason"] == "lookup_unfinished"
+
+
+def test_without_all_mail_the_reason_is_not_a_finished_lookup(settings):
+    fake = FakeImap({"Labels/Keep": {"7": message(TWIN)}}, uidnext=True)
+    [read] = fake_client(settings, fake).read_thread(TWIN)["messages"]
+    assert triple(read) == (None, None, None)
+    assert read["canonical_reason"] == "lookup_unfinished"
+
+
 LOOKUP_FETCH = "(UID INTERNALDATE RFC822.SIZE ENVELOPE)"
 
 
@@ -362,7 +446,8 @@ def test_twin_arriving_during_the_lookup_leaves_the_handle_unknown(mailbox, tool
     if tool == "read_thread":
         assert triple(item) == (None, None, None)
         assert item["alias"] == alias(sim, view, orphan)
-    assert result["partial"] is True
+    # A thread's null canonical fields say it all; a search page leaves the row out.
+    assert result["partial"] is (tool != "read_thread")
     assert mutations(sim) == []
 
 
@@ -390,7 +475,7 @@ def test_twin_delivered_to_inbox_7_during_the_lookup_never_lends_its_handle(sett
     assert read["text"] == "AAA"
     assert triple(read) == (None, None, None)
     assert read["alias"] == {"folder": "All Mail", "uidvalidity": "1", "uid": "70"}
-    assert thread["partial"] is True
+    assert thread["partial"] is False
     [other] = mailbox.search_mail(folder="INBOX", since="2026-10-01")["messages"]
     assert triple(other) == ("INBOX", "1", "7") and other["snippet"] == "BBB"
 
@@ -440,7 +525,7 @@ def test_mailboxes_without_uidnext_never_prove_a_lookup(settings, uidnext):
     assert read["alias"] == {"folder": "All Mail", "uidvalidity": "1", "uid": "70"}
     # Without UIDNEXT nothing shows that no twin arrived during the scans.
     assert triple(read) == (("INBOX", "1", "7") if uidnext else (None, None, None))
-    assert thread["partial"] is not uidnext
+    assert thread["partial"] is False
 
 
 SAME_ID = "<shared@example.invalid>"
@@ -655,7 +740,7 @@ def test_thread_deadline_during_lookup_keeps_body_and_null_canonical_fields(sett
 
     monkeypatch.setattr(fake, "uid", expire_on_lookup)
     found = mailbox.read_thread("<root@example.com>")
-    assert found["partial"] is True
+    assert found["partial"] is False and "partial_reason" not in found
     [item] = found["messages"]
     assert item["text"] == "Requested body"
     assert triple(item) == (None, None, None)
@@ -803,7 +888,7 @@ def test_orphan_thread_never_takes_its_twins_handle_from_incomplete_metadata(set
     assert read["text"] == "AAA"
     assert triple(read) == (None, None, None)
     assert read["alias"] == {"folder": "All Mail", "uidvalidity": "1", "uid": "70"}
-    assert thread["partial"] is (damage is not None)
+    assert thread["partial"] is False
 
 
 def test_thread_lookup_failure_keeps_relatives_of_a_missing_message(settings):
@@ -815,7 +900,7 @@ def test_thread_lookup_failure_keeps_relatives_of_a_missing_message(settings):
     fake = FakeImap({"INBOX": {"8": reply}, "All Mail": {"80": reply}})
     damage_lookup(fake, "All Mail", "80", "omitted record")
     thread = fake_client(settings, fake).read_thread("<gone@example.invalid>")
-    assert thread["partial"] is True
+    assert thread["partial"] is False
     [read] = thread["messages"]
     assert read["text"] == "Reply body"
     assert triple(read) == (None, None, None)

@@ -126,6 +126,17 @@ def test_a_read_without_attachments_has_no_size_note(settings, tool):
     assert "size_note" not in json.loads(result.content[0].text)
 
 
+@pytest.mark.parametrize("tool", ["read_thread", "show_thread"])
+def test_a_message_with_no_canonical_handle_says_why(settings, tool):
+    # Listed in All Mail alone, so a finished lookup has no real folder to report.
+    fake = FakeImap({"All Mail": {"1": message("<orphan@example.com>")}, "INBOX": {}}, uidnext=True)
+    mcp = create_mcp(server_settings(), client(settings, fake))
+    result = anyio.run(_call, mcp, tool, {"message_id": "<orphan@example.com>"})
+    [item] = json.loads(result.content[0].text)["messages"]
+    assert item["folder"] is None
+    assert item["canonical_reason"] == "no_single_copy"
+
+
 def test_show_thread_renders_sanitized_html_and_returns_read_thread_text(settings):
     fake = newsletter_box()
     backend = client(settings, fake)

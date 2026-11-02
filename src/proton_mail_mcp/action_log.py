@@ -13,7 +13,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ from .cleanup_lookup import display_row
 from .mail import MailError, MailValidationError
 from .run_journal import RUN_EVENTS, replay_runs, run_event
 
+_PLAIN_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _ACTIONS = {
     "move_to_trash",
     "archive",
@@ -440,22 +441,29 @@ class ActionLog:
     ) -> dict[str, Any]:
         """Find recovery IDs, action previews and audited writes without reading mail.
 
-        action filters by tool (what) and client by MCP client name (who).
+        action filters by tool (what) and client by MCP client name (who). A plain
+        YYYY-MM-DD means that whole day in the server's local timezone, in either
+        bound: since starts when it starts and before ends when it ends.
         """
 
-        def instant(value):
+        def instant(value, *, day_end=False):
             try:
+                if isinstance(value, str) and _PLAIN_DATE.fullmatch(value):
+                    day = date.fromisoformat(value) + timedelta(days=int(day_end))
+                    return datetime(day.year, day.month, day.day).astimezone()
                 parsed = datetime.fromisoformat(value)
                 if parsed.tzinfo is not None:
                     return parsed
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError, OSError):
                 pass
-            raise MailValidationError("Action lookup requires timezone-aware ISO timestamps")
+            raise MailValidationError(
+                "Action lookup requires YYYY-MM-DD dates or timezone-aware ISO timestamps"
+            )
 
         if type(limit) is not int or not 1 <= limit <= 200:
             raise MailValidationError("Action lookup limit must be between 1 and 200")
         start = instant(since) if since is not None else None
-        end = instant(before) if before is not None else None
+        end = instant(before, day_end=True) if before is not None else None
         if start is not None and end is not None and start >= end:
             raise MailValidationError("Action lookup since must precede before")
         if action is not None and action not in {*WRITE_TOOLS, *_MERGED_ACTIONS, "preview_action"}:

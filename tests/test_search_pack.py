@@ -662,7 +662,8 @@ def test_count_mail_deadline_during_search_returns_timeout(settings, monkeypatch
         "partial": True,
         "partial_reason": "timed_out",
         "timed_out": True,
-        "error": "Count timed out; narrow the date range or filters and retry",
+        "error": "Count timed out; Bridge reads the whole folder for text and header conditions, "
+        "whatever the dates. Use search_mail with since or before instead",
     }
 
 

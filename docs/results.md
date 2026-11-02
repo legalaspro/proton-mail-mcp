@@ -36,6 +36,7 @@ Each `unresolved` row identifies a prior undo attempt with `log_id` as well.
 | `message_id`, `draft_id` | RFC Message-ID, such as `<a@example.test>` | Names a message or draft |
 | `folder`, `uidvalidity`, `uid` | Canonical real-folder handle | Null when unresolved. A UID means nothing without its folder and UIDVALIDITY |
 | `alias` | `folder`, `uidvalidity`, `uid` | The view that was read, such as All Mail or a label |
+| `canonical_reason` | `no_single_copy`, `lookup_unfinished`, `lookup_skipped` | `read_thread` and `show_thread`, only when the canonical fields are null. See [Canonical message handles](search.md#canonical-message-handles) |
 | `log_id` | 32 lowercase hexadecimal characters | One logged action; pass to `undo_action` |
 | `log_ids` | List of `log_id` | Always a list on batch tools, even empty. Undo each separately |
 | `run_id` | Random ID | Groups one approval's chunks. Not an undo capability |
@@ -48,7 +49,7 @@ Each `unresolved` row identifies a prior undo attempt with `log_id` as well.
 
 | Tool | Returns |
 | --- | --- |
-| `search_mail` | `messages`, `next_cursor`, `total`, `partial`, `total_is_exact`; when they apply `partial_reason`, `applied_since`, `timed_out`, `error`, `hint`, `index_note`, `index_status` |
+| `search_mail` | `messages`, `next_cursor`, `total`, `partial`, `total_is_exact`; when they apply `partial_reason`, `applied_since`, `skipped_uids`, `timed_out`, `error`, `hint`, `index_note`, `index_status` |
 | `count_mail` | `folder`, `count`; on timeout also `partial`, `timed_out`, `partial_reason`, `error` |
 | `read_thread` | `security_notice`, `messages`, `partial`; when they apply `partial_reason`, `timed_out`, `error`, `size_note`, `index_note`, `index_status` |
 | `list_attachments` | `attachments` (`index`, `filename`, `type`, `size`), `size_note` |
@@ -138,7 +139,7 @@ At the HTTP level:
 | A draft whose From is not on `PROTON_MCP_SEND_FROM` | `Draft From is not an exact allowlisted address` |
 | A write when the audit log cannot record it | Refuses before anything changes |
 | `undo_action` on a preview, reindex, draft deletion, unsubscribe, send, folder, rule or filter record | `Cleanup log ID was not found or cannot be undone` |
-| `list_actions` with a `since` or `before` without a timezone | `Action lookup requires timezone-aware ISO timestamps` |
+| `list_actions` with a `since` or `before` that is neither `YYYY-MM-DD` nor has a timezone | `Action lookup requires YYYY-MM-DD dates or timezone-aware ISO timestamps` |
 | `compose_reply` with `reply_all` but no `message_id` | `reply_all applies only to message_id` |
 
 No tool empties Trash, deletes or renames a mailbox, sends without a draft, or edits, reorders or
@@ -150,10 +151,10 @@ These results succeed but need a second look, so check their fields:
 
 | Field | Where | Meaning |
 | --- | --- | --- |
-| `partial: true`, `partial_reason` | `search_mail`, `count_mail`, `read_thread`, `show_thread` | Not complete. Search reasons: `date_window`, `candidate_cap`, `metadata_missing`, `timed_out`, `unresolved_handles`, `unresolved_handles_skipped`, `canonical_unresolved`, `no_resumable_cursor` |
+| `partial: true`, `partial_reason` | `search_mail`, `count_mail`, `read_thread`, `show_thread` | Not complete. Search reasons: `date_window`, `candidate_cap`, `text_scan_limited`, `metadata_missing`, `timed_out`, `unresolved_handles`, `unresolved_handles_skipped`, `canonical_unresolved`, `no_resumable_cursor` |
 | `timed_out: true`, `error` | Same | Deadline reached; available data is kept. `count=0` here is not a completed count |
 | `next_cursor` | `search_mail`, `preview_rules` | Pass as `cursor` with identical filters or options. A `preview_rules` cursor lasts ten minutes, a reply spends it, and it can come back null |
-| `hint` | `search_mail` | With `no_resumable_cursor`: narrow the search, or ask to reindex |
+| `hint` | `search_mail` | With `no_resumable_cursor`: narrow the search, or ask to reindex. A locally read date window only needs narrowing |
 | `index_note`, `index_status` | Search and read | Incomplete index coverage limits this result |
 | `partial: true` beside a `token` | `preview_action` | Only some canonical fields stayed null; the token is unchanged |
 | `partial: true` without a `token` | `preview_rules` | Continue with `next_cursor`; if null, start a fresh preview |

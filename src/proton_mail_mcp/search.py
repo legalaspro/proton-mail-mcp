@@ -12,6 +12,7 @@ import math
 import time
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -28,7 +29,19 @@ _MAX_CURSOR_RETRIES = 3
 _ALL_MAIL_WINDOW_DAYS = 30
 _MAX_SEARCH_CANDIDATES = 1000
 _MAX_SEARCH_SECONDS = 20.0
+# One TEXT key makes Bridge read every message in the mailbox: Gluon loads each literal
+# before it evaluates any key, so date and UID keys in the same command narrow nothing.
+# Above this size that scan cannot be expected to fit one command's 10-second limit, so a
+# date window is read here instead, one message per command, and a cursor reads the rest.
+_SERVER_TEXT_MAX_MESSAGES = 2000
+_TEXT_SCAN_MAX_BYTES = 1024 * 1024
 _SEARCH_TIMEOUT = "Search timed out; narrow the date range or filters and retry"
+_COUNT_TIMEOUT = "Count timed out; narrow the date range or filters and retry"
+# Header and text keys read the whole folder, so narrower dates would time out again.
+_COUNT_SCAN_TIMEOUT = (
+    "Count timed out; Bridge reads the whole folder for text and header conditions, whatever "
+    "the dates. Use search_mail with since or before instead"
+)
 _HEADERS = {"from": "From", "to": "To", "subject": "Subject"}
 _LOG = logging.getLogger(__name__)
 
@@ -114,6 +127,102 @@ def _leaf_sets(
     return found
 
 
+@dataclass
+class _TextScan:
+    found: dict[tuple[str, str], set[str]]
+    scanned: list[str]
+    validity: str
+    # The time budget ended before every candidate was read.
+    stopped: bool = False
+    # A message could not be read, or matched nothing in the part read of a longer one.
+    undecided: bool = False
+    # Messages whose read had its whole wait and stalled. Each is skipped from then on.
+    stalled: list[str] = dataclass_field(default_factory=list)
+    # The last read ended the stream, so no further command can use it.
+    stream_broken: bool = False
+    # What each read returned beside the text, enough for a page with no further command.
+    rows: dict[str, dict[str, Any]] = dataclass_field(default_factory=dict)
+
+
+def _scan_text(
+    client: MailClient,
+    connection: Any,
+    deadline: Any,
+    uids: list[str],
+    leaves: set[tuple[str, str]],
+    validity: str,
+    resume: _TextScan | None = None,
+) -> _TextScan:
+    """Answer text conditions from each candidate's raw message, in the order given.
+
+    The comparison is Bridge's TEXT: a case-insensitive substring of the raw message,
+    headers included. BODY.PEEK leaves the message unread, and the bytes are kept only
+    for this comparison. Each read also returns the row's date, flags and headers, so a
+    page needs no connection. The search's reserve is left for the page's snippets, except
+    by the first read, so that a slow setup can still decide one message per call. A read
+    the budget cuts short says nothing about its message, which the next call reads
+    again. ``resume`` continues the scan a broken stream ended, without reading again.
+    """
+    from .mail import CallDeadlineExceeded, MailError
+    from .search_sync import has_time, optional_io
+
+    scan = resume or _TextScan({leaf: set() for leaf in leaves}, [], validity)
+    scan.stream_broken = False
+    decided = {*scan.scanned, *scan.stalled}
+    wide = any(not value.isascii() for _, value in leaves)
+    read_cost = 1.0
+    for uid in uids:
+        if uid in decided:
+            continue
+        first = not (scan.scanned or scan.stalled)
+        if not first and not has_time(client, deadline, read_cost):
+            scan.stopped = True
+            break
+        started = time.monotonic()
+        whole_wait = False
+        try:
+            with optional_io(client, deadline, reserve=not first):
+                # With less than a socket timeout left, a cut-off read may just be out of time.
+                whole_wait = deadline.check() >= deadline.socket_timeout
+                metadata = client._metadata(
+                    connection,
+                    [uid],
+                    deadline=deadline,
+                    bodystructure=False,
+                    flags=True,
+                    raw_bytes=_TEXT_SCAN_MAX_BYTES,
+                )
+            if uid not in metadata:
+                raise MailError("Mailbox returned an incomplete message")
+        except imaplib.IMAP4.abort:
+            scan.stream_broken = True
+            break
+        except CallDeadlineExceeded:
+            scan.stream_broken = True
+            if whole_wait:
+                scan.stalled.append(uid)
+                scan.undecided = True
+            break
+        except (MailError, imaplib.IMAP4.error):
+            # Gone since the date search, which the page's own fetch reports, or unreadable.
+            scan.undecided = True
+            scan.scanned.append(uid)
+            continue
+        read_cost = max(read_cost, time.monotonic() - started)
+        scan.scanned.append(uid)
+        raw = metadata[uid].pop("raw")
+        scan.rows[uid] = metadata[uid]
+        lowered = raw.lower()
+        decoded = raw.decode("utf-8", "replace").lower() if wide else ""
+        for leaf in leaves:
+            value = leaf[1].lower()
+            if (value.encode("ascii") in lowered) if value.isascii() else (value in decoded):
+                scan.found[leaf].add(uid)
+            elif len(raw) >= _TEXT_SCAN_MAX_BYTES:
+                scan.undecided = True
+    return scan
+
+
 def _decode_cursor(cursor: str | None, query: str) -> dict[str, Any] | None:
     from .mail import MailValidationError
 
@@ -132,6 +241,7 @@ def _decode_cursor(cursor: str | None, query: str) -> dict[str, Any] | None:
             keys.update(("emitted", "rejected"))
         if version == _CURSOR_VERSION:
             keys.add("retries")
+            keys.update(key for key in ("undecided", "floor", "found") if key in value)
         if type(version) is not int or version not in (1, 2, _CURSOR_VERSION):
             raise ValueError
         if set(value) != keys or value["q"] != query:
@@ -169,6 +279,21 @@ def _decode_cursor(cursor: str | None, query: str) -> dict[str, Any] | None:
             raise ValueError
         if type(retries) is not int or not 0 <= retries < _MAX_CURSOR_RETRIES:
             raise ValueError
+        if value.get("undecided", True) is not True:
+            raise ValueError
+        if ("floor" in value) != ("found" in value):
+            raise ValueError
+        if "floor" in value:
+            floor, found = value["floor"], value["found"]
+            if (
+                type(floor) is not int
+                or floor < 1
+                or max_uid is None
+                or floor > max_uid + 1
+                or type(found) is not int
+                or found < 0
+            ):
+                raise ValueError
         return value
     except (ValueError, TypeError, UnicodeError, binascii.Error, OverflowError, RecursionError):
         raise MailValidationError("Invalid search cursor for these search criteria") from None
@@ -182,6 +307,9 @@ def _encode_cursor(
     emitted: set[int],
     rejected: set[int],
     retries: int = 0,
+    undecided: bool = False,
+    floor: int | None = None,
+    found: int = 0,
 ) -> str | None:
     if len(emitted) + len(rejected) > _MAX_CURSOR_CHARS // 2:
         return None
@@ -195,6 +323,12 @@ def _encode_cursor(
         "rejected": sorted(rejected),
         "retries": retries,
     }
+    if undecided:
+        # An earlier page left a message undecided, which the last page must still report.
+        payload["undecided"] = True
+    if floor is not None:
+        # A stopped text scan is finished from this UID up, with ``found`` rows delivered there.
+        payload.update(floor=floor, found=found)
     cursor = (
         base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("ascii"))
         .decode("ascii")
@@ -203,12 +337,15 @@ def _encode_cursor(
     return cursor if len(cursor) <= _MAX_CURSOR_CHARS else None
 
 
-def _no_resumable_cursor(result: dict[str, Any]) -> dict[str, Any]:
+def _no_resumable_cursor(result: dict[str, Any], *, has_text: bool = False) -> dict[str, Any]:
     result.update(
         partial=True,
         next_cursor=None,
         partial_reason="no_resumable_cursor",
-        hint='Narrow the query by dates, folder, from or to, or run reindex(op="preview"), '
+        # An index holds no message text, so a reindex cannot help a text search here.
+        hint="Narrow the dates so that fewer messages need reading, or add from or to."
+        if has_text
+        else 'Narrow the query by dates, folder, from or to, or run reindex(op="preview"), '
         'then obtain explicit user approval before reindex(op="execute").',
     )
     return result
@@ -482,19 +619,21 @@ def search_mail(
     *,
     _deadline: Any = None,
     _skip_optional: bool = False,
+    _text_scan: _TextScan | None = None,
 ) -> dict[str, Any]:
     """Use cheap server date searches and decode header text locally.
 
     Bridge's HEADER searches decrypt and scan the entire mailbox. Header filters
     are therefore matched against the full local decoded-header index before
-    fetching dates, flags and any uncached headers. TEXT still requires a server
-    scan and is limited by the call deadline.
+    fetching dates, flags and any uncached headers. TEXT makes Bridge read the whole
+    folder, whatever the dates, so a large folder's date window is read here, and a
+    cursor continues it. Otherwise TEXT stays a server scan, limited by the call deadline.
     A complete decoded-header index removes All Mail's default date window,
     after checking a complete live UID inventory or its unchanged certified epoch.
     Otherwise unbounded All Mail uses the past 30 UTC calendar days and reports
     applied_since, partial=true and a partial_reason. The index
-    stores no bodies: TEXT still uses Bridge's full-text search, without the
-    default date window when the header index proves mailbox coverage.
+    stores no bodies: TEXT has no default date window when the header index proves
+    mailbox coverage.
     Messages report their canonical real-folder handle; a view's handle is an alias.
     The folder is matched by its LIST name; only INBOX ignores ASCII case.
 
@@ -575,6 +714,10 @@ def search_mail(
     last = tuple(position["last"]) if position is not None and position["last"] else None
     emitted = set(position.get("emitted", [])) if position is not None else set()
     rejected = set(position.get("rejected", [])) if position is not None else set()
+    rejected_before = set(rejected)
+    scan_floor = position.get("floor") if position is not None else None
+    scan_found = position.get("found", 0) if position is not None else 0
+    scan_order: list[str] = []
     retries = position.get("retries", 0) if position is not None else 0
     selection_limit = max(1, limit - len(emitted)) if retries else limit
     emitted_keys: dict[int, tuple[float, int]] = {}
@@ -584,6 +727,9 @@ def search_mail(
     lookup_failed = False
     unresolved_handles = 0
     scan_limited = False
+    text_undecided = position is not None and position.get("undecided", False)
+    text_window = False
+    stalled_scan: _TextScan | None = None
     header_uids: set[str] = set()
     has_more = False
     unstarted = position is not None and position["last"] is None and max_uid is None
@@ -609,6 +755,9 @@ def search_mail(
         )
 
     def continuation(response: dict[str, Any]) -> dict[str, Any]:
+        broken_scan = stalled_scan or _text_scan
+        if broken_scan is not None and broken_scan.stalled:
+            response["skipped_uids"] = broken_scan.stalled
         if response["partial"] or has_more:
             shown = {int(item.get("alias", item)["uid"]) for item in response["messages"]}
             checkpoint = last
@@ -622,7 +771,7 @@ def search_mail(
                 if not has_more and shown == set(page_keys):
                     # A completed default window (or snippet-only failure) has
                     # no remaining position within this fixed search scope.
-                    return _no_resumable_cursor(response)
+                    return _no_resumable_cursor(response, has_text=has_text)
             delivered = emitted | shown
             # Cached header nonmatches are already excluded by candidates().
             # Retain other rejections, including malformed dates, until overflow.
@@ -634,18 +783,41 @@ def search_mail(
                         folder, validity, [str(uid) for uid in rejected], local
                     )
                 }
-            uncached_progress = response.get("timed_out") and bool(
-                client.search_index.cached_headers(folder, validity, list(header_uids))
+                if text_window:
+                    # Read this call and now cached as a nonmatch: it still moves the cursor.
+                    remaining_rejected |= rejected - rejected_before
+            floor, found = scan_floor, scan_found
+            settled = delivered | rejected
+            if text_window and scan_limited and scan_order and int(scan_order[0]) in settled:
+                # The scan reads newest UID first, so one number can replace every row before
+                # the first it left open. The cursor then stays small however long the scan.
+                pending = next((int(uid) for uid in scan_order if int(uid) not in settled), None)
+                floor = pending + 1 if pending is not None else int(scan_order[-1])
+                found += sum(uid >= floor for uid in delivered)
+                delivered = {uid for uid in delivered if uid < floor}
+                remaining_rejected = {uid for uid in remaining_rejected if uid < floor}
+            # A window reads its messages again, so cached headers do not move it on.
+            uncached_progress = (
+                not text_window
+                and response.get("timed_out")
+                and bool(client.search_index.cached_headers(folder, validity, list(header_uids)))
             )
+            # A broken scan still moved the cursor if it ruled a message out or delivered a row.
+            text_progress = broken_scan is not None and (rejected != rejected_before or shown)
             failed = bool(
-                (response.get("timed_out") and not uncached_progress)
+                (response.get("timed_out") and not uncached_progress and not text_progress)
                 or lookup_failed
                 or unresolved_handles
                 or metadata_incomplete
-                or (not enumeration_complete and not scan_limited and not uncached_progress)
+                or (
+                    not enumeration_complete
+                    and not scan_limited
+                    and not uncached_progress
+                    and not text_progress
+                )
             )
             retry_count = retries + 1 if failed else 0
-            if failed and checkpoint != last:
+            if failed and (checkpoint != last or floor != scan_floor):
                 retry_count = 1
             if retry_count >= _MAX_CURSOR_RETRIES:
                 if (
@@ -660,34 +832,48 @@ def search_mail(
                     retry_count = 0
                     response["partial_reason"] = "unresolved_handles_skipped"
                 else:
-                    return _no_resumable_cursor(response)
+                    return _no_resumable_cursor(response, has_text=has_text)
+            trimmed = delivered
             if checkpoint is not None and (checkpoint != last or not scan_limited):
                 keys = dict(emitted_keys)
                 keys.update(page_keys)
-                delivered = {uid for uid in delivered if uid not in keys or keys[uid] < checkpoint}
+                trimmed = {uid for uid in delivered if uid not in keys or keys[uid] < checkpoint}
+            if not text_window:
+                delivered = trimmed
             snapshot_max = max_uid
             if snapshot_max is None and delivered:
                 snapshot_max = max(delivered)
-            response["next_cursor"] = _encode_cursor(
-                search_key,
-                validity,
-                checkpoint,
-                snapshot_max,
-                delivered,
-                remaining_rejected,
-                retry_count,
-            )
+
+            def encode(rows: set[int], ruled_out: set[int]) -> str | None:
+                return _encode_cursor(
+                    search_key,
+                    validity,
+                    checkpoint,
+                    snapshot_max,
+                    rows,
+                    ruled_out,
+                    retry_count,
+                    text_undecided,
+                    floor,
+                    found,
+                )
+
+            response["next_cursor"] = encode(delivered, remaining_rejected)
+            if response["next_cursor"] is None and text_window and enumeration_complete:
+                # A window read comes before the checkpoint can apply, so a trimmed row is
+                # read again. That is worth it only once the cursor cannot hold the row, and
+                # a scan that just finished will probably finish again.
+                delivered = trimmed
+                response["next_cursor"] = encode(delivered, remaining_rejected)
             if (
                 response["next_cursor"] is None
-                and enumeration_complete
+                and (enumeration_complete or text_window)
                 and not metadata_incomplete
                 and remaining_rejected
             ):
-                response["next_cursor"] = _encode_cursor(
-                    search_key, validity, checkpoint, snapshot_max, delivered, set(), retry_count
-                )
+                response["next_cursor"] = encode(delivered, set())
             if response["next_cursor"] is None:
-                return _no_resumable_cursor(response)
+                return _no_resumable_cursor(response, has_text=has_text)
         return response
 
     if _deadline is None:
@@ -704,6 +890,8 @@ def search_mail(
             state = client._select(connection, folder)
             validity = _uidvalidity(connection)
             progress_scope = (folder, validity, state["exists"])
+            if _text_scan is not None and _text_scan.validity != validity:
+                raise MailValidationError("Mailbox identity changed during search")
             is_all_mail = "\\all" in attributes.get(folder, set())
             indexed_complete = False
             inventory = None
@@ -895,15 +1083,25 @@ def search_mail(
                 with suppress(Exception):
                     connection.shutdown()
                 raise _CatchupStopped
-            criteria = [*scope, *(["UNSEEN"] if unread_only else []), *searched]
+            date_keys = [*scope, *(["UNSEEN"] if unread_only else [])]
+            criteria = [*date_keys, *searched]
+            window = None
+            if has_text and scope and state["exists"] > _SERVER_TEXT_MAX_MESSAGES:
+                window = client._search(connection, date_keys)
+            if window is not None:
+                # Every condition is answered per message; only the dates go to Bridge.
+                criteria, literal, local = date_keys, None, conditions
+                # Delivered rows stay in this cursor, so a page need not make room for them.
+                selection_limit = limit
             if not is_all_mail and not criteria:
                 inventory = _certified_inventory(client, folder, validity, state)
                 indexed_complete = inventory is not None
-            searched_uids = (
-                inventory
-                if inventory is not None and not criteria
-                else client._search(connection, criteria or ["ALL"], literal=literal)
-            )
+            if window is not None:
+                searched_uids = window
+            elif inventory is not None and not criteria:
+                searched_uids = inventory
+            else:
+                searched_uids = client._search(connection, criteria or ["ALL"], literal=literal)
             if is_all_mail and not criteria and inventory is None:
                 # Cursor pages skip catch-up, but their ordinary ALL search can
                 # refresh the same proof used by every other folder.
@@ -941,11 +1139,11 @@ def search_mail(
             uids = sorted(set(searched_uids), key=int, reverse=True)
             if max_uid is None:
                 max_uid = max(map(int, uids), default=0)
-            found_text = _leaf_sets(
-                client,
-                connection,
-                scope,
-                {leaf for node in local for leaf in search_query.leaves(node) if leaf[0] == "text"},
+            text_leaves = {
+                leaf for node in local for leaf in search_query.leaves(node) if leaf[0] == "text"
+            }
+            found_text = (
+                {} if window is not None else _leaf_sets(client, connection, scope, text_leaves)
             )
 
             def leaf_test(uid: str, item: dict[str, Any]) -> Any:
@@ -962,7 +1160,11 @@ def search_mail(
 
                 return test
 
-            uids = [uid for uid in uids if int(uid) <= max_uid]
+            uids = [
+                uid
+                for uid in uids
+                if int(uid) <= max_uid and (scan_floor is None or int(uid) < scan_floor)
+            ]
             excluded = emitted | rejected
             if emitted and any(int(uid) not in excluded for uid in uids):
                 emitted_metadata = client.search_index.cached_metadata(
@@ -994,6 +1196,80 @@ def search_mail(
             # Match every known header before the expensive-work cap. Unknown
             # headers and server TEXT predicates survive for exact live checks.
             uids = client.search_index.candidates(folder, validity, uids, local)
+            text_stopped = False
+            text_rows: dict[str, dict[str, Any]] = {}
+            stream_lost = False
+            if window is not None:
+                scan_order = uids
+                text_scan = _scan_text(
+                    client, connection, deadline, uids, text_leaves, validity, _text_scan
+                )
+                found_text = text_scan.found
+                text_window = True
+                text_undecided = text_undecided or text_scan.undecided
+                rejected.update(map(int, text_scan.stalled))
+                if text_scan.stream_broken:
+                    # Move the cursor past what is decided, even if no page can be fetched.
+                    cached_headers = (
+                        client.search_index.cached_headers(folder, validity, text_scan.scanned)
+                        if headers_needed
+                        else {}
+                    )
+                    rejected.update(
+                        int(uid)
+                        for uid in text_scan.scanned
+                        if (not headers_needed or uid in cached_headers)
+                        and not all(
+                            search_query.matches(node, leaf_test(uid, {})) for node in local
+                        )
+                    )
+                    stalled_scan = text_scan
+                    with suppress(Exception):
+                        connection.shutdown()
+                    fallback = None
+                    if _text_scan is None:
+                        try:
+                            fallback = search_mail(
+                                client,
+                                from_=from_,
+                                to=to,
+                                subject=subject,
+                                text=text,
+                                since=since,
+                                before=before,
+                                folder=requested_folder,
+                                limit=limit,
+                                cursor=cursor,
+                                include_snippets=include_snippets,
+                                unread_only=unread_only,
+                                exclude_subject=exclude_subject,
+                                exclude_text=exclude_text,
+                                query=query,
+                                _deadline=deadline,
+                                _skip_optional=True,
+                                _text_scan=stalled_scan,
+                            )
+                        except (CallDeadlineExceeded, MailError, imaplib.IMAP4.error, OSError):
+                            pass  # The page below needs no connection.
+                    # No logout on the closed stream, and no more commands in this call.
+                    deadline.end = min(deadline.end, time.monotonic())
+                    if fallback is not None:
+                        if default_window:
+                            index_limited = True
+                            fallback.update(
+                                partial=True,
+                                partial_reason=fallback.get("partial_reason", "date_window"),
+                                total_is_exact=False,
+                                applied_since=since,
+                            )
+                            if fallback["next_cursor"] is None:
+                                _no_resumable_cursor(fallback, has_text=True)
+                        return report_index_status(fallback)
+                    stream_lost = True
+                # A lost stream ends the page at the rows read, and the cursor at the cut read.
+                text_rows = text_scan.rows
+                uids = list(text_rows) if stream_lost else text_scan.scanned
+                text_stopped = text_scan.stopped or stream_lost
             indexed_page = (
                 client.search_index.ordered_page(
                     folder,
@@ -1015,7 +1291,8 @@ def search_mail(
             )
             uncached = [uid for uid in uids if uid not in cached_headers]
             candidate_count = len(uncached)
-            scan_limited = headers_needed and candidate_count > _MAX_SEARCH_CANDIDATES
+            candidate_limited = headers_needed and candidate_count > _MAX_SEARCH_CANDIDATES
+            scan_limited = candidate_limited or text_stopped
             # Known decoded headers can satisfy local filters without another
             # literal fetch. A plain window opportunistically retains a bounded
             # set of headers for timeout recovery; the rest only need dates/flags.
@@ -1024,7 +1301,13 @@ def search_mail(
                 if headers_needed or default_window
                 else set()
             )
-            if scan_limited:
+            if text_stopped:
+                # Like a capped header scan, a continuation reads the rest, excluding
+                # the rows this call delivered or rejected.
+                result.update(partial=True, partial_reason="text_scan_limited")
+            if stream_lost:
+                result.update(partial_reason="timed_out", timed_out=True, error=_SEARCH_TIMEOUT)
+            if candidate_limited:
                 index_limited = True
                 # UIDs do not imply chronology. A continuation retries this
                 # boundary, excluding delivered rows, until enumeration finishes.
@@ -1032,7 +1315,7 @@ def search_mail(
                 result.update(partial=True, partial_reason="candidate_cap")
             matches: dict[str, dict[str, Any]] = {}
             complete = False
-            can_fetch = True
+            can_fetch = not stream_lost
             metadata_missing = False
             invalid_dates: set[str] = set()
             try:
@@ -1042,9 +1325,10 @@ def search_mail(
                         group = [uid for uid in batch if (uid in header_uids) == fetch_headers]
                         if not group:
                             continue
-                        metadata = client._metadata(
+                        metadata = {uid: text_rows[uid] for uid in group if uid in text_rows}
+                        metadata |= client._metadata(
                             connection,
-                            group,
+                            [uid for uid in group if uid not in text_rows],
                             deadline=deadline,
                             headers=fetch_headers,
                             bodystructure=False,
@@ -1070,14 +1354,14 @@ def search_mail(
                             if all(search_query.matches(node, test) for node in local):
                                 matches[uid] = item
                                 if (
-                                    scan_limited
-                                    and uid in header_uids
+                                    (text_window or (scan_limited and uid in header_uids))
                                     and last is not None
                                     and (item["internaldate"], int(uid)) >= last
                                 ):
                                     # A capped fallback can revisit an earlier
                                     # complete page after index availability
-                                    # changes. Retire those traversed matches
+                                    # changes, and a window scan reads rows above
+                                    # the checkpoint. Retire those traversed matches
                                     # too, so they cannot fill every retry cap.
                                     emitted.add(int(uid))
                                     emitted_keys[int(uid)] = (item["internaldate"], int(uid))
@@ -1093,8 +1377,14 @@ def search_mail(
                     partial=True, partial_reason="timed_out", timed_out=True, error=_SEARCH_TIMEOUT
                 )
             metadata_incomplete = metadata_missing
-            result["total"] = emitted_count + (
-                indexed_page[0] - len(invalid_dates) if indexed_page is not None else len(matches)
+            result["total"] = (
+                scan_found
+                + emitted_count
+                + (
+                    indexed_page[0] - len(invalid_dates)
+                    if indexed_page is not None
+                    else len(matches)
+                )
             )
             result["total_is_exact"] = complete and not default_window
             ordered = (
@@ -1110,7 +1400,12 @@ def search_mail(
                     for uid in ordered
                     if indexed_page is not None or (matches[uid]["internaldate"], int(uid)) < last
                 ]
+            if text_stopped:
+                # Deliver in read order, so that the cursor can move past every delivered row.
+                ordered.sort(key=int, reverse=True)
             page = [uid for uid in ordered[:selection_limit] if uid in matches]
+            if text_stopped:
+                page.sort(key=lambda uid: (matches[uid]["internaldate"], int(uid)), reverse=True)
             enumeration_complete = complete
             page_keys = {int(uid): (matches[uid]["internaldate"], int(uid)) for uid in page}
             # Headers already fetched for local filters can be returned even if
@@ -1259,7 +1554,19 @@ def search_mail(
                 except (MailError, imaplib.IMAP4.error, OSError, *_ERRORS):
                     pass
             _drop_unresolved(result)
-            return report_index_status(continuation(result))
+            response = continuation(result)
+            if text_undecided:
+                response.update(partial=True, total_is_exact=False)
+                response.setdefault("partial_reason", "text_scan_limited")
+                if response["next_cursor"] is None and (
+                    response["partial_reason"] == "text_scan_limited"
+                ):
+                    # The scan is over: no cursor can decide what could not be read.
+                    response["hint"] = (
+                        "Every message in this range was read, but at least one could not be "
+                        "read in full, so it may match too."
+                    )
+            return report_index_status(response)
     except _CatchupStopped:
         try:
             fallback = search_mail(
@@ -1297,10 +1604,16 @@ def search_mail(
                 total_is_exact=False,
                 applied_since=window_since,
             )
-        if fallback["next_cursor"] is None and fallback["partial"]:
-            _no_resumable_cursor(fallback)
+        if (
+            fallback["next_cursor"] is None
+            and fallback["partial"]
+            and fallback.get("partial_reason") not in ("no_resumable_cursor", "text_scan_limited")
+        ):
+            _no_resumable_cursor(fallback, has_text=has_text)
         return report_index_status(fallback)
     except CallDeadlineExceeded:
+        if _text_scan is not None and not text_window:
+            raise  # The call that started this scan holds what it decided.
         result.update(
             partial=True, partial_reason="timed_out", timed_out=True, error=_SEARCH_TIMEOUT
         )
@@ -1387,6 +1700,6 @@ def count_mail(
             partial=True,
             partial_reason="timed_out",
             timed_out=True,
-            error="Count timed out; narrow the date range or filters and retry",
+            error=_COUNT_SCAN_TIMEOUT if conditions else _COUNT_TIMEOUT,
         )
         return result

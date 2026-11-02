@@ -86,6 +86,16 @@ def anchors(text: str) -> set[str]:
     return found
 
 
+def test_the_cleanup_page_says_when_an_unsubscribe_send_needs_draft_id():
+    page = " ".join(read(DOCS / "cleanup.md").split())
+    assert "`send_draft(send_preview.token, send_preview.draft_id)`" in page
+    assert "`send_draft(send_preview.token)`" not in page
+    assert (
+        "`draft_id` is required when `send_preview.approval` is `typed_ok`: a call without it "
+        "refuses and uses up the token" in page
+    )
+
+
 def test_every_relative_link_and_anchor_resolves():
     known = {page.resolve(): anchors(read(page)) for page in PAGES}
     checked = 0

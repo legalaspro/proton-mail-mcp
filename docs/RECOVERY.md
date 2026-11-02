@@ -248,11 +248,14 @@ on completion.
 original token or a continuation that wrote a chunk, including after restart.
 A continuation that only blocks changed rows returns the run ID; use the original
 token or time bounds for its lookup. Time
-bounds remain timezone-aware ISO timestamps (`since` inclusive, `before`
-exclusive). `actions`/`truncated` retain their existing fields and chunk recovery
-IDs. A completed chunk in a partial run is shown as partial. `runs`/`runs_truncated` expose the
-run's status, approved total, done/uncertain/remaining/blocked counts and chunk
-IDs through `log_ids`, linking each chunk to its approval-wide progress. A run
+bounds are timezone-aware ISO timestamps (`since` inclusive, `before`
+exclusive) or plain `YYYY-MM-DD` dates in the server's local timezone. A date covers
+that whole day in either bound: `since` starts when the day starts and `before` ends
+when it ends, so one date in both finds that day. This differs from `search_mail`,
+whose `before` leaves its date out. `actions`/`truncated` retain their existing fields
+and chunk recovery IDs. A completed chunk in a partial run is shown as partial.
+`runs`/`runs_truncated` expose the run's status, approved total, done/uncertain/remaining/blocked
+counts and chunk IDs through `log_ids`, linking each chunk to its approval-wide progress. A run
 also accompanies matching chunks when its start falls outside the time window.
 Each run's `continuation` reports live `available`, `expires_at` and `remaining`
 metadata. The secret appears only in the execution response; lookup cannot

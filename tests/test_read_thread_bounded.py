@@ -24,6 +24,9 @@ class ForbiddenIndex:
     def coverage(self, folder):
         return None
 
+    def coverage_epoch(self, folder):
+        return None
+
     def thread_uids(self, folder, validity, state, identifiers):
         return None
 
@@ -159,13 +162,9 @@ def test_all_mail_day_scan_cannot_delay_completed_body(
         assert searching.is_set() is include_thread
         assert not release.is_set()
         assert "timed_out" not in result and "error" not in result
-        if include_thread:
-            assert result["partial"] is True
-            assert "Canonical lookup" in result["partial_reason"]
-            assert "time limit" in result["partial_reason"]
-        else:
-            assert result["partial"] is False
-            assert "partial_reason" not in result
+        assert result["partial"] is False
+        assert "partial_reason" not in result
+        if not include_thread:
             assert not any(call[0] == "SEARCH" and "ON" in call for call in fake.calls)
         [item] = result["messages"]
         assert item["message_id"] == identifier
@@ -426,6 +425,27 @@ def test_seed_fallback_obeys_shorter_configured_call_budget(settings, monkeypatc
     assert "timed_out" not in result and "error" not in result
 
 
+def test_a_read_stopped_before_expansion_is_still_reported_as_incomplete(settings, monkeypatch):
+    # The first lookup comes before the relatives are read, so it is not only about handles.
+    monkeypatch.setattr("proton_mail_mcp.threading.MAX_THREAD_SECONDS", 0.5)
+    reached, release = Event(), Event()
+
+    def stall(*args, **kwargs):
+        reached.set()
+        release.wait(5)
+
+    monkeypatch.setattr("proton_mail_mcp.canonical.resolve_indexed_views", stall)
+    saved = message("<seed@example.com>")
+    fake = ReadOnlyImap({"INBOX": {"7": saved}, "All Mail": {"70": saved}}, uidnext=True)
+    try:
+        result = client(settings, fake).read_thread("<seed@example.com>")
+    finally:
+        release.set()
+
+    assert reached.is_set()
+    assert result["partial"] is True and result["timed_out"] is True
+
+
 @pytest.mark.parametrize("call_timeout", [2.0, 120.0])
 def test_canonical_limit_applies_even_when_thread_budget_is_shorter(
     settings, monkeypatch, call_timeout
@@ -449,8 +469,7 @@ def test_canonical_limit_applies_even_when_thread_budget_is_shorter(
     assert observed == [
         pytest.approx((min(100.0 + call_timeout, 103.0), min(call_timeout, 3) * 0.1))
     ]
-    assert result["partial"] is True
-    assert "Canonical lookup" in result["partial_reason"]
+    assert result["partial"] is False and "partial_reason" not in result
     assert "timed_out" not in result and "error" not in result
     [item] = result["messages"]
     assert item["text"] == "Hello plain text" and item["truncated"] is False
@@ -529,11 +548,7 @@ def test_expansion_and_bodies_leave_time_for_canonical_lookup(
     assert canonical == [(110.5, 113.5)], "Canonical lookup must retain its full 3-second budget"
     assert bodies == (["501"] if limited_phase == "expand" else ["501", "502"])
     assert result["partial"] is True
-    assert result["partial_reason"].startswith("thread expansion limited")
-    if canonical_times_out:
-        assert "Canonical lookup" in result["partial_reason"]
-    else:
-        assert result["partial_reason"] == "thread expansion limited"
+    assert result["partial_reason"] == "thread expansion limited"
     if limited_phase == "bodies_cut":
         assert result["timed_out"] is True and "Thread read timed out" in result["error"]
         reply = next(

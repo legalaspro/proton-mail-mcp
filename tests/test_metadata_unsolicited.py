@@ -313,14 +313,13 @@ def test_expansion_socket_cut_uses_fresh_bounded_canonical_session(
     assert time.monotonic() - started < 2.75
     assert resolving.is_set()
     assert result["partial"] is True
-    assert result["partial_reason"].startswith("thread expansion limited")
+    assert result["partial_reason"] == "thread expansion limited"
     assert result["timed_out"] is True and "Thread read timed out" in result["error"]
     [item] = result["messages"]
     assert item["text"] == "Hello" and item["truncated"] is False
     assert item["alias"] == {"folder": "All Mail", "uidvalidity": "7", "uid": "42"}
     if stall_canonical:
         assert canonical_closed.is_set()
-        assert "Canonical lookup reached its time limit" in result["partial_reason"]
         assert (item["folder"], item["uidvalidity"], item["uid"]) == (None, None, None)
     else:
         assert (item["folder"], item["uidvalidity"], item["uid"]) == ("INBOX", "7", "7")

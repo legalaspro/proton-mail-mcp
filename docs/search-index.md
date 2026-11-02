@@ -23,10 +23,13 @@ message visible in multiple mailboxes has an entry for each observed handle.
 The index stores complete decoded Subject, From, To and Cc header content,
 including address names and addresses, plus message dates and membership metadata
 when observed. It stores no snippet or body text. Building or warming the index
-does not fetch bodies. `read_thread` skips synchronous index writes and catch-up;
-its content reads use live metadata, and its canonical lookup uses the index for
-folders with a current proof and live metadata for the others, under the same call
-deadline and without requiring a complete index. The separate seed
+does not fetch bodies. A `read_thread` with thread expansion first catches All Mail up
+to its current epoch, as a search does, because both its expansion and its canonical
+lookup need that proof and new mail makes it stale; this is optional work that keeps
+the search reserve and fetches only what arrived. Its other reads write nothing. Its
+content reads use live metadata, and its canonical lookup uses the index for folders
+with a current proof and live metadata for the others, under the same call deadline
+and without requiring a complete index. The separate seed
 lookup can verify a read-only index hint. Missing hints use one live Message-ID
 search per large folder or one UID-range search per small folder, all under a shared
 12-second fallback cap within the 15-second thread budget. Folder selection,
@@ -54,8 +57,10 @@ A high-match recipient query therefore
 does not fetch dates and flags for tens of thousands of matches on every page.
 Matches retain the existing ordering, cursors and live unread handling.
 
-Bridge remains authoritative for `text`, `exclude_text` and `count_mail`. The
-header index cannot prove that a full-message text match is absent. Counts
+Bridge's stored messages remain authoritative for `text`, `exclude_text` and
+`count_mail`, whether Bridge compares them or, in a
+[large folder's small date window](search.md), this server does. The header index
+cannot prove that a full-message text match is absent. Counts
 also use Bridge's raw-header matching, which can differ from the decoded headers
 used by `search_mail`. Exact IMAP counts therefore omit index-completeness warnings
 even while the header index is rebuilding.
@@ -64,6 +69,7 @@ even while the header index is rebuilding.
 summary; a match need not appear in its subject or visible snippet. The index
 does not substitute a subject/from/snippet search for this full-message meaning.
 Full-text searches can therefore still take longer than indexed header searches.
+A date window does not shorten Bridge's own scan, which reads the whole folder.
 
 ## All Mail coverage and results
 
@@ -136,6 +142,7 @@ malformed INTERNALDATE values are omitted from matches and totals. Every
 | --- | --- |
 | `date_window` | The default 30-day All Mail window limits the search, and a cursor remains. |
 | `candidate_cap` | More uncached headers remain beyond the bounded scan. |
+| `text_scan_limited` | A locally read date window ran out of time, or a message on this or an earlier page could not be read, stalled, or is longer than the part read. |
 | `metadata_missing` | Required message data is unavailable or unusable, including failed metadata fetches or snippet reads. |
 | `timed_out` | The requested search exceeded its deadline. |
 | `unresolved_handles` | Matching page rows lack a unique canonical handle. |
@@ -147,10 +154,12 @@ malformed INTERNALDATE values are omitted from matches and totals. Every
 unresolved canonical handles drop page rows from an exact matching total.
 `next_cursor` continues or retries the same snapshot. Dropped unresolved rows
 replace `date_window` or `candidate_cap` with `unresolved_handles`, while other
-existing failure reasons are retained. Every terminal partial response
-with a null cursor uses `no_resumable_cursor`; `applied_since`, `timed_out` and
-`error` preserve date-window and timeout context when that replaces the original
-limitation. A complete response omits `partial_reason`.
+existing failure reasons are retained. `candidate_cap` and `text_scan_limited` also
+replace `date_window`, and `applied_since` still reports the window. Every terminal
+partial response with a null cursor uses `no_resumable_cursor`, except a finished
+window with an undecided message, which keeps `text_scan_limited`; `applied_since`,
+`timed_out` and `error` preserve date-window and timeout context when that replaces
+the original limitation. A complete response omits `partial_reason`.
 Index health and maintenance are visible through `reindex(op="preview")`,
 `reindex_status` and the server log.
 
@@ -266,25 +275,30 @@ its proof with a reserved-budget UID inventory when its current headers are alre
 cached, including after expunges or an arrival observed by an ordinary read. This step
 fetches no message metadata and pauses during a background rebuild.
 
-A message no proven folder holds gets a live scan, the same `ON`-day search and
-fingerprint fetch as the live resolver, in the folders that fail their proof and no
-others. The scan tries folders with a cached copy first and stops when each wanted
-message has a copy. A proven folder is scanned only if a row of a wanted date has no
-fingerprint, as for a row cached before plain search pages fetched the envelope and
-size, or by the light filter-search fallback; such a row heals the next time a search
-page shows it. If the
-scan runs out of time, a thread keeps the handles the index proved and the scan placed,
-and reports the canonical time limit. An All Mail search's scan stores the fingerprints
-it reads; `read_thread`'s scan writes nothing, so it repeats until such a search or a
-rebuild warms that row. New, uncached folder UIDs also need the scan until ordinary
-reads, an undated folder header search or a rebuild warm that folder; All Mail catch-up
-and IDLE alone do not warm the real folder's separate UID space. Stopping at the first
-copy means a message listed in two real folders can resolve to the proven or first-found
-one; it stays unresolved when the lookup sees both.
+A message no proven folder holds is looked for live, in the folders that fail their
+proof and no others, stopping when each wanted message has a copy. Changed folders first
+confirm their cached rows of that message by `UID FETCH`. Only a message still without a
+copy then reads the UIDs that arrived since a folder's saved proof, found with a `UID`
+range, since that proof covers every older UID. All Mail's single copy makes a live copy
+with the same fingerprint the message, so a confirmed row settles it without reading the
+arrivals. A read does not renew a real folder's proof, so those arrivals keep adding up
+until an undated header search of that folder or a rebuild certifies it again.
 
-This avoids a same-day metadata scan on every page. A stale All Mail, label views and
-missing or incomplete All Mail fingerprints use the whole live resolver, All Mail and
-every real folder, under the same call deadline. A missing or ambiguous canonical
+The `ON`-day search and fingerprint fetch of the live resolver cost a database read per
+message, more than the 3 seconds a thread's lookup has in a large folder. They run last,
+only for a folder with no saved proof of its current UIDVALIDITY, or a proven or changed
+folder with a row of a wanted date that has no fingerprint, as for a row cached before
+plain search pages fetched the envelope and size, or by the light filter-search
+fallback; such a row heals the next time a search page shows it. If the lookup runs out
+of time, a thread keeps the handles the index proved and the lookup placed, and leaves
+the others null with no warning. An All Mail search's scan stores the fingerprints it reads;
+`read_thread`'s scan writes nothing, so it repeats until such a search or a rebuild warms
+that row. Stopping at the first copy means a message listed in two real folders can
+resolve to the proven or first-found one; it stays unresolved when the lookup sees both.
+
+This avoids a same-day metadata scan on every page. An All Mail that stays stale after
+catch-up, label views and missing or incomplete All Mail fingerprints use the whole live
+resolver, All Mail and every real folder, under the same call deadline. A missing or ambiguous canonical
 handle drops the unresolved page row with `partial=true`. Its
 `unresolved_handles` reason replaces `date_window` or `candidate_cap`, while
 other existing failure reasons are retained. A changed or failed lookup reports

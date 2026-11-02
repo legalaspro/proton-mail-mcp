@@ -1260,10 +1260,12 @@ class MailClient:
         header_max_bytes: int | None = None,
         invalid_dates: set[str] | None = None,
         bcc: bool = False,
+        raw_bytes: int | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Fetch a UID batch, associating literals by UID, never response sequence number.
 
-        Optionally report UIDs with explicitly malformed INTERNALDATE values.
+        Optionally report UIDs with explicitly malformed INTERNALDATE values, or
+        return the start of each raw message as ``raw``.
         """
         if not uids:
             return {}
@@ -1273,6 +1275,8 @@ class MailClient:
         # A draft's Bcc, for the draft composer. FLAGS tell which messages are drafts.
         bcc = bcc and headers and not identity_headers_only
         fields = ["UID"]
+        if raw_bytes is not None:
+            fields.insert(0, f"BODY.PEEK[]<0.{raw_bytes}>")
         if internaldate:
             fields.append("INTERNALDATE")
         if size:
@@ -1323,7 +1327,7 @@ class MailClient:
             while index + 1 < len(values):
                 key = _string(values[index]).upper()
                 index += 1
-                if key.startswith("BODY[") and not key.endswith("]"):
+                if key.startswith("BODY[") and "]" not in key:
                     # HEADER.FIELDS includes its own parenthesized field list and
                     # closing bracket, represented as separate IMAP values.
                     while index < len(values):
@@ -1351,6 +1355,8 @@ class MailClient:
                         value = value[:header_max_bytes]
                         record["headers_fetched_bytes"] = len(value)
                     record["headers"] = BytesParser(policy=policy.default).parsebytes(value)
+                elif key.startswith("BODY[]") and isinstance(value, bytes):
+                    record["raw"] = value
                 elif key == "ENVELOPE":
                     record["envelope"] = value
                 elif (
@@ -1396,6 +1402,7 @@ class MailClient:
             and (not internaldate or "internaldate" in record)
             and (not size or "size" in record)
             and (not flags or "flags" in record)
+            and (raw_bytes is None or "raw" in record)
         }
         if bcc:
             for record in complete.values():

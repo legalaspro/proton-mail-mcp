@@ -2,7 +2,9 @@
 
 Bridge lists every message once in its single real folder (INBOX, Archive, Sent,
 Drafts, Spam, Trash or Folders/...) and again in views such as All Mail, Starred
-and Labels/..., each with its own UID space. The real-folder handle is canonical:
+and Labels/..., each with its own UID space. The one exception is a message sent
+to yourself, listed in both INBOX and Sent, whose INBOX copy stands for it.
+The real-folder handle is canonical:
 guarded moves, read-state changes and rules use it as their source, and their
 tokens bind it. Search, threads and previews report it as folder, uidvalidity and
 uid. A view handle under which a tool found the message is only an ``alias``.
@@ -11,9 +13,10 @@ Every tool takes real folders from the same LIST-vetted set, ``real_folders``.
 Resolving a view handle reads no message content. Gluon serves ENVELOPE,
 INTERNALDATE and RFC822.SIZE from its database, shares them between the mailbox
 copies of one message, reports INTERNALDATE in UTC and evaluates ON on that UTC
-calendar day. A view handle resolves only when exactly one real-folder copy and
-exactly one All Mail copy share all three values, and every mailbox read still
-reports the UIDVALIDITY, UIDNEXT and message count it was read with. All Mail
+calendar day. A view handle resolves only when exactly one All Mail copy and one
+real-folder copy, or one INBOX and one Sent copy, share all three values, and every
+mailbox read still reports the UIDVALIDITY, UIDNEXT and message count it was read
+with. All Mail
 lists each message exactly once, so its single copy is the view's message and
 the real-folder copy's; UIDNEXT never repeats, so unchanged counts prove that no
 twin arrived and no copy left while the folders were scanned. Without All Mail
@@ -25,23 +28,29 @@ copies prove nothing.
 
 A certified All Mail index answers the same question from its fingerprints. Its
 single copy already rules out a twin, so a real folder needs a proof only if it
-holds a copy of the wanted message: a folder never gives a handle unless its index
-matches live STATUS, and a folder that fails gets a live scan for its messages
-alone. A stale All Mail keeps the whole lookup live, since nothing else lists
-every message once.
+holds a copy of the wanted message: a folder never gives a handle from its index
+unless that index matches live STATUS. A folder that fails reads only what can
+have changed: its cached rows of the message, each confirmed by FETCH, and the
+UIDs that arrived since its last proof. With no proof to measure from, it gets a
+live day scan. A stale All Mail keeps the whole lookup live, since nothing else
+lists every message once.
 """
 
 from __future__ import annotations
 
 import hashlib
 import imaplib
+import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from .search_index import Unplaced
+from .search_index import Unplaced, single_copy
 
+_LOG = logging.getLogger(__name__)
+# The server's root logger stays at WARNING. A retest reads why a lookup stayed live here.
+_LOG.setLevel(logging.INFO)
 HANDLE_KEYS = ("folder", "uidvalidity", "uid")
 _FETCH_BATCH_SIZE = 500
 _DAYS_PER_SEARCH = 50
@@ -160,13 +169,19 @@ def _envelope_digest(envelope: Any) -> str:
 
 
 def _fingerprints(
-    client: Any, connection: Any, deadline: Any, uids: list[str]
+    client: Any,
+    connection: Any,
+    deadline: Any,
+    uids: list[str],
+    *,
+    optional: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, tuple[tuple[str, float, int], str]]:
     """Fetch only database-backed metadata, complete for every requested UID.
 
     ``_metadata`` omits a UID lacking any value. That UID could be another copy
     of a wanted message, so skipping it could make the remaining copies look
-    unique: fail the whole lookup instead.
+    unique: fail the whole lookup instead. Only an ``optional`` UID, a cached row
+    that may be gone by now, can be absent, and it then confirms nothing.
     """
     from .mail import MailError
 
@@ -187,6 +202,8 @@ def _fingerprints(
             record = metadata.get(uid)
             envelope = record["envelope"] if record is not None else None
             if not isinstance(envelope, list) or len(envelope) != 10:
+                if uid in optional:
+                    continue
                 raise MailError("Mailbox returned incomplete metadata during canonical lookup")
             fingerprint = (_envelope_digest(envelope), record["internaldate"], record["size"])
             result[uid] = fingerprint, record["internaldate_day"]
@@ -230,10 +247,71 @@ def _scan(
     found.update(_fingerprints(client, connection, deadline, sorted(uids - set(found), key=int)))
     if _uidvalidity(connection) != validity:
         raise MailError("Mailbox identity changed during canonical lookup")
-    for uid, (fingerprint, _) in found.items():
-        if fingerprint in copies:
-            copies[fingerprint].append(handle(folder, validity, uid))
+    _record_copies(folder, validity, found, copies)
     return selected
+
+
+def _record_copies(
+    folder: str,
+    validity: str,
+    found: dict[str, tuple[tuple[str, float, int], str]],
+    copies: dict[tuple, list[dict[str, Any]]],
+) -> None:
+    for uid, (fingerprint, _) in found.items():
+        location = handle(folder, validity, uid)
+        if fingerprint in copies and location not in copies[fingerprint]:
+            copies[fingerprint].append(location)
+
+
+def _cached_rows(
+    client: Any,
+    connection: Any,
+    deadline: Any,
+    folder: str,
+    rows: set[str],
+    copies: dict[tuple, list[dict[str, Any]]],
+) -> None:
+    """Confirm one folder's cached ``rows``, any of which may be gone by now.
+
+    ``rows`` are of the UIDVALIDITY the caller read with STATUS.
+    """
+    from .mail import MailError
+    from .search import _uidvalidity
+
+    client._select(connection, folder)
+    validity = _uidvalidity(connection)
+    found = _fingerprints(client, connection, deadline, sorted(rows, key=int), optional=rows)
+    if _uidvalidity(connection) != validity:
+        raise MailError("Mailbox identity changed during canonical lookup")
+    _record_copies(folder, validity, found, copies)
+
+
+def _arrived_rows(
+    client: Any,
+    connection: Any,
+    deadline: Any,
+    folder: str,
+    tail: tuple[int, int],
+    selected: bool,
+    copies: dict[tuple, list[dict[str, Any]]],
+) -> None:
+    """Read the UIDs in ``tail``, which arrived since the folder's last proof.
+
+    UID keys and the fingerprints are database-backed, so this costs what arrived,
+    not the folder's size, but nothing renews a real folder's proof when a read ends:
+    the tail keeps growing until an undated header search or a rebuild certifies it.
+    """
+    from .mail import MailError
+    from .search import _uidvalidity
+
+    if not selected:
+        client._select(connection, folder)
+    validity = _uidvalidity(connection)
+    arrived = set(client._search(connection, ["UID", f"{tail[0]}:{tail[1]}"]))
+    found = _fingerprints(client, connection, deadline, sorted(arrived, key=int))
+    if _uidvalidity(connection) != validity:
+        raise MailError("Mailbox identity changed during canonical lookup")
+    _record_copies(folder, validity, found, copies)
 
 
 def _unchanged(client: Any, connection: Any, states: dict[str, tuple[dict[str, Any], str]]) -> None:
@@ -268,7 +346,8 @@ def resolve_views(
     """Return the unique canonical handle for each view handle, in order, or None.
 
     A handle resolves only if its fingerprint has exactly one All Mail copy and
-    exactly one real-folder copy, and no mailbox read changed before the result.
+    a ``single_copy`` among its real-folder copies, and no mailbox read changed before
+    the result.
     Without All Mail none resolves, and no mailbox is read. Errors propagate so
     callers can report partial results; nothing is mapped from incomplete scans,
     and incomplete metadata or a changed mailbox is such an error.
@@ -338,8 +417,8 @@ def resolve_views(
     for folder in sorted(real, key=lambda name: (name.upper() != "INBOX", name)):
         states[folder] = _scan(client, connection, deadline, folder, days, real_copies)
     for view, fingerprint in prints.items():
-        if len(real_copies[fingerprint]) == 1 and len(all_copies[fingerprint]) == 1:
-            mapping[view] = real_copies[fingerprint][0]
+        if len(all_copies[fingerprint]) == 1:
+            mapping[view] = single_copy(real_copies[fingerprint])
     # A twin delivered after the All Mail scan could be the real-folder copy
     # found; a view message removed meanwhile could leave its twin unique.
     if any(location is not None for location in mapping.values()):
@@ -355,11 +434,15 @@ def _scan_unproven(
     *,
     real: set[str],
 ) -> list[dict[str, Any] | None]:
-    """Finish an indexed lookup, scanning only real folders that fail their proof.
+    """Finish an indexed lookup, reading only what real folders may have changed.
 
     A proven folder is skipped unless a row with no fingerprint could be the
-    message. All Mail's single copy makes one live copy the message, so the scan
-    stops once each fingerprint has one, trying folders with a cached row first.
+    message. Any other folder confirms its cached rows of the message. Only a
+    fingerprint still without a copy then reads the UIDs that arrived since a folder's
+    last proof, whose rows cover everything older. All Mail's single copy makes one
+    live copy the message, so reading stops once each fingerprint has one. A day scan,
+    which costs a database read per message, is left for last, and only for a folder
+    with no proof to measure from or with rows that fingerprints cannot rule out.
     Mail arriving during the request waits for the next one, so nothing is reread.
     """
     from .search import _coverage_status
@@ -373,23 +456,63 @@ def _scan_unproven(
     # Gluon reports INTERNALDATE in UTC, the day that ON compares.
     days = {datetime.fromtimestamp(stamp, UTC).date().isoformat() for stamp in stamps}
     holders = {folder for item in indexed.pending.values() for folder in item.holders}
+    cached: dict[str, dict[str, set[str]]] = {}
+    for item in indexed.pending.values():
+        for folder, validity, uid in item.rows:
+            cached.setdefault(folder, {}).setdefault(validity, set()).add(uid)
+
+    def place() -> None:
+        for position, item in indexed.pending.items():
+            found = copies[item.fingerprint]
+            location = single_copy(found) if found else item.sent
+            indexed.locations[position] = None if location is None else dict(location)
+
+    # A scan that stops still reports a proven Sent copy.
+    place()
+    day_scans = []
+    tails = []
+    selected = None
     for folder in sorted(
         real, key=lambda name: (name not in holders, name.upper() != "INBOX", name)
     ):
         if all(copies.values()):
             break
         proof = indexed.proofs.get(folder)
-        if proof is None:
-            proof = index.coverage(folder)
-            if proof is not None:
-                deadline.check(connection)
-                if _coverage_status(connection, folder) != proof:
-                    proof = None
-        if proof is None or index.may_hold_unfingerprinted(folder, proof[0], stamps):
-            _scan(client, connection, deadline, folder, days, copies)
-            for position, item in indexed.pending.items():
-                found = copies[item.fingerprint]
-                indexed.locations[position] = dict(found[0]) if len(found) == 1 else None
+        saved = proof if proof is not None else index.coverage(folder)
+        if proof is None and (saved is not None or folder in cached):
+            deadline.check(connection)
+            current = _coverage_status(connection, folder)
+            if current == saved:
+                proof = saved
+            else:
+                # A saved proof of this UIDVALIDITY still covers every older UID.
+                measured = saved is not None and saved[0] == current[0]
+                tail = None
+                if measured and int(current[2]) > int(saved[2]):
+                    tail = int(saved[2]), int(current[2]) - 1
+                rows = cached.get(folder, {}).get(current[0], set())
+                if rows:
+                    _cached_rows(client, connection, deadline, folder, rows, copies)
+                    selected = folder
+                    place()
+                if tail:
+                    tails.append((folder, tail))
+                if not measured:
+                    day_scans.append(folder)
+                    continue
+        if saved is None or index.may_hold_unfingerprinted(folder, saved[0], stamps):
+            day_scans.append(folder)
+    for folder, tail in tails:
+        if all(copies.values()):
+            break
+        _arrived_rows(client, connection, deadline, folder, tail, folder == selected, copies)
+        selected = folder
+        place()
+    for folder in day_scans:
+        if all(copies.values()):
+            break
+        _scan(client, connection, deadline, folder, days, copies)
+        place()
     return indexed.locations
 
 
@@ -424,6 +547,9 @@ def _refresh_indexed_folder(
         validity = _uidvalidity(connection)
         if validity != current[0] or not has_time(client, deadline):
             return None
+        # Apply this inventory only if it can certify. Otherwise the saved proof stays,
+        # since it still measures which UIDs are new.
+        connection._search_selection = None
         with optional_io(client, deadline):
             inventory = client._search(connection, ["ALL"])
     except CallDeadlineExceeded:
@@ -431,6 +557,9 @@ def _refresh_indexed_folder(
         # must remain unusable even when a caller catches this lookup failure.
         deadline.end = min(deadline.end, time.monotonic())
         raise
+    if not set(inventory) <= known:
+        return None
+    index.reconcile(folder, validity, inventory)
     if not index.record_coverage(
         folder,
         validity,
@@ -477,13 +606,24 @@ def resolve_indexed_views(
         return None
     proofs = {all_mail: index.coverage(all_mail)}
     if proofs[all_mail] is None:
+        _LOG.info("Canonical lookup stays live reason=no_all_mail_proof")
         return None
     try:
         deadline.check(connection)
         if _coverage_status(connection, all_mail) != proofs[all_mail]:
+            _LOG.info("Canonical lookup stays live reason=all_mail_changed")
             return None
         located = index.indexed_locations(handles, real, all_mail, proofs)
         if located is None:
+            # One row stored without these, by a filter search or a draft, would keep every
+            # later lookup live. They are database-backed, so fetching a batch costs little.
+            missing = index.unfingerprinted(all_mail, proofs[all_mail][0], _FETCH_BATCH_SIZE)
+            if missing:
+                client._select(connection, all_mail)
+                _fingerprints(client, connection, deadline, missing, optional=set(missing))
+                located = index.indexed_locations(handles, real, all_mail, proofs)
+        if located is None:
+            _LOG.info("Canonical lookup stays live reason=no_fingerprint")
             return None
         holders = {
             folder for item in located if isinstance(item, Unplaced) for folder in item.holders

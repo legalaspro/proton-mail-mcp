@@ -16,7 +16,7 @@ How a saved draft gets sent, once sending is on. Each tool's arguments are in th
 Enable with `PROTON_MCP_ENABLE_SEND=1`, configure `PROTON_MCP_SEND_FROM` as a
 comma-separated list of exact sender addresses, and set `PROTON_BRIDGE_CERT` to
 the exported Bridge PEM certificate. There is no free-form send tool:
-`create_draft` → `preview_send(draft_id)` → `send_draft(token)`. With
+`create_draft` → `preview_send(draft_id)` → `send_draft(token, draft_id)`. With
 [MCP Apps views](mcp-apps.md), `review_send(draft_id)` shows the same preview
 in a view without issuing a token; sending still takes that path. Preview reads only
 Drafts, at most 10 MiB, and binds the token to its mailbox identity and SHA-256
@@ -157,8 +157,9 @@ The token only guards against a changed draft and a replay. It works once, and i
 expires like every send token (`PROTON_MCP_SEND_TOKEN_TTL`). It is bound to the hash of
 the exact message and envelope: headers, To, Cc and Bcc, attachments and body. Any
 change refuses. `draft_id` names the draft the user read, and a token from another draft
-refuses. `draft_id` can only refuse: the token alone decides what is sent. Recipient and daily
-caps, TLS checks, the `already_sent` and `possibly_sent` refusals and the journal still
+refuses. A typed OK call without `draft_id` refuses and uses up the token, so the next try needs
+a new preview. `draft_id` can only refuse: the token alone decides what is sent. Recipient and
+daily caps, TLS checks, the `already_sent` and `possibly_sent` refusals and the journal still
 apply, and the journal's reservation records the path a send really took:
 `approval: "typed_ok"` for a send with no form, so an operator can see afterwards which
 sends had none, and `host_confirmation` for such a token redeemed through a form.

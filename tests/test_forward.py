@@ -52,6 +52,7 @@ def test_a_forward_is_an_unsent_draft_with_exactly_the_chosen_attachments(rig, m
     assert [row["filename"] for row in result["attachments"]] == ["chosen.pdf", "also.txt"]
     assert [row["filename"] for row in result["not_forwarded"]] == ["private.png"]
     assert "token" not in result and "preview_send" in result["next_steps"]
+    assert "send_draft(token, draft_id)" in result["next_steps"]
     [(folder, flags, _, raw)] = fake.appended
     assert (folder, flags) == ('"Drafts"', r"(\Draft)")
     assert files_of(raw) == [

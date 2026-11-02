@@ -809,8 +809,8 @@ def forward_message(
         "warnings": warnings,
         "next_steps": (
             "This is an unsent draft. To send it, call preview_send(draft_id), or review_send "
-            "to show it first, then send_draft(token): the user confirms From, recipients and "
-            "every attachment in the host's form, or by a typed OK when the client has no form. "
-            "compose_reply(draft_id=...) reopens it."
+            "to show it first, then send_draft(token, draft_id): the user confirms From, "
+            "recipients and every attachment in the host's form, or by a typed OK when the client "
+            "has no form. compose_reply(draft_id=...) reopens it."
         ),
     }

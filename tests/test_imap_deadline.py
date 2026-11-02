@@ -230,6 +230,7 @@ def test_default_factory_bounds_constructor_reads_and_closes_socket(monkeypatch,
 
 
 def test_thread_index_seed_survives_stalled_search_with_real_watchdog(monkeypatch):
+    monkeypatch.setattr("proton_mail_mcp.threading._LIVE_HEADER_SEARCH_MAX_MESSAGES", 100_000)
     # A longer budget leaves the seed's round trips ample time on a loaded host.
     with mailbox_peer(
         monkeypatch, mode="line", stage="SEARCH", default_factory=True, seed=True, call_timeout=2
@@ -304,6 +305,8 @@ def test_thread_seed_miss_short_cap_interrupts_lookup_with_real_watchdog(monkeyp
 
 def test_thread_canonical_cap_interrupts_search_with_real_watchdog(monkeypatch):
     monkeypatch.setattr("proton_mail_mcp.threading.MAX_CANONICAL_SECONDS", 0.5)
+    # This peer reports a mailbox too large to start the scan this test needs to cut.
+    monkeypatch.setattr("proton_mail_mcp.threading._LIVE_CANONICAL_SCAN_MAX_MESSAGES", 10**6)
     with mailbox_peer(
         monkeypatch, stage="SEARCH ON", default_factory=True, seed=True, call_timeout=2
     ) as (backend, commands, local):
@@ -311,9 +314,7 @@ def test_thread_canonical_cap_interrupts_search_with_real_watchdog(monkeypatch):
         result = backend.read_thread("<seed@example.test>")
         # The socket watchdog must unwind before the cap plus outer close grace.
         assert time.monotonic() - started < 0.7
-        assert result["partial"] is True
-        assert "canonical" in result["partial_reason"].lower()
-        assert "time limit" in result["partial_reason"].lower()
+        assert result["partial"] is False and "partial_reason" not in result
         assert "timed_out" not in result and "error" not in result
         [item] = result["messages"]
         assert item["message_id"] == "<seed@example.test>"

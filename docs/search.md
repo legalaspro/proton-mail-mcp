@@ -36,10 +36,42 @@ fetch. With complete indexed dates, header-only searches select their chronologi
 page and exact total in SQLite, then fetch live flags and display data only for
 that page. A broad recipient match does not fetch metadata for every match.
 Text and unread predicates retain their live Bridge checks. See
-[Local header search index](search-index.md). `text`
-still uses Bridge's server-side `TEXT` scan, with `SINCE`/`BEFORE` placed first;
-Bridge may still scan the folder, so the deadline bounds the wait. Text criteria are
-quoted/escaped or sent as UTF-8 literals.
+[Local header search index](search-index.md). `text` uses Bridge's server-side `TEXT`
+scan, with its value quoted/escaped or sent as a UTF-8 literal. One `TEXT` key makes
+Bridge read every message in the folder, whatever `SINCE` or `BEFORE` share the
+command, because Gluon loads each message before it evaluates any key. A folder of more
+than 2,000 messages therefore cannot be expected to finish within the command's
+10 seconds, however narrow the dates.
+
+In such a folder, a search with `since` or `before` takes another path: only the
+dates go to Bridge, and each message in that range is read with `BODY.PEEK[]`, up to
+1 MiB, and compared here the way Bridge compares `TEXT`: a case-insensitive substring
+of the raw message, headers included. Nothing is marked read and no message text is
+stored. Header conditions rule messages out first when their headers are cached. If
+time runs out, the answer holds the rows found so far with
+`partial_reason="text_scan_limited"` and a `next_cursor` that reads the rest, however
+wide the range. The scan goes from the newest UID down, and such a page delivers the first
+matches it read, newest date first, so the pages of a stopped scan follow UID order and
+not strictly date order. The cursor holds one number for the UIDs finished, so its size
+does not grow with the scan. Every
+call moves the cursor on, or counts towards a limit of three calls with no progress.
+A call whose rows could not be resolved counts as no progress, even if it cached their
+headers. The same reason marks
+an otherwise complete answer, up to its last page, when a message could not be read,
+stalled, or matched nothing in its first 1 MiB and is longer. Its last page has a null
+cursor and a `hint`, because every message was read and no cursor can decide those. The first read of a call
+may use the time kept for the page, so a slow setup still decides one message per call.
+Each read also returns the row's date, flags and headers, so the rows found need no
+further command. A read that has its whole 10-second wait and still stalls ends its
+stream: the search skips that message from then on and names it in `skipped_uids` on
+that page. A read cut short by the end of the call's budget, or by a lost connection,
+says nothing about its message: it is not skipped, and is read again. Either way the
+scan goes on over a new connection if the time allows. If not, the answer is `timed_out`
+with the rows found and a cursor that resumes at that read. Only a view such as All Mail
+cannot return them then, because their real folders need a lookup, so it reads them
+again. A message whose read does not fit a whole call ends the chain with
+`no_resumable_cursor`. A search with no dates stays a `TEXT` scan: expect a timeout on
+a large folder, and give `since` or `before`.
 
 For **All Mail** (identified by its IMAP LIST `\All` attribute, including localized
 mailbox names), a complete header index searches all dates. Completed
@@ -134,7 +166,8 @@ and never marks anything as seen.
 - `exclude_subject` drops messages whose subject contains the value. Like `subject`,
   it is matched locally on the decoded header, ignoring case.
 - `exclude_text` drops messages whose text contains the value. Like `text`, it is a
-  server key: `NOT TEXT` in the same `UID SEARCH`.
+  server key, `NOT TEXT` in the same `UID SEARCH`, or part of the same local comparison
+  in a large folder's small date window.
 - `query` composes conditions with `and`, `or` and `not`. The entries of one object
   all apply. `from`, `to`, `subject` and `text` match case-insensitive substrings
   (`from_` is accepted for `from`); `and` and `or` take a list of 1 to 20 queries and
@@ -157,7 +190,8 @@ conditions that stand on their own, with `not` and `or` between them, join the o
 `UID SEARCH`. A text condition combined with header conditions under `or` or `not`,
 for example `{"or": [{"subject": "invoice"}, {"text": "receipt"}]}`, costs one more
 `UID SEARCH` per distinct text value, with the same date keys, and is then combined
-per message. Each such text search makes Bridge read every message in the folder.
+per message. Each such text search makes Bridge read every message in the folder,
+except in a large folder's small date window, where all of these are compared locally.
 
 Conditions become RFC 3501 SEARCH keys in `UID SEARCH CHARSET UTF-8`. `not` is
 `NOT key`; `or` is `OR key key`, and a longer list chains (`OR a OR b c`); an `and`
@@ -244,12 +278,13 @@ and remaining body fetches stop early to reserve up to 3 seconds of the call bud
 live canonical lookup; reaching this boundary returns `partial=true` with
 `partial_reason="thread expansion limited"`, possibly with `timed_out=true` and
 `error` if an in-flight operation times out. After the bodies are read, live
-canonical lookup has its own 3-second cap within the call deadline. If only that
-cap expires, the reply keeps the messages and bodies with unresolved view
-messages' canonical fields null, `partial=true` and a `partial_reason` explaining
-the canonical lookup time limit, without `timed_out` or `error`.
-If both limits are reached, the reason combines them as
-`"thread expansion limited; Canonical lookup reached its time limit; some canonical handles are unavailable"`.
+canonical lookup has its own 3-second cap within the call deadline. A lookup that
+cannot finish leaves unresolved view messages' canonical fields null and adds nothing
+else: no `partial`, `partial_reason`, `timed_out` or `error`, because every message and
+body is there. The live scan needs about two database rows per All Mail message, so it is
+not started above 5,000 All Mail messages, an estimate. All Mail rows stored without a date, envelope
+or size are fetched in batches of 500, because one such row would otherwise keep every
+later lookup out of the index.
 `include_thread=false` skips relative-message searches and canonical lookup;
 canonical `folder`, `uidvalidity` and `uid` are always null, including direct
 real-folder reads. Every source handle is kept as `alias` without becoming partial
@@ -297,10 +332,21 @@ search, threads and previews. Bridge keeps each message in exactly one
 real folder and shows it again in views (All Mail, Starred, Scheduled and
 `Labels/` mailboxes), each with its own UID space. A message can be UID 20321 in
 INBOX and UID 47175 in All Mail: `search_mail` reports INBOX 20321.
+A message you sent to yourself is the exception: one All Mail row listed in both
+INBOX and Sent. A lookup reports its INBOX copy; a search of Sent itself still
+reports the Sent handle.
 `read_thread` reports the same handle when its canonical lookup succeeds and
 keeps the All Mail handle as `alias`; skipped or capped lookups leave unresolved
 view messages' canonical fields null. With `include_thread=false`, every message's
 canonical fields are null, including messages read directly from real folders.
+In `read_thread` and `show_thread`, a message with null canonical fields also has
+`canonical_reason`:
+
+| `canonical_reason` | Meaning |
+| --- | --- |
+| `no_single_copy` | The lookup finished and no single real-folder copy stands for the message: it has none, or several that cannot be told apart |
+| `lookup_unfinished` | The lookup ran out of time, failed, was too large to start or had no All Mail to prove against; a later read may place the message |
+| `lookup_skipped` | `include_thread=false` skips the lookup |
 
 The real folder is canonical because moves, read-state changes and folder rules
 take it as their source and their confirmation tokens bind exactly these

@@ -21,12 +21,21 @@ MAX_SEED_LOOKUP_SECONDS = 12.0
 _METADATA_BATCH_SIZE = 100
 _SEARCH_ID_BATCH_SIZE = 20
 _SEED_UID_RANGE_SIZE = 100
+# HEADER makes Bridge read every message in the mailbox. Above this size the search
+# cannot be expected to fit one command's 10-second limit, and a timeout loses the stream.
+_LIVE_HEADER_SEARCH_MAX_MESSAGES = 2000
+# A live canonical scan reads about two database rows per All Mail message, about 0.2 ms each:
+# above this size it cannot be expected to fit MAX_CANONICAL_SECONDS, so it is not started.
+_LIVE_CANONICAL_SCAN_MAX_MESSAGES = 5000
 # After the budget ends, a read whose stream was just closed may still unwind.
 _CLOSE_GRACE_SECONDS = 0.25
 _THREAD_TIMEOUT = "Thread read timed out; returning bounded message content collected so far"
 _EXPANSION_LIMIT = "thread expansion limited"
-_CANONICAL_LIMIT = "Canonical lookup reached its time limit; some canonical handles are unavailable"
 _SEED_LOOKUP_LIMIT = "Search index has no verified message entry; bounded message lookup incomplete"
+# Why a message's canonical fields stayed null.
+_NO_SINGLE_COPY = "no_single_copy"
+_LOOKUP_UNFINISHED = "lookup_unfinished"
+_LOOKUP_SKIPPED = "lookup_skipped"
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -127,6 +136,8 @@ def read_thread(
     real: set[str] = set()
     completed_bodies: set[str | tuple[str, str]] = set()
     requested_identity: str | tuple[str, str] | None = None
+    # Messages a finished canonical lookup found no single real-folder copy for.
+    unplaced: set[str | tuple[str, str]] = set()
     selected_folder: str | None = None
     identifiers = {message_id}
     metadata_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
@@ -186,10 +197,8 @@ def read_thread(
             # apparent timeout of the requested message's content.
             return True, _SEED_LOOKUP_LIMIT, False
         if canonical_limited:
-            reason = _CANONICAL_LIMIT
-            if partial_reason and partial_reason.startswith(_EXPANSION_LIMIT):
-                reason = f"{_EXPANSION_LIMIT}; {reason}"
-            return True, reason, timed_out
+            # The read is as it was: null canonical fields say all there is to say.
+            return partial, partial_reason, timed_out
         if (
             expansion_end is not None
             and (failed_phase or current_phase) in {"expand", "bodies"}
@@ -355,19 +364,24 @@ def read_thread(
             budget_changed_or_done.set()
 
         def resolve(connection: Any, *, indexed_only: bool = False) -> None:
-            nonlocal partial, partial_reason, timed_out, canonical_limited, selected_folder
+            nonlocal canonical_limited, selected_folder
             identities = views()
             handles = [found[identity] for identity in identities]
             indexed = locations = None
+            finished = False
             connection._search_index = client.search_index
             start_phase("canonical")
-            canonical_limited = True
+            # The first pass comes before expansion, so a read stopped there is still incomplete.
+            canonical_limited = not indexed_only
             try:
                 indexed = canonical.resolve_indexed_views(
                     client, connection, deadline, handles, real=real, all_mail=all_mail
                 )
                 connection._search_index = None
-                if not indexed_only and (indexed is None or indexed.pending):
+                too_large = indexed is None and (
+                    seed_inventories.get(all_mail, ("", 0))[1] > _LIVE_CANONICAL_SCAN_MAX_MESSAGES
+                )
+                if not indexed_only and not too_large and (indexed is None or indexed.pending):
                     locations = canonical.resolve_views(
                         client,
                         connection,
@@ -377,10 +391,12 @@ def read_thread(
                         all_mail=all_mail,
                         indexed=indexed,
                     )
-            except mail.CallDeadlineExceeded:
-                partial, partial_reason, timed_out = limit_status()
-            except (mail.MailError, imaplib.IMAP4.error, OSError):
-                partial = True
+                    finished = all_mail is not None
+                elif indexed is not None and not indexed.pending:
+                    finished = True
+            except (mail.MailError, imaplib.IMAP4.error, OSError) as error:
+                # Optional: canonical fields stay null, and the read is not incomplete for that.
+                _LOGGER.debug("read_thread canonical lookup ended: %s", type(error).__name__)
             finally:
                 if locations is None and indexed is not None:
                     # A scan that stopped keeps what the index proved and what it placed.
@@ -388,17 +404,55 @@ def read_thread(
                 if locations is not None:
                     for identity, location in zip(identities, locations):
                         canonical.describe(messages[identity], found[identity], location)
-                connection._search_index = None
+                        if finished and location is None:
+                            unplaced.add(identity)
+                # The index path may have selected a mailbox while its writes were on.
+                connection._search_index = connection._search_selection = None
                 # Indexed proof refreshes can select a real folder.
                 selected_folder = getattr(connection, "_selected_inventory", {}).get("folder")
                 canonical_limited = False
                 start_phase(None)
 
+        def catch_up_all_mail(connection: Any) -> None:
+            """Bring All Mail's proof to this epoch, for local expansion and canonical lookup.
+
+            New mail makes the proof stale, and no other part of a read renews it. Optional
+            work under the search reserve, costing about what arrived; the bodies already
+            read are safe. A changed UIDVALIDITY is a reset that belongs to a search.
+            """
+            nonlocal failed_phase, selected_folder
+            from .search import _index_rebuilding
+            from .search_sync import sync_all_mail
+
+            index = client.search_index
+            epoch = index.coverage_epoch(all_mail) if all_mail is not None else None
+            if (
+                epoch is None
+                or selected_folder != all_mail
+                or epoch[0] != validities[all_mail]
+                or _index_rebuilding(client)
+            ):
+                return
+            connection._search_index = index
+            connection._search_selection = (all_mail, epoch[0])
+            try:
+                synced = sync_all_mail(client, connection, deadline, all_mail)
+            except (mail.MailError, imaplib.IMAP4.error, OSError):
+                return  # Optional: expansion and the lookup have their own paths.
+            finally:
+                connection._search_index = None
+                connection._search_selection = None
+                selected_folder = connection._selected_inventory["folder"]
+            if synced.stream_broken:
+                # No further command may use this stream; a new session finishes the lookup.
+                failed_phase = "expand"
+                raise mail.CallDeadlineExceeded("Thread read ended")
+
         start_phase("seed")
         try:
 
             def collect_messages(connection: Any, folders: list[str]) -> None:
-                nonlocal partial, seed_lookup_limited
+                nonlocal partial, partial_reason, seed_lookup_limited
                 frontier = [message_id]
                 # Retain headers before potentially expensive MIME structure/body I/O,
                 # then fetch the requested body before searching any reply links.
@@ -475,6 +529,7 @@ def read_thread(
                     budget_changed_or_done.set()
                     frontier.extend(ingest(connection, folder, matches, [message_id], seed=True))
                 if include_thread and views():
+                    catch_up_all_mail(connection)
                     resolve(connection, indexed_only=True)
                 start_phase("expand")
                 depth = 0
@@ -483,9 +538,20 @@ def read_thread(
                     next_frontier: list[str] = []
                     for folder in folders:
                         select(connection, folder)
+                        inventory = connection._selected_inventory
                         matches = client.search_index.thread_uids(
-                            folder, validities[folder], connection._selected_inventory, frontier
+                            folder, validities[folder], inventory, frontier
                         )
+                        if matches is None and inventory["exists"] > (
+                            _LIVE_HEADER_SEARCH_MAX_MESSAGES
+                        ):
+                            # A search this size would only time out. Cached links still
+                            # find relatives, and ingest confirms each one by FETCH.
+                            matches = client.search_index.thread_hints(
+                                folder, validities[folder], frontier
+                            )
+                            if matches is not None:
+                                partial, partial_reason = True, _EXPANSION_LIMIT
                         if matches is None:
                             # Keep OR commands bounded and ASCII-only. imaplib supports
                             # one literal per command, so Unicode IDs need one HEADER
@@ -627,6 +693,14 @@ def read_thread(
         raise failures[0]
     else:
         collected, status = messages, (partial, partial_reason, timed_out)
+    for identity, item in collected.items():
+        if item["folder"] is None:
+            if not include_thread:
+                item["canonical_reason"] = _LOOKUP_SKIPPED
+            elif identity in unplaced:
+                item["canonical_reason"] = _NO_SINGLE_COPY
+            else:
+                item["canonical_reason"] = _LOOKUP_UNFINISHED
     incomplete, reason, expired = status
     ordered = sorted(
         collected,

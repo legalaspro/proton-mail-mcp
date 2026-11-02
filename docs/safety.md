@@ -63,7 +63,7 @@ Form means the user's confirmation in the client's form, unless the operator set
 | Save a rule | `preview_add_rule` | `add_rule(token)` | Yes | None; edit the store by hand |
 | Sieve filter | `preview_sieve_filter` | `create_sieve_filter(token)` refuses | Never reached | None |
 | Rebuild the index | `reindex(op="preview")` | `reindex(op="execute", token)` | No | None |
-| Send a draft | `preview_send` | `send_draft(token)` | See below | None |
+| Send a draft | `preview_send` | `send_draft(token, draft_id)` | See below | None |
 
 A continuation token belongs to an approval the user already confirmed, so it runs without another
 form.

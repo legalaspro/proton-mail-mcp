@@ -16,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import (
     INTERNAL_ERROR,
@@ -231,6 +232,8 @@ def test_a_host_with_no_form_gets_typed_ok_and_sends_without_any_form(rig, capab
             )
             assert "explicit OK" in preview["next_steps"]
             assert "in a code block" in preview["next_steps"]
+            assert "send_draft(token, draft_id)" in preview["next_steps"]
+            assert "without draft_id refuses and uses up the token" in preview["next_steps"]
             assert rig.smtp.calls == []
             sent = await call(
                 http, "send_draft", token=preview["token"], draft_id=preview["draft_id"]
@@ -730,6 +733,40 @@ def test_typed_ok_refuses_a_call_that_names_no_draft(rig):
         asyncio.run(rig.service.send_draft(preview["token"], Host(support=False)))
     assert rig.smtp.calls == []
     assert records(rig)[-1]["result"] == "draft_mismatch"
+    # The call used up the token, as the descriptions warn.
+    assert_refused(rig, preview, "token_invalid", draft_id=DRAFT_ID)
+
+
+def test_send_draft_says_when_draft_id_is_required(rig):
+    tools = {
+        tool.name: tool for tool in asyncio.run(create_mcp(rig.settings, rig.client).list_tools())
+    }
+    schema = tools["send_draft"].inputSchema
+    assert set(schema["properties"]) == {"token", "draft_id"}
+    # Only a typed OK needs it, so the schema cannot list it as always required.
+    assert schema["required"] == ["token"]
+    for text in (tools["send_draft"].description, schema["properties"]["draft_id"]["description"]):
+        flat = " ".join(text.split())
+        assert 'required when preview_send reported approval "typed_ok"' in flat.lower()
+        assert "uses up the token" in flat
+
+
+def test_unsubscribe_says_when_its_send_needs_draft_id(rig):
+    tools = {
+        tool.name: tool for tool in asyncio.run(create_mcp(rig.settings, rig.client).list_tools())
+    }
+    # draft_id goes to send_draft: unsubscribe itself still takes only its token.
+    assert set(tools["unsubscribe"].inputSchema["properties"]) == {"token"}
+    flat = " ".join(tools["unsubscribe"].description.split())
+    assert "send_draft with that preview's token and draft_id" in flat
+    assert 'draft_id is required when send_preview reports approval "typed_ok"' in flat
+    assert "uses up the token" in flat
+
+
+def test_the_instructions_say_a_typed_ok_send_needs_draft_id(rig):
+    mcp = create_mcp(rig.settings, rig.client)
+    flat = " ".join(mcp.instructions.split())
+    assert "explicit OK typed in chat, then pass token and draft_id" in flat
 
 
 def test_a_draft_id_may_omit_its_brackets(rig):
@@ -995,7 +1032,8 @@ def test_the_review_text_names_each_approval_path():
         approval: views.review_view({**preview, "approval": approval})[0]["next_steps"]
         for approval in ("host_confirmation", "token", "typed_ok")
     }
-    assert "typed OK" in steps["typed_ok"] and "draft_id" in steps["typed_ok"]
+    assert "typed OK" in steps["typed_ok"]
+    assert all("send_draft(token, draft_id)" in text for text in steps.values())
     assert "host's form" in steps["host_confirmation"]
     assert "without a separate form" in steps["token"]
 
@@ -1016,6 +1054,25 @@ def test_a_mailto_unsubscribe_preview_takes_the_same_path(rig, monkeypatch):
     )
     assert sent["sent"] is True and no_form.prompts == []
     assert len(rig.smtp.sent) == 1
+
+
+def test_a_mailto_unsubscribe_send_without_draft_id_uses_up_the_token(rig, monkeypatch):
+    rig.settings = replace(rig.settings, confirm_mutations=False)
+    _, _, tools = setup_tools(rig, monkeypatch)
+    no_form = Host(support=False)
+    preview = tools("preview_action", {"action": "unsubscribe", "ids": [IDENTIFIER]}, no_form)
+    result = tools("unsubscribe", {"token": preview["token"]}, no_form)
+    send_preview = result["drafts"][0]["send_preview"]
+    assert send_preview["approval"] == "typed_ok"
+    with pytest.raises(ToolError, match="needs draft_id"):
+        tools("send_draft", {"token": send_preview["token"]}, no_form)
+    with pytest.raises(ToolError, match="invalid, expired or used"):
+        tools(
+            "send_draft",
+            {"token": send_preview["token"], "draft_id": send_preview["draft_id"]},
+            no_form,
+        )
+    assert rig.smtp.sent == []
 
 
 @pytest.mark.parametrize("typed_ok_on", [True, False], ids=["on", "off"])

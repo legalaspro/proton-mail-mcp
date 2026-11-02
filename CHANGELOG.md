@@ -4,6 +4,52 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ## Unreleased
 
+### Fixed
+
+- **A message sent to yourself now has a canonical handle.** It is listed in both INBOX and Sent,
+  which the lookup treated as copies it could not tell apart, so `read_thread` and `show_thread`
+  returned null `folder`, `uidvalidity` and `uid`, and a search of All Mail dropped the row. Those
+  tools now report the INBOX copy. A message still in several other real folders stays null.
+- **`read_thread` and `show_thread` now say why a message has no canonical handle.** A message with
+  null canonical fields carries `canonical_reason`: `no_single_copy`, `lookup_unfinished` or
+  `lookup_skipped`.
+- **A text search over a wide date range can now be followed to its end.** In a folder of more than
+  2,000 messages, any `since` or `before` range is read message by message, not only one of at most
+  500, and the cursor holds one number for the UIDs finished, so a long scan no longer ends with
+  `no_resumable_cursor` after about 230 messages. A stopped scan's pages follow UID order, each
+  sorted newest first. A last page that keeps `text_scan_limited` with a null cursor now has a `hint`
+  saying that every message was read and at least one could not be read in full.
+- **`read_thread` and `show_thread` no longer warn when a canonical lookup cannot finish.** The
+  fields stay null, and that alone no longer sets `partial` or `partial_reason`, or shows a banner.
+  All Mail rows stored without a date, envelope or size are now fetched, because one of them kept
+  every later lookup out of the index, and a live scan that could not fit the 3-second cap is no
+  longer started above 5,000 All Mail messages.
+- **Body-text search no longer times out on a narrow date window in a large folder.** One `TEXT`
+  key makes Bridge read every message in the folder, whatever dates share the command, so narrowing
+  the dates never helped. In a folder of more than 2,000 messages, a date window is
+  now read one message at a time with `BODY.PEEK[]`, up to 1 MiB each, and compared here the way
+  Bridge compares `TEXT`. Nothing is marked read and no message text is stored. The new
+  `partial_reason` `text_scan_limited` reports a window that ran out of time, with a cursor while its
+  rows fit one, or a message left undecided, up to the last page. Following the cursor moves on
+  every call or ends with `no_resumable_cursor`. A read that stalls with its whole wait available
+  is skipped and named in `skipped_uids`. A read cut short by the call's budget is read again. Each
+  read also brings its row's date, flags and headers, so a cut read keeps the rows found, even with
+  no time for a new connection, and the cursor resumes at that read. A search with no dates still
+  goes to Bridge and can time out. `count_mail` still goes to Bridge, so its `text` description and
+  its timeout error now point to `search_mail` instead of to narrower dates.
+- **`read_thread` and `show_thread` finish their canonical lookup and expansion after new mail
+  arrives.** New mail made All Mail's and the holder folder's proofs stale, which sent the read to
+  scans that could not fit its limits: a 3-second cap on a day scan of each folder, and a 10-second
+  command limit on a header search of All Mail. A read with expansion now catches All Mail up first.
+  A changed real folder confirms its cached rows by `UID FETCH`, and reads the UIDs that arrived
+  since its last proof only for a message still without a copy. If the index still cannot help a
+  mailbox of more than 2,000 messages, expansion follows cached links and reports
+  `thread expansion limited` instead of a search that would time out. These numbers come from tests
+  with fake servers and have not been measured on a live Bridge.
+- **`list_actions` accepts plain dates.** `since` and `before` also take `YYYY-MM-DD`, read in the
+  server's local timezone. A date covers that whole day in either bound, so `before` includes it,
+  unlike `search_mail`'s `before`. Timestamps without a timezone are still refused.
+
 ### Added
 
 - **Native Windows support, so far run only on Windows Server runners.** The server, `setup` and `uninstall`
@@ -633,6 +679,12 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Fixed
 
+- `send_draft`'s description and argument text now say that `draft_id` is required after
+  `approval: "typed_ok"` and that a call without it uses up the token. `preview_send`'s
+  `next_steps` say the same, and `review_send`'s and `forward_message`'s text now names
+  `send_draft(token, draft_id)` instead of `send_draft(token)`. `unsubscribe`'s description states
+  the rule for its `send_preview`, and the server instructions say to pass both on a typed OK. The
+  rule itself is unchanged.
 - A confirmation form that gets no answer in time, is not shown or fails now refuses with an
   error saying so and that no other kind of confirmation applies, for sends and mailbox
   changes. A form reply saying there is no form is journaled as `confirmation_unavailable`,

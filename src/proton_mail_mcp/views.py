@@ -588,8 +588,8 @@ def review_view(preview: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
     confirmation = (
         "the user then confirms the exact draft in the host's form"
         if shown.get("approval") == "host_confirmation"
-        else "this client has no form, so first show that preview's summary, wait for the user's "
-        "typed OK in chat, and name the draft in draft_id"
+        else "this client has no form, so first show that preview's summary and wait for the "
+        "user's typed OK in chat"
         if shown.get("approval") == "typed_ok"
         else "own-address token approval sends without a separate form"
     )
@@ -599,7 +599,8 @@ def review_view(preview: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
             "This review issues no token, so nothing can be sent with it. To send after "
             "the user approves this exact preview, call preview_send(draft_id) for a fresh "
             "single-use token, check that its draft_hash equals this draft_hash, then call "
-            f"send_draft(token); {confirmation}. If the hash differs, show the new preview."
+            f"send_draft(token, draft_id); {confirmation}. If the hash differs, show the new "
+            "preview."
         ),
     }
     view = {

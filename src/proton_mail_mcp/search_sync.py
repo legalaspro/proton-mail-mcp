@@ -26,20 +26,23 @@ def _reserve(client: Any) -> float:
     return min(_SEARCH_RESERVE_SECONDS, client.settings.call_timeout / 4)
 
 
-def has_time(client: Any, deadline: Any) -> bool:
-    """Keep the search reserve and at least a second for optional commands.
+def has_time(client: Any, deadline: Any, needed: float = 1.0) -> bool:
+    """Keep the search reserve and at least a second, or ``needed``, for optional commands.
 
     optional_io and the shared deadline shorten each socket/watchdog timeout
     to its remaining optional budget; a full socket timeout need not be free.
     """
-    return deadline.io_end - time.monotonic() > _reserve(client) + min(deadline.socket_timeout, 1.0)
+    return deadline.io_end - time.monotonic() > _reserve(client) + min(
+        deadline.socket_timeout, needed
+    )
 
 
 @contextmanager
-def optional_io(client: Any, deadline: Any):
-    """Bound optional I/O without consuming the search's response budget."""
+def optional_io(client: Any, deadline: Any, reserve: bool = True):
+    """Bound optional I/O without consuming the search's response budget, unless told not to."""
     end = deadline.end
-    deadline.end -= _reserve(client)
+    if reserve:
+        deadline.end -= _reserve(client)
     try:
         yield
     finally:
