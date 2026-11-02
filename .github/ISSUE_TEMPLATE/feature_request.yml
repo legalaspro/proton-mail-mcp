@@ -1,0 +1,25 @@
+name: Feature request
+description: A change or a new capability
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        New tools, new dependencies and anything that widens an approval gate or loosens a
+        default are "ask first" in [AGENTS.md](https://github.com/legalaspro/proton-mail-mcp/blob/main/AGENTS.md#safety-rules):
+        agree on them here before writing code. This issue is public, so leave out real mail,
+        addresses and tokens.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The change you have in mind, and how it keeps the safety rules.
+    validations:
+      required: true

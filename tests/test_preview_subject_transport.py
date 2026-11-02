@@ -117,7 +117,7 @@ def test_subject_only_preview_has_linear_discovery_bounds(strict_mailbox, subjec
             " SUBJECT " in command and not command.endswith(" ALL") for command in searches
         )
         facts = profile(sim, clock, f"subject:{subject}:filler={filler}")
-        # Option A replaces #12's 3 FETCH / 600 DB rows / 60 commands with
+        # Option A replaces the earlier 3 FETCH / 600 DB rows / 60 commands with
         # mailbox-linear limits. At M=6,200: measured 23 / 19,000 / 65 versus
         # bounds 26 / 22,100 / 76; at M=240: 7 / 1,120 / 49. Raw reads remain
         # candidate-only; DB rows include every discovery envelope.
@@ -221,7 +221,7 @@ def test_nonascii_subject_with_other_criteria_keeps_subject_narrowing(strict_mai
         " SUBJECT " in command and " FROM " not in command and " SINCE " in command
         for command in searches
     )
-    # Option A: 610 DB rows replaces #12's six-row bound because old copies
+    # Option A: 610 DB rows replaces the earlier six-row bound because old copies
     # anywhere must remain discoverable. The linear bound is 711 (~17% margin).
     assert_option_a_costs(sim, 2)
     assert sim.work.literal_loads_fetch == 6
@@ -237,7 +237,7 @@ def test_maximum_nonascii_identity_set_remains_bounded(strict_mailbox):
     counts = command_counts(sim)
     assert counts["UID SEARCH"] <= 1 + len(sim.mailbox_names()) * 200
     # Option A adds two envelope scans: measured 5 FETCH / 1,000 DB rows,
-    # replacing #12's 3 / 600 with 6 / 1,100 (20% / 10% margin).
+    # replacing the earlier 3 / 600 with 6 / 1,100 (20% / 10% margin).
     assert counts["UID FETCH"] <= 6 and sim.work.db_rows_fetch <= 1100
     assert sim.work.literal_loads_fetch == 600
     assert clock.elapsed < client.settings.call_timeout * 0.8

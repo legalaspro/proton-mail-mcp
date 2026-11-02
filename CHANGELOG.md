@@ -54,9 +54,9 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 - **The package has one version, which the server reports.** The wheel said 1.0.0, while the
   server's `serverInfo` reported 1.30.0, the MCP SDK's version, because none was given. Both now
   come from `proton_mail_mcp.__version__`, set to 1.30.0.
-- **The install docs start from a clone of the repository**, which is private for now, with
-  `uvx --from .`, not from PyPI, where the package is not published yet. Installing from PyPI and
-  a listing in the MCP Registry are marked as later.
+- **The install docs start from a clone of the repository**, with `uvx --from .`, not from PyPI,
+  where the package is not published yet. Installing from PyPI and a listing in the MCP Registry
+  are marked as later.
 - **Bridge's login works where its window cannot.** On a host without a desktop, the app's
   human-verification step could leave it waiting. Setup now runs Bridge's CLI through a
   pseudo-terminal: you type your email, password and code there, open any verification link in a
@@ -146,6 +146,11 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Added
 
+- **A security policy.** [`SECURITY.md`](SECURITY.md) says how to report a vulnerability
+  privately, what is in scope and when to expect an answer. The repository also has a fuller
+  contributing guide, a code of conduct, issue and pull request templates that ask for redacted
+  details, and, in the public repository, Dependabot updates for the Python dependencies and the
+  workflows' actions, which are now pinned to full commits.
 - **`proton-mail-mcp connect`.** A local stdio MCP server that relays every message, unchanged, to
   the installed service, and reads the bearer token from the credential store each time it starts,
   so a client's config holds no token. It replaces `npx mcp-remote` for Claude Desktop, so no
@@ -615,6 +620,11 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Changed
 
+- **The install docs no longer say the repository is private.** The README, `llms-install.md`,
+  `llms.txt`, `docs/install.md` and `docs/windows.md` clone it with
+  `git clone https://github.com/legalaspro/proton-mail-mcp.git`, which needs no GitHub account or
+  `gh`. The "Not on PyPI yet" warning stays. `docs/ci.md` no longer names the dev repo or quotes
+  its run IDs and commits.
 - **No address is built into the code.** The own-address path used to accept one more
   recipient, fixed in code as a SHA-256 digest. That is gone. With
   `PROTON_MCP_SEND_SELF_NO_FORM=1`, the addresses that skip the form are now only those the

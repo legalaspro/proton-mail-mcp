@@ -2377,7 +2377,7 @@ INSTALLER = Path(planner.__file__).parent
 
 def test_r7_installer_never_recursively_deletes_or_copies():
     # R1: no rmtree, copytree or removedirs anywhere in the installer, as an attribute,
-    # a name or an import; nor TemporaryDirectory, whose cleanup is an rmtree (r7 #4).
+    # a name or an import; nor TemporaryDirectory, whose cleanup is an rmtree.
     forbidden = {"rmtree", "copytree", "removedirs", "TemporaryDirectory"}
     sources = sorted(INSTALLER.glob("*.py"))
     assert {source.name for source in sources} >= {"plan.py", "execute.py", "probe.py"}

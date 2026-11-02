@@ -213,7 +213,7 @@ def test_large_folder_preview_is_batched_with_headroom(speed_mailbox, tmp_path, 
         assert_option_a_costs(sim, count)
     counts = command_counts(sim)
     if action != "preview_rules":
-        assert sum(counts.values()) <= 90  # Keep #12's still-met command bound.
+        assert sum(counts.values()) <= 90  # Keep the earlier, still-met command bound.
         assert sim.work.literal_loads <= source_rows(sim) + count * 4
     assert result["count"] == count and result["token"] and not result["partial"]
     assert not result["blocked"]

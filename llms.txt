@@ -4,7 +4,7 @@
 
 An assistant connected to the server gets its instructions from the server itself, when it connects and in the tool list. These pages are for reading about the project, helping someone set it up, or explaining a result.
 
-Not on PyPI yet: until the first release is published, do not suggest `uvx proton-mail-mcp` or `pip install proton-mail-mcp`, because anyone could hold that name on PyPI. Install from a clone of the repository, which is private for now, as the README says: `uvx --from . proton-mail-mcp setup --client <client>`. An agent setting it up for someone follows llms-install.md: it uses `--json`, which lists what only the person can do, and hands the person the Bridge login.
+Not on PyPI yet: until the first release is published, do not suggest `uvx proton-mail-mcp` or `pip install proton-mail-mcp`, because anyone could hold that name on PyPI. Install from a clone of the repository, as the README says: `uvx --from . proton-mail-mcp setup --client <client>`. An agent setting it up for someone follows llms-install.md: it uses `--json`, which lists what only the person can do, and hands the person the Bridge login.
 
 ## Start here
 
@@ -49,6 +49,7 @@ Not on PyPI yet: until the first release is published, do not suggest `uvx proto
 - [Windows](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/windows.md): Native Windows support, what was and was not checked, and WSL2
 - [AGENTS.md](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/AGENTS.md): Commands, layout, conventions and safety rules for changing the code
 - [Contributing](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/CONTRIBUTING.md): How to contribute
+- [Security policy](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/SECURITY.md): How to report a vulnerability privately
 - [Development](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/development.md): Tests and offline checks
 - [CI](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/ci.md): What GitHub Actions runs and when
 - [Changelog](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/CHANGELOG.md): What changed

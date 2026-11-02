@@ -1,11 +1,12 @@
 # CI
 
-What GitHub Actions runs, where, and what it costs. This repo is private, so every minute is
-billed, and the same workflow files stay cheap here and full in the public release repo.
+What GitHub Actions runs, where, and what it costs. The same workflow files run in a private dev
+repo, where every minute is billed, and in the public release repo: they stay cheap in the first and
+full in the second.
 
 ## Two repos, one set of workflows
 
-| | Private `legalaspro/proton-mail-mcp-dev` | Public `legalaspro/proton-mail-mcp` |
+| | Private dev repo | Public `legalaspro/proton-mail-mcp` |
 | --- | --- | --- |
 | Minutes | billed | free on hosted runners |
 | Pull request | one Linux and one Windows job, Python 3.12, `not slow` | the same |
@@ -15,23 +16,17 @@ billed, and the same workflow files stay cheap here and full in the public relea
 | Full run | by hand only | also by hand |
 | Full run covers | Linux and Windows, Python 3.12 and 3.14 | Linux, Windows and macOS, Python 3.12, 3.13 and 3.14 |
 | macOS | **never** | in every Full run and the installer workflow |
+| Dependabot | **never** | weekly pull requests for the Python dependencies and the actions |
 
-**No macOS job can run in the private repo.** Each macOS runner sits behind this condition:
+**No macOS job can run in the private dev repo.** Each macOS runner sits behind this condition:
 
 ```yaml
 github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public'
 ```
 
-It needs both parts, so it stays false here, in forks, and in the release repo for as long as that
-repo is private. **So nothing checks macOS on GitHub until the release repo goes public.** Before
-then, test macOS by hand (see [install.md](install.md)). The last macOS run passed on 1 Nov 2026 on
-Python 3.12 and 3.14 (run 41300324368).
-
-**The condition only protects a run that uses these files.** The release repo is private today and
-still has its own older workflows, whose `installer.yml` runs macOS jobs with no condition on every
-push and pull request. macOS bills at 10x in a private repo. So until that repo has these files or
-goes public, any push there that doesn't carry them pays that rate. A push that carries them uses
-them, so it is safe.
+It needs both parts, so it stays false in the dev repo, in forks, and in the release repo whenever
+that repo is not public. Where it is false, test macOS by hand (see [install.md](install.md)). The
+last macOS run passed on 1 Nov 2026 on Python 3.12 and 3.14.
 
 Don't write this as `github.event.repository.private == false`: GitHub converts a missing value to
 0, and false to 0, so that is true on any event with no `repository`. A string comparison fails
@@ -45,6 +40,14 @@ requests do not put them there.
 
 A run whose jobs are all skipped bills nothing, so the Full run entries that appear here on each
 push to `main` and every Monday cost nothing.
+
+**Dependabot runs only in the release repo.** Each of its pull requests would start a billed run
+here (35-44 minutes, see [Costs](#costs)), so this repo keeps its config at
+`release/dependabot.yml`, where Dependabot does not look. The release sync moves that file to
+`.github/dependabot.yml` in the release tree, unchanged, and leaves no `release/dependabot.yml`
+there. `tests/test_ci_workflows.py` fails on a tree that has both files or neither. Each sync
+replaces the release tree, so make an update that Dependabot proposes in this repo: one merged only
+in the release repo is lost at the next sync.
 
 ## What runs when in this repo
 
@@ -143,8 +146,10 @@ make check JOBS=0                       # one process, for debugging
 
 ## Pinned tools
 
-`astral-sh/setup-uv` is pinned to a commit and uv to one version, in `check.yml` and in both places
-in `installer.yml`, because the public repo runs these on pull requests from forks. Change them
+Every action is pinned to a full commit, with its version in a comment, and every checkout sets
+`persist-credentials: false`, because the public repo runs these on pull requests from forks.
+Dependabot proposes new pins weekly in the release repo. uv is pinned to one version, in
+`check.yml` and in both places in `installer.yml`, which Dependabot does not update. Change them
 together; `tests/test_ci_workflows.py` holds all three to one version.
 
 `actions/setup-python` no longer sets `check-latest: true`. Jobs use the patch release already on
@@ -166,33 +171,36 @@ skips them, and the push to `main`, which has no path filter on Checks, reports 
 
 Billed minutes per push, using 1x for Linux and 2x for Windows, with each job rounded up to a whole
 minute. GitHub's current price list is $0.006 a minute for Linux and $0.010 for Windows, so 2x
-slightly overstates Windows. Each number is **measured** on GitHub or **estimated**.
+slightly overstates Windows. Each number is either **measured** on GitHub in the private dev repo
+or **estimated**. The rows split at native Windows support, which made the Windows job run the
+whole suite.
 
 | Push | Linux | Windows (x2) | Installer | Billed | Wait | |
 | --- | --- | --- | --- | --- | --- | --- |
 | Docs only | - | - | - | 0 | 0 | by design |
-| Pull request, before #93, run 41303018384 at cf31d00 | 7 | 61 s, rounded to 2 min = 4 | - | **11** | **6.3 min** | **measured** |
-| Pull request, before #93, run 41306449186 at ec9a9cf | 502 s = 9 | 53 s, rounded to 1 min = 2 | - | **11** | **8.4 min** | **measured** |
-| Pull request, before #93 | 7-10 | 1-2 min = 2-4 | - | 9-14 | 6-10 min | estimated |
-| Pull request, after #93 | 7-10 | 14-17 min = 28-34 | - | 35-44 | 14-17 min | estimated |
-| `main`, before #93 | 11-16 | 1-2 min = 2-4 | 0 or 5 | 13-25 | 11-16 min | estimated |
-| `main`, after #93 | 11-16 | 14-17 min = 28-34 | 0 or 5 | 39-55 | 14-17 min | estimated |
+| Pull request, before Windows support, first measured run | 7 | 61 s, rounded to 2 min = 4 | - | **11** | **6.3 min** | **measured** |
+| Pull request, before Windows support, second measured run | 502 s = 9 | 53 s, rounded to 1 min = 2 | - | **11** | **8.4 min** | **measured** |
+| Pull request, before Windows support | 7-10 | 1-2 min = 2-4 | - | 9-14 | 6-10 min | estimated |
+| Pull request, after Windows support | 7-10 | 14-17 min = 28-34 | - | 35-44 | 14-17 min | estimated |
+| `main`, before Windows support | 11-16 | 1-2 min = 2-4 | 0 or 5 | 13-25 | 11-16 min | estimated |
+| `main`, after Windows support | 11-16 | 14-17 min = 28-34 | 0 or 5 | 39-55 | 14-17 min | estimated |
 
 **The 50-minute target holds for a pull request's push, not for every push.** A push to `main` after
-#93 can reach about 55 (estimated) when it also starts the installer workflow, which billed 5
-(**measured**, run 41306446898: the wheel smoke 2, and each of the three containers 1).
+Windows support can reach about 55 (estimated) when it also starts the installer workflow, which
+billed 5 (**measured**: the wheel smoke 2, and each of the three containers 1).
 
-Linux `not slow` runs from the first measured run above (7) to the measured 9:45 at 19d9bc7, an
-earlier commit on this branch (10). The `main` rows scale the measured 1020 s for all tests by the same
-range, and all are estimated. Windows after #93 is scaled from #93's measured 1744 s and has never
-run. GitHub's runners can take about twice as long on the same tests (estimated, from the spread
-between runs), which would double a row: a Windows job that slow reaches its 25-minute timeout, so
-the run fails after billing about 57 (estimated).
+Linux `not slow` runs from the first measured run above (7) to the measured 9:45 at an earlier
+commit on the same branch (10). The `main` rows scale the measured 1020 s for all tests by the same
+range, and all are estimated. The Windows figures after Windows support are scaled from the
+1744 s measured on the Windows support branch, as that job has never run here. GitHub's runners
+can take about twice as long on the same tests (estimated, from the spread between runs), which
+would double a row: a Windows job that slow reaches its 25-minute timeout, so the run fails after
+billing about 57 (estimated).
 
-A Full run by hand bills about 45 before #93 and 120-160 after it (estimated). That is why it is by
-hand. Checks by hand on one Python costs about the same as a pull request's push, or 17 with `full`
-before #93 (**measured** on Python 3.14, run 41306444809).
+A Full run by hand bills about 45 before Windows support and 120-160 after it (estimated). That is
+why it is by hand. Checks by hand on one Python costs about the same as a pull request's push, or 17
+with `full` before Windows support (**measured** on Python 3.14).
 
 The longest job sets the wait. Before this file existed a push billed 232 minutes and took 30.6
-(measured, #93 at 77fbde1). Each `make check` lists its 15 slowest tests. If a job grows, look
-there first, and fix or mark what shows up.
+(measured, on the Windows support branch). Each `make check` lists its 15 slowest tests. If a job
+grows, look there first, and fix or mark what shows up.

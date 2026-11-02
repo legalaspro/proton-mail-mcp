@@ -359,7 +359,7 @@ def test_rebuild_keeps_the_live_inventory(settings, clock):
     assert fake.calls.count(ALL_INVENTORY) == 1
 
 
-# #75's bounded lock wait.
+# The coverage lock's bounded wait under parallel reads.
 def test_coverage_never_waits_on_an_idle_lock(settings, clock):
     reader, _ = inbox_account(settings, clock)
     index = reader.search_index

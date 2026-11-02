@@ -1,0 +1,19 @@
+# Release repo only: the release sync moves this file to .github/dependabot.yml there. In the dev
+# repo it stays here, because each Dependabot pull request would start a billed run.
+#
+# pip, because there is no uv.lock; Dependabot's uv ecosystem needs one. It does not update the uv
+# version pins in the workflows, which tests/test_ci_workflows.py holds together.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule: {interval: weekly}
+    cooldown: {default-days: 7}
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 5
+    groups: {python: {patterns: ["*"]}}
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    cooldown: {default-days: 7}
+    groups: {actions: {patterns: ["*"]}}

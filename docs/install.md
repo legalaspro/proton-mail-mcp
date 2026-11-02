@@ -9,11 +9,10 @@ own [page](windows.md).
 
 **Not on PyPI yet:** until the first release is published, the by-name commands below do not
 install this project, and must not be run: anyone could hold that name on PyPI. Install from a
-clone of this repository instead. It is private for now, so your GitHub account needs access to
-`legalaspro/proton-mail-mcp`:
+clone of this repository instead:
 
 ```sh
-gh repo clone legalaspro/proton-mail-mcp && cd proton-mail-mcp
+git clone https://github.com/legalaspro/proton-mail-mcp.git && cd proton-mail-mcp
 uvx --from . proton-mail-mcp setup --dry-run
 uvx --from . proton-mail-mcp setup --client claude-desktop
 # or, with uv's own Python: uvx --managed-python --from . proton-mail-mcp setup

@@ -104,20 +104,18 @@ You need:
   runners: read [docs/windows.md](docs/windows.md) first, or use WSL2.
 - [uv](https://docs.astral.sh/uv/), which brings Python 3.12 or newer if you have none, and git.
 
-> **Not on PyPI yet.** Install from a clone of this repository, as below. The repository is
-> private for now, so your GitHub account needs access to `legalaspro/proton-mail-mcp`. Do not run
+> **Not on PyPI yet.** Install from a clone of this repository, as below. Do not run
 > `uvx proton-mail-mcp` by name: until the first release is published, anyone could hold that name
 > on PyPI. Installing from PyPI, and a listing in the MCP Registry, come later.
 
 **1. Get the code.**
 
 ```sh
-gh repo clone legalaspro/proton-mail-mcp   # or git clone https://github.com/legalaspro/proton-mail-mcp.git
+git clone https://github.com/legalaspro/proton-mail-mcp.git
 cd proton-mail-mcp
 ```
 
-Without access, `gh auth login` first with an account that has it, or unpack an archive of the
-repository you were given and run the rest there.
+Or unpack an archive of the repository you were given and run the rest there.
 
 **2. Quit the Proton Mail Bridge app** if it runs, and turn off its start-at-login setting. Setup
 runs Bridge as a background service, which cannot run beside the app; the app's login carries

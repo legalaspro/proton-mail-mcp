@@ -1,0 +1,61 @@
+name: Bug report
+description: Something the server, setup or a client page does wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is public. Remove tokens, passwords, email addresses, subjects and message
+        content from everything you paste, and use reserved names such as `example.test` instead.
+        A security problem goes to [SECURITY.md](https://github.com/legalaspro/proton-mail-mcp/blob/main/SECURITY.md), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `proton-mail-mcp --version`, or the commit you installed from.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 26.1, Ubuntu 24.04, Windows 11
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: MCP client and its version
+      placeholder: Claude Desktop 1.2.3
+    validations:
+      required: true
+  - type: input
+    id: bridge
+    attributes:
+      label: Proton Mail Bridge version
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: The tool, the result or refusal text, and any log lines, redacted.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: checkboxes
+    id: redacted
+    attributes:
+      label: Redaction
+      options:
+        - label: I removed tokens, passwords, email addresses, subjects and message content
+          required: true

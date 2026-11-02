@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 
 WORKFLOWS = Path(__file__).parents[1] / ".github" / "workflows"
+GITHUB = WORKFLOWS.parent
+DEPENDABOT = GITHUB.parent / "release" / "dependabot.yml"
 RELEASE_GATE = (
     "github.repository == 'legalaspro/proton-mail-mcp'"
     " && github.event.repository.visibility == 'public'"
@@ -73,3 +75,41 @@ def test_uv_is_pinned_to_one_version_and_setup_uv_to_a_commit():
         )
         pins += re.findall(r"pip install uv==(\S+)", text)
     assert pins == [UV_VERSION] * 3
+
+
+def test_every_action_is_pinned_to_a_commit():
+    # A tag can move, and the public repo runs these on pull requests from forks.
+    for path in WORKFLOWS.glob("*.yml"):
+        for action in re.findall(r"uses: (\S+)", path.read_text(encoding="utf-8")):
+            pinned = re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", action)
+            assert pinned or action.startswith("./"), (path.name, action)
+
+
+def test_dependabot_opens_pull_requests_only_in_the_release_repo():
+    # Each would start a billed run here, so the config waits in release/, where Dependabot does
+    # not look, and the release sync moves it into .github there. A tree holds exactly one.
+    found = [
+        path
+        for path in (DEPENDABOT, GITHUB / "dependabot.yml", GITHUB / "dependabot.yaml")
+        if path.exists()
+    ]
+    assert len(found) == 1, found
+    head, *updates = re.split(r"(?m)^  - ", found[0].read_text(encoding="utf-8"))
+    assert re.fullmatch(r"(#.*\n)*version: 2\nupdates:\n", head)
+    ecosystems = []
+    for update in updates:
+        first, *rest = update.splitlines()
+        ecosystems.append(first.removeprefix("package-ecosystem: "))
+        settings = dict(re.fullmatch(r"    ([\w-]+): (\S.*)", line).groups() for line in rest)
+        assert settings.keys() <= {
+            "directory",
+            "schedule",
+            "cooldown",
+            "versioning-strategy",
+            "open-pull-requests-limit",
+            "groups",
+        }
+        assert settings["directory"] == "/"
+        assert settings["schedule"] == "{interval: weekly}"
+        assert settings["cooldown"] == "{default-days: 7}"
+    assert ecosystems == ["pip", "github-actions"]

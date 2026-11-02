@@ -16,9 +16,9 @@ The installer prints one JSON document on stdout with `--json`. Read `result`, `
   Ubuntu) with an unlocked keyring, or an initialised `pass` store.
 - [uv](https://docs.astral.sh/uv/).
 - The code. **Not on PyPI yet:** do not run `uvx proton-mail-mcp` or `pip install
-  proton-mail-mcp` by name; anyone could hold that name on PyPI. The repository is private for
-  now: clone it with `gh repo clone legalaspro/proton-mail-mcp` after `gh auth login` with an
-  account that has access, or use an archive or wheel of it the person gives you.
+  proton-mail-mcp` by name; anyone could hold that name on PyPI. Clone the repository with
+  `git clone https://github.com/legalaspro/proton-mail-mcp.git`, or use an archive or wheel of it
+  the person gives you.
 
 Run every command below in the clone, with `uvx --from . proton-mail-mcp` as the launcher.
 

@@ -47,6 +47,7 @@ Pages are grouped by what you need right now, following [Diátaxis](https://diat
 - [AGENTS.md](../AGENTS.md): commands, layout, conventions and safety rules, for coding agents and
   people alike.
 - [Contributing](../CONTRIBUTING.md) and [Development and offline checks](development.md).
+- [Security policy](../SECURITY.md): how to report a vulnerability privately.
 - [CI](ci.md): what GitHub Actions runs, where and when.
 - [Changelog](../CHANGELOG.md).
 

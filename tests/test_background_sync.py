@@ -1893,7 +1893,7 @@ class ExistsImap(GluonSearchImap):
 def test_arrival_flushed_during_a_hidden_expunge_walk_does_not_lose_the_cursor(
     mailbox, monkeypatch
 ):
-    # Re-entering the whole audit would re-check EXISTS mid-walk and raise, as #65
+    # Re-entering the whole audit would re-check EXISTS mid-walk and raise, which an earlier fix
     # removed. The in-place walk reaches its deadline with the cursor kept instead.
     case = tail_case(mailbox, monkeypatch)
     case.fake.__class__ = ExistsImap
