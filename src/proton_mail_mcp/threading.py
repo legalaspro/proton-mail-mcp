@@ -12,7 +12,8 @@ from email.utils import parsedate_to_datetime
 from typing import Any
 
 MAX_THREAD_DEPTH = 4
-MAX_THREAD_BODY_BYTES = 65536
+# Text bytes read per message: long newsletters and reports fit whole, still within the budget.
+MAX_THREAD_BODY_BYTES = 262144
 MAX_THREAD_HEADER_BYTES = 32768
 MAX_THREAD_BODY_PARTS = 16
 MAX_THREAD_SECONDS = 15.0

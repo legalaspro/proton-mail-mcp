@@ -44,6 +44,7 @@ Each `unresolved` row identifies a prior undo attempt with `log_id` as well.
 | `action_hash` | SHA-256 | Binds a token to its exact action |
 | `draft_hash` | SHA-256 | Binds a send to its exact message and envelope |
 | `view_ref` | `msg-` and 12 hexadecimal digits | A thread view's reference to a message in the text result |
+| `date_local` | ISO 8601 with offset, or `null` | A message's `date` header, which Bridge writes in UTC, as the time in `PROTON_MCP_TIMEZONE` or this computer's zone; `null` when the header cannot be read. In `read_thread`, `show_thread` and `search_mail` messages and `compose_reply`'s `original` |
 
 ## What each tool returns
 
@@ -185,7 +186,7 @@ as `refused`, and its send journal records the result, such as `confirmation_dec
 | Limit | Value |
 | --- | --- |
 | Search and count call | 20 s; 10 s per IMAP command |
-| Thread read | 15 s; 10 s per IMAP content command, 12 s shared by a fallback seed lookup; 32,768 header bytes and 65,536 text bytes per message |
+| Thread read | 15 s; 10 s per IMAP content command, 12 s shared by a fallback seed lookup; 32,768 header bytes and 262,144 text bytes per message |
 | `preview_rules` call | 20 s; `limit` 1 to 200 |
 | Cleanup approval | 200 messages, or up to `approval_max_messages` (500 by default, at most 1000) with a bounded `limit` |
 | One command or undoable chunk | 200 messages; 50 for label actions |

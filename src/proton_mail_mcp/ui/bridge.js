@@ -6,10 +6,20 @@ var PMM = (function () {
   var PROTOCOL_VERSION = "@PROTOCOL_VERSION@";
   // The result _meta key with a view's data; hosts keep _meta out of model context.
   var VIEW_KEY = "@VIEW_META_KEY@";
+  // The tool whose result this view shows: the only tool it may call to read its data again.
+  var VIEW_TOOL = "@VIEW_TOOL@";
+  // The view field of this view's data.
+  var VIEW_NAME = "@VIEW_NAME@";
   var host = window.parent;
   var nextId = 1;
   var pending = new Map();
   var handlers = {};
+  // Callbacks waiting for the host's tool-input, and the arguments each re-read used.
+  var inputWaiters = [];
+  var generation = 0;
+  // The current re-read { promise, settled, generation }, and the data it returned.
+  var reread = null;
+  var reloaded = null;
   var state = {
     connected: false,
     failed: false,
@@ -43,7 +53,9 @@ var PMM = (function () {
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
         pending.delete(id);
-        reject(new Error("The host did not answer " + method));
+        var failure = new Error("The host did not answer " + method);
+        failure.timedOut = true;
+        reject(failure);
       }, timeoutMs || 30000);
       pending.set(id, { resolve: resolve, reject: reject, timer: timer });
       post({ jsonrpc: "2.0", id: id, method: method, params: params || {} });
@@ -136,7 +148,17 @@ var PMM = (function () {
       return;
     }
     if (message.method === "ui/notifications/tool-input") {
-      state.toolInput = isObject(params.arguments) ? params.arguments : {};
+      var input = isObject(params.arguments) ? params.arguments : {};
+      if (state.toolInput !== null && JSON.stringify(input) !== JSON.stringify(state.toolInput)) {
+        // Other arguments are another call: nothing read for the last one applies.
+        generation += 1;
+        reread = null;
+        reloaded = null;
+      }
+      state.toolInput = input;
+      inputWaiters.splice(0).forEach(function (wake) {
+        wake();
+      });
       emit("toolInput", state.toolInput);
     } else if (message.method === "ui/notifications/tool-result") {
       state.toolResult = params;
@@ -229,8 +251,8 @@ var PMM = (function () {
     return text || "The tool call failed";
   }
 
-  function callTool(name, args) {
-    return request("tools/call", { name: name, arguments: args || {} }, 150000).then(
+  function callTool(name, args, timeoutMs) {
+    return request("tools/call", { name: name, arguments: args || {} }, timeoutMs || 150000).then(
       function (result) {
         if (!isObject(result) || result.isError) {
           throw new Error(toolResultError(result));
@@ -298,9 +320,12 @@ var PMM = (function () {
       : null;
   }
 
+  // A Date header's time in the user's zone: the host's timeZone, else the browser's own.
+  // Bridge writes Date headers in UTC, so the raw value would show UTC.
   function formatDate(value) {
     if (typeof value !== "string" || !value) return "";
-    var parsed = Date.parse(value);
+    // A trailing comment such as "(UTC)" is not part of the date, and some engines refuse it.
+    var parsed = Date.parse(value.replace(/\s*\([^()]*\)\s*$/, ""));
     if (isNaN(parsed)) return value;
     var context = state.hostContext || {};
     var options = { dateStyle: "medium", timeStyle: "short" };
@@ -370,7 +395,112 @@ var PMM = (function () {
 
   function viewData(result) {
     var meta = isObject(result) && isObject(result._meta) ? result._meta : {};
-    return isObject(meta[VIEW_KEY]) ? meta[VIEW_KEY] : null;
+    if (isObject(meta[VIEW_KEY])) return meta[VIEW_KEY];
+    // The server sends none, but a host may pass the data on as structuredContent.
+    var content = structured(result);
+    if (content && isObject(content[VIEW_KEY])) return content[VIEW_KEY];
+    return content && content.view === VIEW_NAME ? content : null;
+  }
+
+  function waitForInput(timeoutMs) {
+    if (state.toolInput !== null) return Promise.resolve(state.toolInput);
+    return new Promise(function (resolve, reject) {
+      var wake = function () {
+        clearTimeout(timer);
+        resolve(state.toolInput);
+      };
+      var timer = setTimeout(function () {
+        inputWaiters = inputWaiters.filter(function (waiter) {
+          return waiter !== wake;
+        });
+        reject(new Error("The host did not send this view's arguments, so it cannot load them."));
+      }, timeoutMs);
+      inputWaiters.push(wake);
+    });
+  }
+
+  // Some hosts, such as Claude Desktop, pass a view only a result's content and isError, so
+  // its data never arrives. The view then reads it again through the host: its own tool, with
+  // the arguments the host delivered in tool-input. A view's tools/call returns the whole
+  // result, _meta included.
+  function startReread() {
+    var entry = { settled: false, generation: generation };
+    var settle = function () {
+      entry.settled = true;
+    };
+    // The read is tried even when the host did not declare serverTools, as the MCP Apps SDK's
+    // callServerTool does; such a host gets a shorter wait for an answer.
+    var declared = can("serverTools");
+    // A re-read for arguments the host has since replaced never settles: the newer call's own
+    // load updates the view.
+    var current = function () {
+      return entry.generation === generation;
+    };
+    entry.promise = waitForInput(5000)
+      .then(function (args) {
+        return callTool(VIEW_TOOL, args, declared ? 150000 : 30000).catch(function (error) {
+          if (error.code === -32601 || (!declared && error.timedOut)) {
+            throw new Error(
+              "This host did not pass the view its data and does not let views call tools. " +
+                "The assistant still has the text result."
+            );
+          }
+          throw error;
+        });
+      })
+      .then(function (result) {
+        var data = viewData(result);
+        if (!data) {
+          throw new Error(
+            "The host did not pass the view its data. The assistant still has the text result."
+          );
+        }
+        return data;
+      })
+      .then(
+        function (data) {
+          if (!current()) return new Promise(function () {});
+          reloaded = data;
+          return data;
+        },
+        function (error) {
+          if (!current()) return new Promise(function () {});
+          throw error;
+        }
+      );
+    entry.promise.then(settle, settle);
+    reread = entry;
+    return entry.promise;
+  }
+
+  // A delivered result's view data, else the data of one re-read: at most one per call,
+  // however often the host delivers the result.
+  function load(result) {
+    var data = viewData(result);
+    if (data) return Promise.resolve(data);
+    if (reloaded) return Promise.resolve(reloaded);
+    return reread ? reread.promise : startReread();
+  }
+
+  // The user's Retry after a failed load: a new re-read, never two at once.
+  function retry() {
+    return reread && !reread.settled ? reread.promise : startReread();
+  }
+
+  // A failed load as the view shows it: what went wrong, and a Retry button.
+  function loadFailure(text, onRetry) {
+    var box = el("div", "banner error load-failure");
+    box.setAttribute("role", "alert");
+    box.appendChild(el("div", null, text));
+    var again = el("button", null, "Retry");
+    again.type = "button";
+    again.addEventListener("click", function () {
+      again.disabled = true;
+      again.textContent = "Loading…";
+      onRetry();
+    });
+    box.appendChild(again);
+    return box;
   }
 
   function readData(id) {
@@ -402,6 +532,9 @@ var PMM = (function () {
     avatar: avatar,
     structured: structured,
     viewData: viewData,
+    load: load,
+    retry: retry,
+    loadFailure: loadFailure,
     readData: readData,
   };
 })();

@@ -105,10 +105,11 @@ def test_full_send_still_needs_a_fresh_token_and_host_confirmation(rig):
             await http.initialize(capabilities)
             listed = await http.rpc("tools/list")
             by_name = {tool["name"]: tool for tool in listed["result"]["tools"]}
-            # The review renders for the model's call; views cannot read drafts with it.
+            # The review renders for the model's call; its view may call it again only to load
+            # data its host left out. It issues no token, so a view can never send.
             assert by_name["review_send"]["_meta"]["ui"] == {
                 "resourceUri": mcp_apps.REVIEW_SEND_URI,
-                "visibility": ["model"],
+                "visibility": ["model", "app"],
             }
             for name in ("preview_send", "send_draft"):
                 assert by_name[name]["_meta"] == {"ui": {"visibility": ["model"]}}
@@ -225,8 +226,9 @@ def test_review_view_holds_no_token_and_sends_only_by_asking_the_assistant():
     html = mcp_apps.view_html("review_send")
     code = assert_self_contained_view(html)
     view_script = code.split("var PMM = (function", 1)[1].split("})();", 1)[1]
-    # review_send is model-only, so the view calls no tool; Refresh asks the assistant.
-    assert tool_calls(code) == set() and "callTool" not in view_script
+    # The view calls only review_send, through its bridge, for data its host left out; it
+    # issues no token. Refresh asks the assistant.
+    assert tool_calls(code) == {"review_send"} and "callTool" not in view_script
     assert ".token" not in view_script and "expires_at" not in view_script
     assert view_script.count("PMM.sendMessage(") == 3
     # Chat messages quote a plain draft ID and the hex fingerprint, nothing else.
@@ -297,7 +299,7 @@ t.check("tool_calls", t.requests("tools/call").length);
 
 @browser
 @pytest.mark.parametrize("case", ["asks", "cannot_message", "unquotable_id"])
-def test_refresh_asks_the_assistant_because_views_cannot_read_drafts(tmp_path, case):
+def test_refresh_asks_the_assistant_for_a_new_review(tmp_path, case):
     capabilities = dict(HOST_CAPABILITIES)
     if case == "cannot_message":
         del capabilities["message"]

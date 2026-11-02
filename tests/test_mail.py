@@ -3,8 +3,9 @@
 import base64
 import logging
 import re
+import socket
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -16,6 +17,7 @@ import pytest
 from proton_mail_mcp.config import Settings
 from proton_mail_mcp.mail import MAX_SNIPPET_BYTES, MailClient, MailError, MailValidationError
 from proton_mail_mcp.security import Credentials
+from proton_mail_mcp.threading import MAX_THREAD_BODY_BYTES
 
 PLAIN = b'("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 24 2 NIL NIL NIL)'
 HTML = b'("TEXT" "HTML" ("CHARSET" "UTF-8") NIL NIL "7BIT" 90 1 NIL NIL NIL)'
@@ -548,8 +550,8 @@ def test_thread_deduplicates_message_ids_across_all_mail_and_labels(settings, mo
     assert [
         call for call in fake.calls if call[0] == "FETCH" and call[2].startswith("(BODY.PEEK[1]")
     ] == [
-        ("FETCH", "101", "(BODY.PEEK[1]<0.65536>)"),
-        ("FETCH", "102", "(BODY.PEEK[1]<0.65536>)"),
+        ("FETCH", "101", f"(BODY.PEEK[1]<0.{MAX_THREAD_BODY_BYTES}>)"),
+        ("FETCH", "102", f"(BODY.PEEK[1]<0.{MAX_THREAD_BODY_BYTES}>)"),
     ]
 
 
@@ -751,6 +753,27 @@ def test_new_draft_appends_without_opening_existing_mailbox(settings):
     draft = BytesParser(policy=policy.default).parsebytes(fake.appended[0][3])
     assert "References" not in draft and "In-Reply-To" not in draft
     assert "Cc" not in draft
+
+
+@pytest.mark.parametrize(
+    "from_address,domain", [("", "example.com"), ("alias@Mail.Example.test", "mail.example.test")]
+)
+def test_draft_message_id_uses_the_from_domain_never_the_machine_name(
+    settings, monkeypatch, from_address, domain
+):
+    def hostname(name=""):
+        pytest.fail("the machine's name was looked up for a Message-ID")
+
+    monkeypatch.setattr(socket, "getfqdn", hostname)
+    settings = replace(settings, send_from_allowlist=("alias@Mail.Example.test",))
+    fake = FakeImap()
+    draft_id = client(settings, fake).create_draft(
+        "other@example.com", subject="New draft", body="Text", from_address=from_address
+    )
+    draft = BytesParser(policy=policy.default).parsebytes(fake.appended[0][3])
+    assert draft["Message-ID"] == draft_id
+    assert re.fullmatch(rf"<[0-9.]+@{re.escape(domain)}>", draft_id)
+    assert "arpa" not in draft_id and "test.invalid" not in draft_id
 
 
 @pytest.mark.parametrize("field", ["to", "cc"])

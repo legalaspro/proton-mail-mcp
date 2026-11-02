@@ -169,11 +169,23 @@
       banners.appendChild(el("div", "banner error", content.length && content[0].text ? content[0].text : "Preview failed."));
       return;
     }
-    var view = PMM.viewData(result);
+    PMM.load(result).then(showView, failed);
+  }
+
+  function showView(view) {
     if (view && view.view === "review_send" && view.preview) {
       data = view;
       render();
     }
+  }
+
+  function failed(error) {
+    document.getElementById("subject").textContent = "The send review could not be loaded";
+    PMM.clear(document.getElementById("banners")).appendChild(
+      PMM.loadFailure(error.message, function () {
+        PMM.retry().then(showView, failed);
+      })
+    );
   }
 
   document.getElementById("send").addEventListener("click", function () {
@@ -204,7 +216,8 @@
     );
   });
 
-  // review_send is model-only: views cannot read drafts, so the assistant refreshes.
+  // The view calls review_send only to load data its host left out; a refresh after the
+  // draft changed is the assistant's call.
   document.getElementById("refresh").addEventListener("click", function () {
     if (!data || !data.quotable_draft_id) return;
     var button = this;

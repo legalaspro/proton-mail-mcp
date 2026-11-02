@@ -6,6 +6,31 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Fixed
 
+- **Views read their data again when the host leaves it out.** Claude Desktop passes a view only a
+  result's text, without the view's data in `_meta`, so the thread, composer and send review stayed
+  on "Loading…". A view without its data now calls its own view tool once more through the host,
+  with the arguments the host delivered, and renders that result, even when the host does not
+  declare `serverTools`; a failed read says why and offers Retry. This should let the views load in
+  Claude Desktop, which is not yet confirmed in a live Claude Desktop session. `show_thread`,
+  `compose_reply` and `review_send`, which only read and issue no token, are now callable from their
+  views (`visibility: ["model", "app"]`); every other tool except `create_draft` stays model-only.
+- **Requests to see or answer mail open the views.** `show_thread` now says first that it is the
+  default for a request to show, open, read, look at or display mail, and `compose_reply` for a
+  request to reply, write back or compose. `read_thread` starts by saying it is text-only, for
+  analysis without a view, and `create_draft` that it is the no-view path; the server instructions
+  say the same.
+- **A draft's Message-ID uses its From address's domain.** It ended in the computer's host name,
+  which on a Mac could be a reverse-DNS `ip6.arpa` name holding its network address. It now ends in
+  the From domain, or `proton-mail-mcp.invalid` when that is not a plain DNS name.
+- **Long messages are read whole up to 256 KB.** `read_thread`, `show_thread`, `compose_reply`'s
+  quote and `forward_message` read 262,144 text bytes per message instead of 65,536, so an 80 KB
+  newsletter is no longer cut. Longer messages still report `truncated=true`; the time limits are
+  unchanged.
+- **Dates are shown in the user's time zone.** Bridge writes `Date` headers in UTC, which the
+  model then quoted. `read_thread`, `show_thread` and `search_mail` messages now add `date_local`,
+  ISO 8601 with the offset of the new `PROTON_MCP_TIMEZONE` setting or of this computer's zone,
+  and `compose_reply` quotes the original's date in that zone. Views keep showing dates in the
+  host's or the browser's zone, and now also read a `Date` header that ends in a comment.
 - **Setup shows what it will do before it asks anything.** On a terminal it lists its steps and what
   only you can do, then asks for the Bridge username and the attachments folder, then prints the
   full plan.

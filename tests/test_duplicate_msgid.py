@@ -246,8 +246,10 @@ def test_preexisting_destination_label_cannot_be_assigned_to_source_duplicate(
 def test_duplicate_batch_crosses_execution_chunk_boundary(
     duplicate_mailbox, monkeypatch, identical
 ):
-    # One batched chunk would hold all 51; smaller chunks keep the boundary.
-    monkeypatch.setattr(guarded, "EXECUTE_BATCH_SIZE", 21)
+    # One batched chunk would hold all 51; smaller chunks keep the boundary. Identical copies
+    # take one 2-second command group each: 21 of them left about 80 ms of the 42-second
+    # budget, which a garbage collection pause could use up, so chunks hold 20.
+    monkeypatch.setattr(guarded, "EXECUTE_BATCH_SIZE", 20)
     sim, client = duplicate_mailbox()
     approved = duplicates(sim, 51, identical=identical)
     preview = preview_move(client)

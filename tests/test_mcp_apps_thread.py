@@ -302,8 +302,8 @@ def test_thread_view_is_self_contained_and_read_only():
     html = mcp_apps.view_html("thread")
     code = assert_self_contained_view(html, allowed_iframes=True)
     view_script = code.split("var PMM = (function", 1)[1].split("})();", 1)[1]
-    # The thread view calls no server tool at all.
-    assert tool_calls(code) == set() and "callTool" not in view_script
+    # The thread view calls only show_thread, through its bridge, for data its host left out.
+    assert tool_calls(code) == {"show_thread"} and "callTool" not in view_script
     for helper in ("sendMessage", "openLink", "requestDisplayMode"):
         assert f"PMM.{helper}(" in view_script
     assert "updateModelContext" not in view_script
@@ -347,8 +347,9 @@ def test_show_thread_is_linked_to_its_view_and_absent_when_apps_are_off():
 
     tools, resources = anyio.run(listing, server_settings())
     tool = tools["show_thread"]
-    # Hosts render the view for the model's calls; views cannot read other messages.
-    assert tool.meta["ui"] == {"resourceUri": mcp_apps.THREAD_URI, "visibility": ["model"]}
+    # Hosts render the view for the model's calls; the view may call it again only to load
+    # data its host left out, with the arguments the host delivered.
+    assert tool.meta["ui"] == {"resourceUri": mcp_apps.THREAD_URI, "visibility": ["model", "app"]}
     assert tool.annotations.readOnlyHint is True
     assert set(tool.inputSchema["properties"]) == {"message_id", "include_thread"}
     assert tool.inputSchema["required"] == ["message_id"]

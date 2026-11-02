@@ -106,6 +106,7 @@ between calls can still cause a safe refusal or partial completion.
 | `PROTON_MCP_CONFIRM_MUTATIONS` | `1` | Exact `1` or `0`. `1` requires the user's confirmation in the client's form before a cleanup, rules, rule-saving, unsubscribe, folder or Sieve filter token is redeemed; `0` is an explicit opt-out to token-only redemption for hosts without form elicitation. See [Confirmation and approval binding](safety.md#confirmation-and-approval-binding). |
 | `PROTON_MCP_CONFIRM_TIMEOUT` | `120` | Seconds a confirmation form may stay unanswered; positive and at most 300. |
 | `PROTON_MCP_APPS_ENABLED` | `1` | Exact `1` or `0`. `1` registers the [MCP Apps views](mcp-apps.md): `ui://` resources and their view tools. `0` restores the plain tool list. |
+| `PROTON_MCP_TIMEZONE` | Unset | An IANA time zone name such as `Europe/Berlin`. Bridge writes `Date` headers in UTC; `read_thread`, `show_thread` and `search_mail` add each message's `date_local` in this zone, and `compose_reply` quotes the original's date in it. Unset means this computer's time zone, which `TZ` sets for a server started by hand. On Windows a name needs the `tzdata` package. Views show dates in the client's time zone. |
 
 ## Local files
 

@@ -21,7 +21,7 @@ after changing it. Only the exact values `0` and `1` are accepted.
 ## How a view works
 
 1. A view tool's `tools/list` entry carries
-   `_meta.ui = {"resourceUri": "ui://proton-mail/…", "visibility": ["model"]}`
+   `_meta.ui = {"resourceUri": "ui://proton-mail/…", "visibility": ["model", "app"]}`
    (plus the older flat `_meta["ui/resourceUri"]` key that earlier hosts read).
 2. The host reads that resource with `resources/read`. It is one complete HTML
    document with MIME type `text/html;profile=mcp-app`. Styles and scripts
@@ -33,8 +33,19 @@ after changing it. Only the exact values `0` and `1` are accepted.
    its parent window.
 4. Each view tool returns one text block (`content`) for the model and for plain
    clients. Its view reads what it renders from the result's `_meta`, under the
-   key `proton-mail-mcp/view`; the result has no `structuredContent`. The host
-   passes the whole result to the view in `ui/notifications/tool-result`.
+   key `proton-mail-mcp/view`; the result has no `structuredContent`. Most hosts
+   pass the whole result to the view in `ui/notifications/tool-result`. Claude
+   Desktop passes only `content` and `isError`, so the view gets no data. A view
+   without its data calls its own view tool once through the host (`tools/call`),
+   with the arguments the host delivered in `ui/notifications/tool-input`, and
+   renders the data in that result's `_meta`. It tries this even when the host
+   does not declare the `serverTools` capability. In Claude Desktop the view should
+   then load; this is not yet confirmed in a live Claude Desktop session. If that
+   read fails, the view says why and offers **Retry** instead of loading forever. A
+   host that also strips that result, or refuses the call (`-32601`, or no answer
+   within 30 seconds when it did not declare `serverTools`), gets a message that
+   the assistant still has the text result. The view also accepts its data as
+   `structuredContent` with its own `view` name if a host moves it there.
 
 ## Security model
 
@@ -60,13 +71,16 @@ after changing it. Only the exact values `0` and `1` are accepted.
   `textContent`; they never use `innerHTML`, `document.write`, `eval` or similar
   sinks, and they never use storage, cookies or network APIs.
 - **Least privilege; no tokens in views.** Views may call only `create_draft`
-  (appends one unsent draft and returns its Message-ID). Every other tool is marked
-  `_meta.ui.visibility = ["model"]`, including the view tools `show_thread`,
-  `compose_reply` and `review_send`: hosts still render their views when the
-  assistant calls them, but MCP Apps hosts must refuse a view's `tools/call` for
-  them. So a view can neither obtain nor redeem an approval token, change mail
-  other than by saving a new draft, nor read mail itself: it shows only the tool
-  result its host delivered. Bearer tokens, Bridge passwords and keys never
+  (appends one unsent draft and returns its Message-ID) and the read-only view
+  tools `show_thread`, `compose_reply` and `review_send`, which change nothing and
+  issue no token. A view calls its own view tool only to read its data again, with
+  the arguments its host delivered, when the host passed it a result without that
+  data; the tool's name is built into the view, which takes no other tool name or
+  arguments from anywhere. Every other tool is marked
+  `_meta.ui.visibility = ["model"]`, and MCP Apps hosts must refuse a view's
+  `tools/call` for it. So a view can neither obtain nor redeem an approval token,
+  change mail other than by saving a new draft, nor read anything but what its own
+  tool call returns. Bearer tokens, Bridge passwords and keys never
   reach a view: the host proxies view requests over its existing authenticated
   MCP connection.
 - **No mail text speaks as the user.** Views post chat messages (`ui/message`)
@@ -94,23 +108,24 @@ after changing it. Only the exact values `0` and `1` are accepted.
 
 If only text appears, the client did not render the view. Check its MCP Apps
 settings or logs and reconnect the connector. Clients without view support still
-receive the thread text. If a card appears empty while the text result contains
-messages, check that the host delivers the result's `_meta`, where the view's
-data travels.
+receive the thread text. If a card says the host did not pass the view its data,
+the host delivered neither the result's `_meta`, where the view's data travels, nor
+let the view read it again with `show_thread`.
 
 A client that starts [`proton-mail-mcp connect`](clients.md#the-connect-command)
 gets the `ui://` resources and each tool's `_meta` unchanged, as a client over
 HTTP does: connect relays the messages as they are. Whether a client renders them
 is up to the client. The ChatGPT Mac app rendered the thread view over direct
-HTTP in a live test; Claude Desktop through connect has not been checked yet, and
-through `mcp-remote` it showed none.
+HTTP in a live test. Claude Desktop through connect rendered the card but passed it
+no data; through `mcp-remote` it showed none. The view now reads its data again
+itself, which is not yet confirmed in a live Claude Desktop session.
 
 ## Read thread view
 
 `show_thread(message_id, include_thread=True)` shows mail the user wants to see;
 `read_thread` remains the tool for reading without a view. It performs the same
 bounded read as `read_thread`: at most 15 seconds overall and 10 seconds per IMAP
-command, 32768 header bytes and 65536 body bytes per message across at most 16
+command, 32768 header bytes and 262144 body bytes per message across at most 16
 partial `BODY.PEEK` requests. Nothing is marked read, nothing in the mailbox
 changes and attachments are never downloaded. The one difference is that each
 message's `text/html` alternative is preferred over `text/plain`.
@@ -123,7 +138,8 @@ message's `text/html` alternative is preferred over `text/plain`.
   documents are only in the view data in `_meta`, never in the text the model
   reads.
 - **View.** One row per message with avatar, sender, recipients, date and an
-  attachment marker. The requested message and the newest one start expanded;
+  attachment marker. Dates are shown in the time zone the host reports, or else the
+  browser's own, not in the UTC that Bridge writes. The requested message and the newest one start expanded;
   others expand on click, or with Enter or Space on their focused row. Opening
   or closing a message, or switching it between formatted and plain text,
   changes only that message, so the keyboard focus stays on its row or button.
@@ -261,7 +277,7 @@ an id the tool reads only that one message with `read_thread`'s bounds
   during a save, and edits made meanwhile stay unsaved (the view says so) until
   saved again. A host that does not let views call tools (no `serverTools`
   capability) gets no Save: the button stays disabled, the view says the draft
-  cannot be saved from there, and it never sends `tools/call`. **Ask to delete
+  cannot be saved from there, and it never calls `create_draft`. **Ask to delete
   earlier versions…** only posts a chat message asking for a `preview_action`
   `delete_draft` preview, which keeps its token and host confirmation.
 - **No send.** The composer cannot send: it calls no tool except `create_draft`,
@@ -318,7 +334,8 @@ unless the operator set `PROTON_MCP_SEND_TYPED_OK=0`:
    [the server cannot prove](sending.md#typed-ok-when-the-client-has-no-form).
 
 **Edit draft** and **Refresh…** post chat messages asking the assistant to
-reopen the draft in `compose_reply` or to run `review_send` again; like every
-other mail read, `review_send` is model-only, so the view calls no server tool.
+reopen the draft in `compose_reply` or to run `review_send` again. The view calls
+`review_send` itself only to load data its host left out, with the host's
+arguments, never to refresh the review.
 When the host cannot post chat messages, the view tells the user to ask the
 assistant instead.

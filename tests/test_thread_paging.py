@@ -164,6 +164,27 @@ def test_thread_body_has_explicit_byte_cap_and_truncated_flag(settings):
     assert ("FETCH", "1", f"(BODY.PEEK[1]<0.{MAX_THREAD_BODY_BYTES}>)") in fake.calls
 
 
+@pytest.mark.parametrize("size", [80 * 1024, MAX_THREAD_BODY_BYTES])
+def test_a_long_message_up_to_the_cap_is_read_whole(settings, size):
+    # An 80 KB message used to stop at 64 KB.
+    assert MAX_THREAD_BODY_BYTES == 256 * 1024
+    payload = (b"0123456789abcde\n" * (size // 16 + 1))[:size]
+    structure = PLAIN.replace(b"24 2", str(len(payload)).encode() + b" 2")
+    fake = FakeImap(
+        {
+            "INBOX": {
+                "1": message("<long@example.com>", structure=structure, sections={"1": payload})
+            }
+        }
+    )
+    found = client(settings, fake).read_thread("<long@example.com>", include_thread=False)
+    item = found["messages"][0]
+    assert item["text"] == payload.decode().rstrip("\n")
+    assert item["truncated"] is False
+    assert item["body_fetched_bytes"] == item["body_size_bytes"] == size
+    assert found["partial"] is False
+
+
 def test_thread_caps_text_part_round_trips_and_never_fetches_attachment(settings):
     count = MAX_THREAD_BODY_PARTS + 20
     structure = b"(" + b" ".join([PLAIN] * count + [ATTACHMENT]) + b' "MIXED" NIL NIL NIL)'

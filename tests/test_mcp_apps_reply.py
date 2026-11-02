@@ -4,6 +4,7 @@ import base64
 import json
 from email import policy
 from email.parser import BytesParser
+from email.utils import format_datetime, parsedate_to_datetime
 
 import anyio
 import pytest
@@ -449,7 +450,9 @@ def test_composer_fields_save_through_create_draft_as_a_threaded_reply(settings)
     assert written["In-Reply-To"] == "<parent@example.com>"
     assert written["References"] == "<ancestor@example.com> <parent@example.com>"
     content = written.get_content().replace("\r\n", "\n")
-    assert content.startswith("Thanks!\n\nOn Wed, 14 Oct 2026 10:00:00 +0000, Sender <sender")
+    # The quoted date is the original's time in this computer's zone.
+    when = format_datetime(parsedate_to_datetime("Wed, 14 Oct 2026 10:00:00 +0000").astimezone())
+    assert content.startswith(f"Thanks!\n\nOn {when}, Sender <sender")
     assert "\n> Original line\n" in content
 
 
@@ -673,6 +676,8 @@ def test_compose_reply_with_an_id_is_unchanged(argument, read):
         own={"reader@example.com"},
         edit=argument == "draft_id",
         sender="reader@example.com",
+        # Without PROTON_MCP_TIMEZONE, dates are in this computer's zone.
+        zone=None,
     )
     assert json.loads(result.content[0].text) == expected_text
     assert view_data(result) == expected_view
@@ -978,7 +983,8 @@ def test_reply_view_saves_only_drafts_and_never_sends():
     html = mcp_apps.view_html("reply")
     code = assert_self_contained_view(html)
     view_script = code.split("var PMM = (function", 1)[1].split("})();", 1)[1]
-    assert tool_calls(code) == {"create_draft"}
+    # compose_reply only through the bridge, for data its host left out.
+    assert tool_calls(code) == {"create_draft", "compose_reply"}
     for forbidden in ("preview_send", "send_draft", "delete_draft(", "token"):
         assert forbidden not in view_script
     # Chat messages quote only identifiers that pass the plain Message-ID check.
@@ -1370,8 +1376,9 @@ def test_compose_reply_is_linked_to_its_view():
 
     tools = anyio.run(listing)
     tool = tools["compose_reply"]
-    # Hosts render the composer for the model's calls; views cannot read other messages.
-    assert tool.meta["ui"] == {"resourceUri": mcp_apps.REPLY_URI, "visibility": ["model"]}
+    # Hosts render the view for the model's calls; the view may call it again only to load
+    # data its host left out, with the arguments the host delivered.
+    assert tool.meta["ui"] == {"resourceUri": mcp_apps.REPLY_URI, "visibility": ["model", "app"]}
     assert tool.annotations.readOnlyHint is True
     assert set(tool.inputSchema["properties"]) == {
         "message_id",

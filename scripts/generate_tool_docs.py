@@ -176,7 +176,8 @@ def _available(name: str, base: dict, send_no_views: dict) -> str:
 
 
 def _summary(tool) -> str:
-    return tool.description.strip().split("\n", 1)[0]
+    # The first paragraph, so a first sentence that wraps is shown whole.
+    return " ".join(tool.description.strip().split("\n\n", 1)[0].split())
 
 
 def render() -> str:

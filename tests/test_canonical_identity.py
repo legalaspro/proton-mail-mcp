@@ -23,6 +23,7 @@ from proton_mail_mcp.config import Settings
 from proton_mail_mcp.folder_rules import FolderRulesService
 from proton_mail_mcp.mail import MailError, MailValidationError
 from proton_mail_mcp.search_index import single_copy
+from proton_mail_mcp.threading import MAX_THREAD_BODY_BYTES
 
 KEYS = ("folder", "uidvalidity", "uid")
 NEWS = "News <news@example.invalid>"
@@ -693,7 +694,7 @@ def test_canonical_lookup_is_read_only_and_reads_only_database_metadata(mailbox)
         assert re.fullmatch(
             r'EXAMINE "[^"]+"|UID SEARCH CHARSET UTF-8 ON 17-Oct-2026|'
             r"UID FETCH [0-9,]+ \(UID INTERNALDATE RFC822\.SIZE ENVELOPE\)|"
-            r"UID FETCH [0-9]+ \(BODY\.PEEK\[1\]<0\.65536>\)|LOGOUT",
+            rf"UID FETCH [0-9]+ \(BODY\.PEEK\[1\]<0\.{MAX_THREAD_BODY_BYTES}>\)|LOGOUT",
             command,
         ), command
     examined = [command for command in lookup if command.startswith("EXAMINE")]

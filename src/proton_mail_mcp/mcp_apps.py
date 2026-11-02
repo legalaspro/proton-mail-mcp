@@ -7,7 +7,9 @@ A view talks to its host only through postMessage JSON-RPC. Each view
 tool still returns one complete text block, which the model reads and clients
 without MCP Apps support show. A view reads its data from the result's _meta,
 which hosts keep out of model context; only sanitized message HTML is never in
-the text.
+the text. A host that passes a view only the result's content (Claude Desktop
+does) leaves it without that data: the view then calls its own tool once more,
+with the arguments the host delivered, and renders that result.
 """
 
 from __future__ import annotations
@@ -29,9 +31,9 @@ THREAD_URI = "ui://proton-mail/thread.html"
 REPLY_URI = "ui://proton-mail/reply.html"
 REVIEW_SEND_URI = "ui://proton-mail/review-send.html"
 
-# The result _meta key that carries a view's data. MCP Apps hosts pass the whole
-# result to the view but keep _meta out of model context. structuredContent is
-# ordinary tool output that clients may give the model, so view tools return none.
+# The result _meta key that carries a view's data. Most MCP Apps hosts pass the
+# whole result to the view but keep _meta out of model context. structuredContent
+# is ordinary tool output that clients may give the model, so view tools return none.
 VIEW_META_KEY = "proton-mail-mcp/view"
 
 # Declared CSP: no origin of any kind, so hosts keep their restrictive default.
@@ -47,14 +49,18 @@ RESOURCE_META = {
     }
 }
 
-# Hosts must refuse a view's tools/call for a tool with this visibility.
-# The only tool views may call: create_draft (appends one unsent draft).
-# Every other tool is model-only, including the mail-reading view tools, whose
-# views hosts still render when the model calls them. So a view can never obtain
-# or redeem an approval token,
-# change mail other than by saving a draft, or read mail itself: it shows only
-# the result its host delivered.
-VIEW_CALLABLE = frozenset({"create_draft"})
+# view name -> the tool whose result it shows. Each is read-only and issues no token.
+VIEW_TOOLS = {"thread": "show_thread", "reply": "compose_reply", "review_send": "review_send"}
+
+# Hosts must refuse a view's tools/call for a tool with visibility ["model"].
+# The tools views may call: create_draft (appends one unsent draft) and the view
+# tools. A view calls only create_draft and its own view tool, which is built into
+# its bridge, and calls that tool only to read its data again with the arguments
+# its host delivered (tool-input), when the host passed it a result without that
+# data. Every other tool is model-only. So a view can never obtain or redeem an
+# approval token, change mail other than by saving a draft, or read anything but
+# what its own tool call returned.
+VIEW_CALLABLE = frozenset({"create_draft", *VIEW_TOOLS.values()})
 
 # The view document's own policy. It also governs nested message frames, which
 # inherit it. Hosts add their policy on top; both must allow a load.
@@ -113,7 +119,9 @@ def view_html(name: str) -> str:
         "/*@BASE_CSS@*/": _asset("base.css"),
         "/*@BRIDGE_JS@*/": _asset("bridge.js")
         .replace("@PROTOCOL_VERSION@", PROTOCOL_VERSION)
-        .replace("@VIEW_META_KEY@", VIEW_META_KEY),
+        .replace("@VIEW_META_KEY@", VIEW_META_KEY)
+        .replace("@VIEW_TOOL@", VIEW_TOOLS[name])
+        .replace("@VIEW_NAME@", name),
     }
     for placeholder, value in replacements.items():
         document = document.replace(placeholder, value)

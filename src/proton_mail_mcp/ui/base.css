@@ -275,6 +275,10 @@ body {
   color: var(--pmm-ok-text);
 }
 
+.load-failure button {
+  margin-top: 8px;
+}
+
 .message-body .banner {
   margin: 0 0 10px;
 }

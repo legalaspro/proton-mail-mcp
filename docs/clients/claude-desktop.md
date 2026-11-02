@@ -68,9 +68,11 @@ and it has not yet been tried in Claude Desktop.
 ## MCP Apps views
 
 connect passes the server's `ui://` resources and each tool's `_meta` through unchanged, so the
-views reach Claude Desktop as they reach a client over HTTP. Whether Claude Desktop renders them
-for a local server has not been checked yet: through `mcp-remote`, a live test showed none. See
-[MCP Apps views](../mcp-apps.md).
+views reach Claude Desktop as they reach a client over HTTP. Claude Desktop renders a view but
+passes it only the result's text, without the view's data in `_meta`. The view then calls its own
+tool once more through Claude Desktop to read the whole result, so it should load; this is not yet
+confirmed in a live Claude Desktop session. Through `mcp-remote`, a live test showed no views. See
+[MCP Apps views](../mcp-apps.md#how-a-view-works).
 
 ## If it does not work
 

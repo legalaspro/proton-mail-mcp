@@ -29,6 +29,8 @@ HOST_CAPABILITIES = {
     "updateModelContext": {"text": {}},
 }
 
+HOST_CONTEXT = {"theme": "light", "displayMode": "inline", "locale": "en-GB", "timeZone": "UTC"}
+
 _PAGE = """<!doctype html>
 <html><head><meta charset="utf-8"><title>view test host</title></head>
 <body>
@@ -58,6 +60,12 @@ function sleep(ms) {
 function answer(call) {
   const queued = config.tools[call.params.name];
   const result = Array.isArray(queued) ? queued.shift() : queued;
+  if (result && result.unanswered) return;
+  if (result && result.error) {
+    // A JSON-RPC error instead of a tool result, such as a host that refuses tools/call.
+    send({ id: call.id, error: result.error });
+    return;
+  }
   send({
     id: call.id,
     result: result || { isError: true, content: [{ type: "text", text: "unexpected tool call" }] },
@@ -126,7 +134,7 @@ window.addEventListener("message", (event) => {
         protocolVersion: "2026-01-26",
         hostInfo: { name: "test-host", version: "1" },
         hostCapabilities: config.capabilities,
-        hostContext: { theme: "light", displayMode: "inline", locale: "en-GB", timeZone: "UTC" },
+        hostContext: config.hostContext,
       },
     });
   } else if (message.method === "ui/notifications/initialized") {
@@ -175,13 +183,26 @@ def tool_result(result):
 
 
 def run_view(
-    tmp_path, name, result, scenario, *, arguments=None, tools=None, capabilities=None, refuse=()
+    tmp_path,
+    name,
+    result,
+    scenario,
+    *,
+    arguments=None,
+    tools=None,
+    capabilities=None,
+    refuse=(),
+    host_context=None,
+    browser_tz=None,
 ):
     """Run scenario (the body of an async JavaScript function of t) and return its report.
 
-    tools maps tool names to results (a list is answered in order); refuse lists
-    host request methods that the host answers with an error.
+    tools maps tool names to results (a list is answered in order; {"error": ...} is
+    answered as a JSON-RPC error and {"unanswered": True} not at all); refuse lists
+    host request methods that the host answers with an error. host_context replaces the
+    host context's keys (None drops one), and browser_tz is the browser's own TZ.
     """
+    context = {**HOST_CONTEXT, **(host_context or {})}
     config = {
         "view": mcp_apps.view_html(name),
         "result": result,
@@ -189,6 +210,7 @@ def run_view(
         "tools": tools or {},
         "capabilities": HOST_CAPABILITIES if capabilities is None else capabilities,
         "refuse": list(refuse),
+        "hostContext": {key: value for key, value in context.items() if value is not None},
     }
     head, tail = _PAGE.split("@SCENARIO@")
     page = head.replace("@CONFIG@", json.dumps(config).replace("<", "\\u003c")) + scenario + tail
@@ -220,6 +242,8 @@ def run_view(
     # Popen because conftest forbids general subprocess.run network helpers. The
     # browser gets a private home and no inherited environment.
     environment = {"HOME": str(tmp_path), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    if browser_tz is not None:
+        environment["TZ"] = browser_tz
     with subprocess.Popen(
         command,
         env=environment,

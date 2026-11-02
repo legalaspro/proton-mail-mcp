@@ -55,14 +55,26 @@ def settings(**overrides):
     return Settings(**{**values, **overrides})
 
 
-def test_views_read_their_data_only_from_the_result_meta():
+def test_views_read_their_data_from_the_result_or_again_through_their_own_tool():
     bridge = mcp_apps.view_html("thread").split("var PMM = (function", 1)[1]
     assert f'var VIEW_KEY = "{mcp_apps.VIEW_META_KEY}";' in bridge
-    assert "result._meta" in bridge.split("function viewData", 1)[1].split("\n  }", 1)[0]
+    view_data_code = bridge.split("function viewData", 1)[1].split("\n  }", 1)[0]
+    assert "result._meta" in view_data_code
+    # A host may pass the data on as structuredContent; the server never sends any.
+    assert "structured(result)" in view_data_code
+    # The re-read calls only the view's own tool, with the arguments of the host's tool-input.
+    reread = bridge.split("function startReread", 1)[1].split("\n  }\n", 1)[0]
+    assert "callTool(VIEW_TOOL, args," in reread
+    assert "waitForInput(" in reread
+    assert bridge.count("callTool(") == 2  # its definition and the re-read
     for name in mcp_apps.VIEWS:
         code = assert_self_contained_view(mcp_apps.view_html(name), allowed_iframes=True)
+        assert f'var VIEW_TOOL = "{mcp_apps.VIEW_TOOLS[name]}";' in code
+        assert f'var VIEW_NAME = "{name}";' in code
         view_script = code.split("var PMM = (function", 1)[1].split("})();", 1)[1]
-        assert "PMM.viewData(result)" in view_script
+        assert "PMM.load(result)" in view_script
+        assert "PMM.retry()" in view_script
+        assert "PMM.viewData(" not in view_script
         assert "structuredContent" not in view_script
     # Only the composer reads structuredContent: create_draft's own result.
     reply = mcp_apps.view_html("reply").split("var PMM = (function", 1)[1].split("})();", 1)[1]
@@ -142,7 +154,7 @@ def test_initialized_http_session_reads_thread_view_with_and_without_extension(c
     ]
 
 
-def test_views_may_call_only_create_draft():
+def test_views_may_call_only_create_draft_and_the_read_only_view_tools():
     send = settings(enable_send=True, send_from_allowlist=("bridge@example.test",))
     by_name = {tool.name: tool for tool in asyncio.run(create_mcp(send, NoMail()).list_tools())}
     restricted = {
@@ -150,25 +162,28 @@ def test_views_may_call_only_create_draft():
         for name, tool in by_name.items()
         if tool.meta is not None and tool.meta["ui"]["visibility"] == ["model"]
     }
-    assert mcp_apps.VIEW_CALLABLE == {"create_draft"}
-    assert restricted == set(by_name) - mcp_apps.VIEW_CALLABLE
-    # Every tool that issues or redeems a token, or changes mail, is model-only.
-    assert MODEL_ONLY | {"preview_send", "send_draft"} <= restricted
-    # So is every tool that reads mail, including the view tools: hosts render
-    # their views when the model calls them but refuse calls from views.
-    assert {"read_thread", "search_mail", "count_mail", "list_actions"} <= restricted
     linked = {
         "show_thread": mcp_apps.THREAD_URI,
         "compose_reply": mcp_apps.REPLY_URI,
         "review_send": mcp_apps.REVIEW_SEND_URI,
     }
-    for name in restricted - set(linked):
+    assert set(mcp_apps.VIEW_TOOLS.values()) == set(linked)
+    assert mcp_apps.VIEW_CALLABLE == {"create_draft", *linked}
+    assert restricted == set(by_name) - mcp_apps.VIEW_CALLABLE
+    # Every tool that issues or redeems a token, or changes mail, is model-only.
+    assert MODEL_ONLY | {"preview_send", "send_draft"} <= restricted
+    # So is every other tool that reads mail: a view reads only through its own view tool.
+    assert {"read_thread", "search_mail", "count_mail", "list_actions"} <= restricted
+    for name in restricted:
         assert by_name[name].meta == {"ui": {"visibility": ["model"]}}
+    # A view tool's view may call it again for data its host left out. Each reads only and
+    # issues no token.
     for name, uri in linked.items():
         assert by_name[name].meta == {
-            "ui": {"resourceUri": uri, "visibility": ["model"]},
+            "ui": {"resourceUri": uri, "visibility": ["model", "app"]},
             "ui/resourceUri": uri,
         }
+        assert by_name[name].annotations.readOnlyHint is True
     # The reply composer saves unsent drafts through the existing tool.
     assert by_name["create_draft"].meta is None
 
@@ -179,11 +194,39 @@ def test_views_call_only_the_tools_views_may_call():
         for name in mcp_apps.VIEWS
     }
     assert called == {
-        "thread": set(),
-        "reply": {"create_draft"},
-        "review_send": set(),
+        "thread": {"show_thread"},
+        "reply": {"compose_reply", "create_draft"},
+        "review_send": {"review_send"},
     }
     assert set().union(*called.values()) == mcp_apps.VIEW_CALLABLE
+
+
+def test_requests_to_see_or_answer_mail_are_routed_to_the_views_first():
+    send = settings(enable_send=True, send_from_allowlist=("bridge@example.test",))
+    mcp = create_mcp(send, NoMail())
+    by_name = {tool.name: tool.description for tool in asyncio.run(mcp.list_tools())}
+    # The routing sentence comes first, so clients that cut descriptions keep it.
+    first = {name: text.split("\n\n", 1)[0].replace("\n", " ") for name, text in by_name.items()}
+    assert first["show_thread"] == (
+        "Show an email or thread to the user in a read-only view: the default for any request "
+        "to show, open, read, look at or display mail."
+    )
+    assert first["compose_reply"] == (
+        "Open a reply or new-draft composer: the default for any request to reply, draft a "
+        "reply, write back or compose."
+    )
+    assert first["read_thread"] == (
+        "Text-only, for analysis/summaries without a view; if show_thread is listed and the "
+        "user wants to see or open mail, call show_thread instead."
+    )
+    assert first["create_draft"] == (
+        "No-view path; if compose_reply is listed and the user wants to reply or compose, call "
+        "compose_reply first."
+    )
+    assert "show_thread, not read_thread" in mcp.instructions
+    assert "compose_reply, not create_draft" in mcp.instructions
+    plain = create_mcp(settings(apps_enabled=False), NoMail())
+    assert "show_thread" not in plain.instructions
 
 
 def test_disabling_apps_restores_the_plain_tool_surface():

@@ -301,8 +301,8 @@ than that grace for a step that has not returned, such as a relatives search tha
 no watchdog can interrupt; it carries the messages already read and reports the
 timeout even if that step returns within the grace. Headers use partial PEEK
 reads capped at 32,768 bytes per message. Text uses at most 16
-partial `BODY.PEEK[section]<0.N>` reads sharing a 65,536-byte raw fetch budget
-and a 65,536-character output cap; attachments are metadata only. Messages report
+partial `BODY.PEEK[section]<0.N>` reads sharing a 262,144-byte raw fetch budget
+and a 262,144-character output cap; attachments are metadata only. Messages report
 `size_bytes` (RFC822.SIZE), `body_size_bytes` (the preferred text parts' encoded
 size), `body_fetched_bytes`, `body_limit_bytes`, `body_parts_fetched` and
 `body_parts_limit`, plus `headers_fetched_bytes` and `headers_truncated`.

@@ -71,7 +71,7 @@ def forbid_network(monkeypatch, tmp_path):
     monkeypatch.setattr(socket.socket, "connect_ex", fail)
     monkeypatch.setattr(socket, "create_connection", fail)
     monkeypatch.setattr(socket, "getaddrinfo", fail)
-    # make_msgid asks the system for this name; a macOS runner took 70 s to answer once.
+    # Nothing may ask the system for this name; a macOS runner took 70 s to answer once.
     monkeypatch.setattr(socket, "getfqdn", lambda name="": "test.invalid")
     monkeypatch.setattr(subprocess, "run", fail)
     for name in tuple(os.environ):

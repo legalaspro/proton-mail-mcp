@@ -8,6 +8,7 @@ import re
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import localfs
 from .send_address import is_bare_address
@@ -135,6 +136,8 @@ class Settings:
     confirm_timeout: float = 120.0
     # MCP Apps views (ui:// resources and their view tools); 0 restores the plain tool list.
     apps_enabled: bool = True
+    # IANA zone for the local times in results; None means this computer's time zone.
+    time_zone: str | None = None
     enable_send: bool = False
     smtp_host: str = "127.0.0.1"
     smtp_port: int = 1025
@@ -158,6 +161,11 @@ class Settings:
     def no_form_clients(self) -> tuple[str, ...]:
         """Client names to treat as having no form; none with the typed OK switched off."""
         return self.send_typed_ok_clients if self.send_typed_ok is True else ()
+
+    @property
+    def display_zone(self) -> ZoneInfo | None:
+        """The zone of date_local and quoted dates; None is this computer's local time zone."""
+        return ZoneInfo(self.time_zone) if self.time_zone else None
 
     @property
     def background_sync_active(self) -> bool:
@@ -252,6 +260,13 @@ class Settings:
             raise ConfigError("PROTON_MCP_CONFIRM_MUTATIONS must be boolean")
         if type(self.apps_enabled) is not bool:
             raise ConfigError("PROTON_MCP_APPS_ENABLED must be boolean")
+        if self.time_zone is not None:
+            try:
+                ZoneInfo(self.time_zone)
+            except (TypeError, ValueError, ZoneInfoNotFoundError):
+                raise ConfigError(
+                    "PROTON_MCP_TIMEZONE must be an IANA time zone name such as Europe/Berlin"
+                ) from None
         if (
             isinstance(self.confirm_timeout, bool)
             or not isinstance(self.confirm_timeout, (int, float))
@@ -432,6 +447,7 @@ class Settings:
                 apps_enabled=_flag(
                     {"PROTON_MCP_APPS_ENABLED": "1", **values}, "PROTON_MCP_APPS_ENABLED"
                 ),
+                time_zone=values.get("PROTON_MCP_TIMEZONE") or None,
                 enable_send=_flag(values, "PROTON_MCP_ENABLE_SEND"),
                 smtp_host=values.get("PROTON_BRIDGE_SMTP_HOST", "127.0.0.1"),
                 smtp_port=int(values.get("PROTON_BRIDGE_SMTP_PORT", "1025")),

@@ -723,6 +723,19 @@ def _draft_message_id(value: str) -> str:
     return value
 
 
+# A Message-ID needs a domain. Without one, make_msgid looks up and discloses this
+# machine's name, such as a reverse-DNS ip6.arpa name.
+_MESSAGE_ID_FALLBACK_DOMAIN = "proton-mail-mcp.invalid"
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_DOMAIN = re.compile(rf"(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})+")
+
+
+def _message_id_domain(sender: str) -> str:
+    """The domain of a draft's bare From address, never the machine's hostname."""
+    domain = sender.rpartition("@")[2]
+    return domain.lower() if _DOMAIN.fullmatch(domain) else _MESSAGE_ID_FALLBACK_DOMAIN
+
+
 def _addresses(value: str | list[str] | None, required: bool = False) -> str:
     if value is None:
         value = ""
@@ -1914,13 +1927,14 @@ class MailClient:
                     "Draft From must be one unambiguous ASCII address"
                 ) from None
             message = EmailMessage(policy=policy.SMTP)
-            message["From"] = from_address or senders[0]
+            sender = from_address or senders[0]
+            message["From"] = sender
             message["To"] = recipient
             if carbon:
                 message["Cc"] = carbon
             message["Subject"] = subject
             message["Date"] = formatdate(usegmt=True)
-            message["Message-ID"] = make_msgid()
+            message["Message-ID"] = make_msgid(domain=_message_id_domain(sender))
             if in_reply_to:
                 message["In-Reply-To"] = in_reply_to
                 message["References"] = " ".join(dict.fromkeys([*references, in_reply_to]))

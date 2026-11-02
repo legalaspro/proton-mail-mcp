@@ -487,6 +487,15 @@
     render();
   }
 
+  function failed(error) {
+    document.getElementById("subject").textContent = "The thread could not be loaded";
+    PMM.clear(document.getElementById("banners")).appendChild(
+      PMM.loadFailure(error.message, function () {
+        PMM.retry().then(show, failed);
+      })
+    );
+  }
+
   var expand = document.getElementById("expand");
   expand.addEventListener("click", function () {
     var mode = PMM.state.hostContext.displayMode === "fullscreen" ? "inline" : "fullscreen";
@@ -508,7 +517,7 @@
             }
             return;
           }
-          show(PMM.viewData(result));
+          PMM.load(result).then(show, failed);
         },
         toolCancelled: function () {
           document.getElementById("subject").textContent = "The thread read was cancelled";

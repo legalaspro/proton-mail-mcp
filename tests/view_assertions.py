@@ -117,8 +117,14 @@ def view_data(result):
 
 
 def tool_calls(code):
-    """Tool names a view script calls through the host."""
-    return set(re.findall(r'callTool\(\s*"([a-z_]+)"', code))
+    """Tool names a view script calls through the host: by name, or its own view tool."""
+    named = set(re.findall(r'callTool\(\s*"([a-z_]+)"', code))
+    own = (
+        set(re.findall(r'var VIEW_TOOL = "([a-z_]+)";', code))
+        if "callTool(VIEW_TOOL" in code
+        else set()
+    )
+    return named | own
 
 
 def host_requests(code):

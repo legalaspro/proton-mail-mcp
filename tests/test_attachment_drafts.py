@@ -74,7 +74,7 @@ def sending_client(rig, monkeypatch, folder=None, source=None):
         yield fake, Credentials(SENDER, "synthetic-password")
 
     monkeypatch.setattr(mail, "_session", session)
-    monkeypatch.setattr("proton_mail_mcp.mail.make_msgid", lambda: DRAFT_ID)
+    monkeypatch.setattr("proton_mail_mcp.mail.make_msgid", lambda domain: DRAFT_ID)
     mail.credentials_provider = rig.client.credentials_provider
     service = SendService(mail, configured, tokens=rig.tokens, log=rig.log)
     rig.service = service

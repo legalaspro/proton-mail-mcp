@@ -12,10 +12,10 @@ tool's arguments are in the [tool reference](tools.md).
 | [`read_attachment`](tools.md#read_attachment) | Read-only: text from a PDF, TXT or CSV, in pieces of 65,536 characters (`next_offset` continues), or an image as image content. At most 10 MiB, images 5 MiB. |
 | [`save_attachment`](tools.md#save_attachment) | Saves one attachment, at most 25 MiB, as a new private file in `PROTON_MCP_ATTACHMENTS_DIR`. Never overwrites and never writes anywhere else. Audited, without file names or content. |
 
-A new draft's `Message-ID` ends in this computer's host name: Python's
-`email.utils.make_msgid` takes it from `socket.getfqdn()`, so on a host without a domain name,
-such as a container, it may end in `@localhost` or the bare host name. The part before the
-`@` is random, so each ID stays unique.
+A new draft's `Message-ID` ends in the domain of its From address, such as `@proton.me`, never in
+this computer's host name, which could disclose the machine or its network address. A From domain
+that is not a plain DNS name gives `@proton-mail-mcp.invalid` instead. The part before the `@` is
+random, so each ID stays unique.
 
 ## Attachments
 
@@ -95,7 +95,7 @@ unsent draft with a `Fwd:` subject, the note, the original's From, Date, Subject
 Cc lines and its text, and copies of exactly the listed attachments, byte for byte.
 `attachments` is required, so forwarding one has to be chosen; `[]` forwards none. The
 result names what went in (`attachments`) and what stayed out (`not_forwarded`). The
-original's text is cut at `read_thread`'s 65,536-byte limit, and the draft and `warnings`
+original's text is cut at `read_thread`'s 262,144-byte limit, and the draft and `warnings`
 say so. If that text cannot be fetched, or the original's selected headers exceed 32 KiB,
 the forward refuses and writes no draft, rather than saving one without the text. The draft
 has no `In-Reply-To`, so it does not join the original's thread.

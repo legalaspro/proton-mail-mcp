@@ -23,6 +23,7 @@ from proton_mail_mcp import attachments as attachments_module
 from proton_mail_mcp.action_log import ActionLog
 from proton_mail_mcp.mail import CallDeadlineExceeded, MailValidationError
 from proton_mail_mcp.server import create_mcp
+from proton_mail_mcp.threading import MAX_THREAD_BODY_BYTES
 from proton_mail_mcp.views import forward_fields
 
 PDF = b"%PDF-1.4 chosen \x00\xff bytes"
@@ -111,7 +112,7 @@ def test_an_html_only_original_is_forwarded_as_its_text(rig, monkeypatch):
 
 
 def test_a_cut_original_is_marked_in_the_draft_and_the_result(rig, monkeypatch):
-    long_text = b"x" * 70000
+    long_text = b"x" * (MAX_THREAD_BODY_BYTES + 5000)
     mail, fake, _ = sending_client(rig, monkeypatch, source=source_mail(text=long_text))
     result = forward(mail, attachments=[])
     assert result["warnings"] == [

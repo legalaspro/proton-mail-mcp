@@ -412,6 +412,22 @@
     status("");
   });
 
+  function show(view) {
+    if (view && view.view === "reply" && view.draft) {
+      data = view;
+      render();
+    }
+  }
+
+  function failed(error) {
+    document.getElementById("heading").textContent = "The composer could not be loaded";
+    PMM.clear(document.getElementById("warnings")).appendChild(
+      PMM.loadFailure(error.message, function () {
+        PMM.retry().then(show, failed);
+      })
+    );
+  }
+
   PMM.connect(
     { name: "proton-mail-reply", version: "1" },
     {
@@ -423,11 +439,7 @@
             if (content.length && typeof content[0].text === "string") status(content[0].text, "error");
             return;
           }
-          var view = PMM.viewData(result);
-          if (view && view.view === "reply" && view.draft) {
-            data = view;
-            render();
-          }
+          PMM.load(result).then(show, failed);
         },
       },
       displayModes: ["inline"],

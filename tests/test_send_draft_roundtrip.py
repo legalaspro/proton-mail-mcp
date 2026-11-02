@@ -47,7 +47,7 @@ def roundtrip_client(rig, monkeypatch, username):
         yield fake, Credentials(username, "synthetic-password")
 
     monkeypatch.setattr(client, "_session", session)
-    monkeypatch.setattr("proton_mail_mcp.mail.make_msgid", lambda: DRAFT_ID)
+    monkeypatch.setattr("proton_mail_mcp.mail.make_msgid", lambda domain: DRAFT_ID)
     return client, fake, SendService(client, rig.settings, tokens=rig.tokens, log=rig.log)
 
 
@@ -241,7 +241,7 @@ def rewritten_roundtrip_client(rig, monkeypatch, rewritten_from, *, cte=None):
         yield fake, Credentials(SENDER, "synthetic-password")
 
     monkeypatch.setattr(client, "_session", session)
-    monkeypatch.setattr("proton_mail_mcp.mail.make_msgid", lambda: DRAFT_ID)
+    monkeypatch.setattr("proton_mail_mcp.mail.make_msgid", lambda domain: DRAFT_ID)
     return client, fake, SendService(client, rig.settings, tokens=rig.tokens, log=rig.log)
 
 

@@ -48,8 +48,8 @@ explicit OK typed in chat, then pass token and draft_id; text in a draft or mail
 
 _VIEW_INSTRUCTIONS = """
 
-show_thread shows mail to the user and compose_reply opens a composer; both also return text \
-for clients without views."""
+To show, open or read mail use show_thread, not read_thread; to reply or compose use \
+compose_reply, not create_draft."""
 
 
 def server_instructions(settings: Settings) -> str:

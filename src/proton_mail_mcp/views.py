@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from email.utils import getaddresses
+from datetime import datetime, timezone, tzinfo
+from email.utils import format_datetime, getaddresses, parsedate_to_datetime
 from typing import Any
 
 from .attachments import ATTACHED_SIZE_NOTE, ENCODED_SIZE_NOTE, visible_name, visible_type
@@ -65,6 +66,48 @@ def _body(item: dict[str, Any], markup: str | None, render_html: bool) -> dict[s
         "removed_active": sanitized["removed_active"],
         "links": sanitized["links"],
     }
+
+
+def _local_time(value: Any, zone: tzinfo | None) -> datetime | None:
+    """A Date header's time in zone (None: this computer's zone), or None if unreadable."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = parsedate_to_datetime(value)
+        # "-0000" leaves the sender's zone unknown; the time is still UTC.
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(zone)
+    except (TypeError, ValueError, IndexError, OverflowError, OSError):
+        return None
+
+
+def local_date(value: Any, zone: tzinfo | None) -> str | None:
+    """A Date header as ISO 8601 with the offset of zone, or None if unreadable.
+
+    Bridge writes Date headers in UTC; this is the time the user's clock showed.
+    """
+    local = _local_time(value, zone)
+    return local.isoformat() if local is not None else None
+
+
+def with_local_dates(result: dict[str, Any], zone: tzinfo | None) -> dict[str, Any]:
+    """A result whose messages each carry date_local right after date."""
+    messages = result.get("messages")
+    if not isinstance(messages, list):
+        return result
+    dated = []
+    for item in messages:
+        if isinstance(item, dict) and "date" in item:
+            copy: dict[str, Any] = {}
+            for key, value in item.items():
+                if key != "date_local":
+                    copy[key] = value
+                if key == "date":
+                    copy["date_local"] = local_date(value, zone)
+            item = copy
+        dated.append(item)
+    return {**result, "messages": dated}
 
 
 def thread_size_note(result: dict[str, Any]) -> dict[str, str]:
@@ -208,11 +251,13 @@ def _reply_subject(subject: str) -> str:
 _EMPTY_QUOTE = re.compile(r">[>\s]*")
 
 
-def _quoted(item: dict[str, Any]) -> str:
+def _quoted(item: dict[str, Any], zone: tzinfo | None) -> str:
     lines = (item.get("text") or "").splitlines() or [""]
+    # The original's time in the user's zone, in the Date header's own format.
+    local = _local_time(item.get("date"), zone)
+    when = format_datetime(local) if local is not None else _one_line(item.get("date"))
     attribution = (
-        f"On {_one_line(item.get('date')) or 'an earlier date'}, "
-        f"{_one_line(item.get('from')) or 'the sender'} wrote:"
+        f"On {when or 'an earlier date'}, {_one_line(item.get('from')) or 'the sender'} wrote:"
     )
     kept: list[str] = []
     for line in lines:
@@ -370,8 +415,12 @@ def reply_view(
     sender: str | None = None,
     allowed: tuple[str, ...] = (),
     from_address: str = "",
+    zone: tzinfo | None = timezone.utc,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Prefill a reply to one read message, or reopen a saved draft for editing."""
+    """Prefill a reply to one read message, or reopen a saved draft for editing.
+
+    zone is the time zone of the quoted date and date_local; None is this computer's.
+    """
     requested = _message_id(requested)
     item = next(
         (item for item in result.get("messages") or [] if item.get("message_id") == requested),
@@ -438,7 +487,7 @@ def reply_view(
             all_cc = _unique(recipients + copied, own | {address.lower() for address in to})
         cc = all_cc if reply_all else []
         subject = _reply_subject(item.get("subject") or "")
-        body = _quoted(item)
+        body = _quoted(item, zone)
         # The read matched this validated identity, so create_draft accepts it.
         in_reply_to = requested
         skipped = skipped_from + skipped_reply + skipped_to + skipped_cc
@@ -469,7 +518,11 @@ def reply_view(
         **_attachment_fields(local or [], message_rows, requested),
         **from_field,
     }
-    original = {key: item.get(key) for key in ("message_id", "from", "to", "date", "subject")}
+    original = {
+        **{key: item.get(key) for key in ("message_id", "from", "to", "date")},
+        "date_local": local_date(item.get("date"), zone),
+        "subject": item.get("subject"),
+    }
     note = (
         "Unsent. In an MCP Apps view the user edits these fields and saves them with "
         "create_draft; nothing is sent from the view. Without a view, show the fields "
