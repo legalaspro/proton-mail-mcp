@@ -3,7 +3,8 @@
 import re
 from dataclasses import dataclass
 
-PACKAGE = "proton-mail-mcp"
+# The distribution's name on an index, which is not the command's.
+PACKAGE = "mcp-proton-mail"
 MARKER = "Managed by proton-mail-mcp installer"
 # Created inside directories the installer owns. The installer never deletes them; it
 # prints how to remove one by hand only when this marker is there.

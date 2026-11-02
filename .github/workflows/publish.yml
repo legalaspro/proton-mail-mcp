@@ -1,0 +1,85 @@
+name: Publish
+
+# Builds the package from a v* tag and publishes it to PyPI with Trusted Publishing: PyPI trusts
+# this file, in the public release repo, in the pypi environment, so no token is stored anywhere.
+# Every job runs only in that repo; in the private dev repo a tag or a release starts nothing.
+# docs/ci.md says how PyPI is set up for it, and what stays a manual step.
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+
+# A release made with a new tag can fire both events. The second run waits for the first, then
+# finds the files on PyPI and skips them.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # A release on a tag that does not start with v skips here, and so does publish.
+    if: github.repository == 'legalaspro/proton-mail-mcp' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install uv==0.13.6
+      # uv builds the wheel from the sdist, so a file the sdist leaves out fails here.
+      - run: uv build --out-dir dist
+      - name: The tag, the files and server.json name one version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'EOF'
+          import json
+          import os
+          from pathlib import Path
+
+          tag = os.environ["TAG"]
+          assert tag.startswith("v"), tag
+          version = tag.removeprefix("v")
+          # uv adds a .gitignore; the upload leaves hidden files out.
+          built = sorted(path.name for path in Path("dist").glob("[!.]*"))
+          expected = sorted(
+              [f"mcp_proton_mail-{version}.tar.gz", f"mcp_proton_mail-{version}-py3-none-any.whl"]
+          )
+          assert built == expected, (built, expected)
+          server = json.loads(Path("server.json").read_text(encoding="utf-8"))
+          assert server["version"] == version == server["packages"][0]["version"], server
+          EOF
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    # The only job that can publish: it alone may ask GitHub for an OIDC token, and it checks
+    # nothing out, so it runs no code from the repository.
+    if: github.repository == 'legalaspro/proton-mail-mcp'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/mcp-proton-mail
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          skip-existing: true

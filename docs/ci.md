@@ -1,8 +1,8 @@
 # CI
 
-What GitHub Actions runs, where, and what it costs. The same workflow files run in a private dev
-repo, where every minute is billed, and in the public release repo: they stay cheap in the first and
-full in the second.
+What GitHub Actions runs, where and at what cost, and how a release reaches PyPI. The same
+workflow files run in a private dev repo, where every minute is billed, and in the public release
+repo: they stay cheap in the first and full in the second, and only the second publishes.
 
 ## Two repos, one set of workflows
 
@@ -11,7 +11,8 @@ full in the second.
 | Minutes | billed | free on hosted runners |
 | Pull request | one Linux and one Windows job, Python 3.12, `not slow` | the same |
 | Push to `main` | Linux with slow tests, Windows `not slow`; the installer workflow if its paths changed | the same, and a Full run |
-| `v*` tag | nothing | Full run with the installer workflow |
+| `v*` tag | nothing | Full run with the installer workflow, and [Publish](#publishing-to-pypi) |
+| Published GitHub release | nothing | [Publish](#publishing-to-pypi) |
 | Every Monday | nothing | Full run with the installer workflow |
 | Full run | by hand only | also by hand |
 | Full run covers | Linux and Windows, Python 3.12 and 3.14 | Linux, Windows and macOS, Python 3.12, 3.13 and 3.14 |
@@ -26,14 +27,16 @@ github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.vis
 
 It needs both parts, so it stays false in the dev repo, in forks, and in the release repo whenever
 that repo is not public. Where it is false, test macOS by hand (see [install.md](install.md)). The
-last macOS run passed on 1 Nov 2026 on Python 3.12 and 3.14.
+public Full run of 2 Nov 2026 ran macOS on Python 3.12, 3.13 and 3.14: two tests failed there, both
+fixed since in the tests themselves, and the fixes have not run on macOS yet.
 
 Don't write this as `github.event.repository.private == false`: GitHub converts a missing value to
 0, and false to 0, so that is true on any event with no `repository`. A string comparison fails
 closed. `tests/test_ci_workflows.py` holds every workflow to this.
 
-Nobody has run this condition in a public repo yet. On the first Monday, tag or `main` push there,
-check that the macOS jobs ran rather than showing as skipped. GitHub's documents don't confirm that
+This condition first ran in the public repo on 2 Nov 2026, in a Full run started by hand, and the
+macOS jobs ran. On the first Monday, tag or `main` push there, check that they ran rather than
+showing as skipped. GitHub's documents don't confirm that
 `visibility` is present on a `schedule` event; if it isn't, the Monday run skips without warning,
 though it can't overspend. The release repo also needs these workflow files: this repo's pull
 requests do not put them there.
@@ -144,13 +147,79 @@ make check JOBS=2                       # as many workers as a private runner ha
 make check JOBS=0                       # one process, for debugging
 ```
 
+## Publishing to PyPI
+
+`publish.yml` publishes a release to PyPI with
+[Trusted Publishing](https://docs.pypi.org/trusted-publishers/): PyPI trusts this workflow, in the
+public repo and the `pypi` environment, through a short-lived OIDC token from GitHub, so no PyPI
+token is stored anywhere.
+
+- **When:** a pushed `v*` tag, or a published GitHub release on a `v*` tag; a release on any other
+  tag skips. A release made with a new tag can start both; the second run waits for the first,
+  finds the files on PyPI and skips them. So a green run for a version already on PyPI uploaded
+  nothing; its log says so.
+- **Where:** each job runs only if `github.repository == 'legalaspro/proton-mail-mcp'`, so a tag
+  or a release in this repo or in a fork starts nothing. It leaves out the macOS gate's
+  `visibility` check, which is about billing; PyPI trusts only that repository anyway.
+  `tests/test_ci_workflows.py` holds the workflow to this, and `tests/test_cli_dispatch.py` keeps
+  every other file from uploading. This gate is in the file, though: someone who can push a branch
+  could change it there, so the `pypi` environment's tag rule below is what holds publishing to
+  tags.
+- **Build:** `uv build` makes the sdist and builds the wheel from it. The job stops unless the tag
+  is `v` followed by the version that both file names and both versions in `server.json` carry,
+  then hands the two files on as an artifact.
+- **Publish:** only this job may ask for an OIDC token (`id-token: write`). It checks nothing out
+  and runs no code from the repository: `pypa/gh-action-pypi-publish` uploads the files, with
+  attestations.
+- **Not waited for:** the tag also starts a Full run, and publishing does not wait for it. Tag a
+  commit whose Full run passed; the `pypi` environment's required reviewer holds the upload until
+  it has.
+
+### Setting it up, once, by hand
+
+On PyPI, under **Your account**, **Publishing**, add a pending GitHub publisher:
+
+| Field | Value |
+| --- | --- |
+| PyPI project name | `mcp-proton-mail` |
+| Owner | `legalaspro` |
+| Repository name | `proton-mail-mcp` |
+| Workflow name | `publish.yml` |
+| Environment name | `pypi` |
+
+The project name is not the repository's: PyPI refuses `proton-mail-mcp` as too close to an
+existing project's name. A pending publisher does not reserve the name: until the first upload,
+someone else could still take `mcp-proton-mail` on PyPI.
+
+In the public repo, under **Settings**, **Environments**, create `pypi`, limit its deployments to
+tags matching `v*`, and add a required reviewer. PyPI's trust names the repository, the workflow
+file and the environment, not the branch or tag, so without the tag rule a run on any branch whose
+`publish.yml` was edited could publish. The reviewer approves an upload only after the tag's Full
+run has passed: a version on PyPI cannot be replaced. Recommended as well: a tag ruleset that lets
+only maintainers create `v*` tags.
+
+### The MCP Registry, by hand
+
+Nothing here lists the server in the [MCP Registry](https://registry.modelcontextprotocol.io/).
+The registry checks that the PyPI package exists and that its README carries the `mcp-name` line,
+so list it once PyPI shows the version, from a checkout of the tag in the public repo:
+
+```sh
+mcp-publisher login github   # signs in as legalaspro, which owns io.github.legalaspro/*
+mcp-publisher publish        # reads server.json
+```
+
+It stays by hand because `mcp-publisher` is a downloaded program, not an action pinned to a commit,
+and has to wait for PyPI.
+
 ## Pinned tools
 
-Every action is pinned to a full commit, with its version in a comment, and every checkout sets
-`persist-credentials: false`, because the public repo runs these on pull requests from forks.
-Dependabot proposes new pins weekly in the release repo. uv is pinned to one version, in
-`check.yml` and in both places in `installer.yml`, which Dependabot does not update. Change them
-together; `tests/test_ci_workflows.py` holds all three to one version.
+Every action is pinned to a full commit, with its version in a comment, every checkout sets
+`persist-credentials: false`, and every workflow starts from `contents: read`, because the public
+repo runs these on pull requests from forks. Dependabot proposes new pins weekly in the release
+repo. uv is pinned to one version, in `check.yml`, in both places in `installer.yml` and in
+`publish.yml`, which Dependabot does not update. Change them together;
+`tests/test_ci_workflows.py` holds all four to one version.
 
 `actions/setup-python` no longer sets `check-latest: true`. Jobs use the patch release already on
 the runner rather than look for a newer one, which skips a lookup and sometimes a download. A new

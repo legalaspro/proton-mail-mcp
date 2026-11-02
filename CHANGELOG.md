@@ -151,6 +151,11 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   contributing guide, a code of conduct, issue and pull request templates that ask for redacted
   details, and, in the public repository, Dependabot updates for the Python dependencies and the
   workflows' actions, which are now pinned to full commits.
+- **A workflow that publishes a tagged release to PyPI.** In the public repository only, a `v*` tag
+  or a published GitHub release on one builds the sdist and wheel, checks that the tag, the files
+  and `server.json` name one version, and uploads them with PyPI's Trusted Publishing, so no token
+  is stored. Nothing is published until PyPI trusts the workflow and a release is tagged; the MCP
+  Registry listing stays a step by hand. [CI](docs/ci.md#publishing-to-pypi) has the setup.
 - **`proton-mail-mcp connect`.** A local stdio MCP server that relays every message, unchanged, to
   the installed service, and reads the bearer token from the credential store each time it starts,
   so a client's config holds no token. It replaces `npx mcp-remote` for Claude Desktop, so no
@@ -266,7 +271,7 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   attachments, where saving an edit used to leave them out, and a saved draft's in a reply.
   It lists a reply's original attachments for the user to tick, and takes `attachments`
   in any mode. `not_copied` now lists only Bcc recipients.
-- **`pipx install proton-mail-mcp` or `uvx proton-mail-mcp`, then `proton-mail-mcp setup`.**
+- **`pipx install mcp-proton-mail` or `uvx mcp-proton-mail`, then `proton-mail-mcp setup`.**
   The package is version 1.0.0 with complete metadata and an Apache-2.0 `LICENSE`. The
   `proton-mail-mcp` command now dispatches: with no arguments or `serve` it starts the
   server as before, while `setup`, `uninstall`, `show-token` and `detect` run the installer
@@ -620,6 +625,13 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Changed
 
+- **The PyPI package is named `mcp-proton-mail`.** PyPI refuses `proton-mail-mcp` as too close to
+  another project's name. Once it is published, `uvx mcp-proton-mail setup` and
+  `pipx install mcp-proton-mail` install it, and `server.json` names it for the MCP Registry. The
+  package installs the `proton-mail-mcp` command as before, and the same command as
+  `mcp-proton-mail`, which `uvx mcp-proton-mail` runs. The repository, the `proton_mail_mcp` module,
+  the services and every path keep their names. A wheel is now
+  `mcp_proton_mail-<version>-py3-none-any.whl`, the name `setup --source` takes. See Upgrade notes.
 - **The install docs no longer say the repository is private.** The README, `llms-install.md`,
   `llms.txt`, `docs/install.md` and `docs/windows.md` clone it with
   `git clone https://github.com/legalaspro/proton-mail-mcp.git`, which needs no GitHub account or
@@ -1019,6 +1031,10 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Upgrade notes
 
+- A service environment that setup made before the package was renamed keeps the old
+  `proton-mail-mcp` record beside `mcp-proton-mail` after a rerun, and the service runs the new
+  copy. Do not `pip uninstall proton-mail-mcp` in it: both records list the same files. To start
+  clean, move the environment away and rerun setup, which makes a new one.
 - With `PROTON_MCP_SEND_SELF_NO_FORM=1`, an address of yours that should keep skipping the
   form must be `PROTON_BRIDGE_USER` or on `PROTON_MCP_SEND_FROM`. Any other address now takes
   the form, or the typed OK on a client without a form.

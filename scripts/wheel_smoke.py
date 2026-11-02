@@ -387,14 +387,14 @@ class Smoke:
     def build(self) -> Path:
         out = self.work / "dist"
         self.run("uv", "build", "--wheel", "--out-dir", out, ROOT)
-        wheels = sorted(out.glob("proton_mail_mcp-*.whl"))
+        wheels = sorted(out.glob("mcp_proton_mail-*.whl"))
         self.check(len(wheels) == 1, f"uv build made one wheel: {wheels[0].name}")
         return wheels[0]
 
     def inspect(self, wheel: Path) -> None:
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
-            info = f"proton_mail_mcp-{version_of(wheel)}.dist-info"
+            info = f"mcp_proton_mail-{version_of(wheel)}.dist-info"
             metadata = archive.read(f"{info}/METADATA").decode()
             entry_points = archive.read(f"{info}/entry_points.txt").decode()
         package = ROOT / "src" / "proton_mail_mcp"
@@ -423,7 +423,7 @@ class Smoke:
             "the examples are package data",
         )
         for field in (
-            "Name: proton-mail-mcp",
+            "Name: mcp-proton-mail",
             "License-Expression: Apache-2.0",
             "Classifier: License :: OSI Approved :: Apache Software License",
             "Author-email: Dmitri Manajev <dmitri@manajev.com>",
@@ -435,8 +435,9 @@ class Smoke:
             self.check(field in metadata, f"metadata has {field}")
         self.check(
             "proton-mail-mcp = proton_mail_mcp.cli:main" in entry_points
+            and "mcp-proton-mail = proton_mail_mcp.cli:main" in entry_points
             and "proton-mail-mcp-service = proton_mail_mcp.service_entry:main" in entry_points,
-            "the entry points are the dispatcher and the unchanged service launcher",
+            "the entry points are the dispatcher, under both names, and the service launcher",
         )
 
     def stand_ins(self) -> None:
@@ -622,7 +623,7 @@ class Smoke:
                 seen = Path(f"/proc/{pid}/{part}").read_bytes().decode("utf-8", "replace")
                 self.no_secret(seen, token, f"the {name} service's {part}")
         python = venv / "bin" / "python"
-        code_check = "import importlib.metadata as m; print(m.version('proton-mail-mcp'))"
+        code_check = "import importlib.metadata as m; print(m.version('mcp-proton-mail'))"
         version = self.run(python, "-I", "-c", code_check)
         self.check(version.strip() == VERSION, "the private venv runs this version")
         self.check((venv / "bin" / "proton-mail-mcp").exists(), "the private venv has the command")
@@ -847,7 +848,7 @@ class Smoke:
         other.mkdir()
         with_another_file(wheel, other / wheel.name)
         for name, target in (("index", "files"), ("other-index", "other")):
-            project = root / name / "proton-mail-mcp"
+            project = root / name / "mcp-proton-mail"
             project.mkdir(parents=True)
             project.joinpath("index.html").write_text(
                 f'<!DOCTYPE html><a href="../../{target}/{wheel.name}">{wheel.name}</a>'
@@ -885,7 +886,7 @@ class Smoke:
         self.run(
             "uvx", "pipx", "install", "--backend", "pip", "--python", self.python_command(),
             "--index-url", f"{base}/index/",
-            "--pip-args=--extra-index-url https://pypi.org/simple", "proton-mail-mcp", env=env,
+            "--pip-args=--extra-index-url https://pypi.org/simple", "mcp-proton-mail", env=env,
         )  # fmt: skip
         command = [self.work / "named" / "pipx-bin" / "proton-mail-mcp"]
         plan = self.run(
@@ -894,14 +895,14 @@ class Smoke:
         )  # fmt: skip
         self.check(
             f"--index-url {base}/index/ --extra-index-url https://pypi.org/simple "
-            f"proton-mail-mcp=={VERSION}" in plan,
+            f"mcp-proton-mail=={VERSION}" in plan,
             "pipx by name: the plan passes on the index pipx recorded",
         )
         output = self.apply_by_name(command, "pipx")
         self.check("ok: the same files" in output, "pipx by name: real pip got the same copy")
         self.check("setup finished" in output, "pipx by name: setup finishes")
         # The same record, while that index now serves another build of this version.
-        record = root / "index" / "proton-mail-mcp" / "index.html"
+        record = root / "index" / "mcp-proton-mail" / "index.html"
         served = record.read_text()
         record.write_text(served.replace("../../files/", "../../other/"))
         try:
@@ -921,7 +922,7 @@ class Smoke:
         }
         self.run(
             "uv", "tool", "install", "--index-url", f"{base}/index/", "--extra-index-url",
-            "https://pypi.org/simple", "--index-strategy", "unsafe-best-match", "proton-mail-mcp",
+            "https://pypi.org/simple", "--index-strategy", "unsafe-best-match", "mcp-proton-mail",
             env=env,
         )  # fmt: skip
         plan = self.run(
@@ -930,7 +931,7 @@ class Smoke:
         )  # fmt: skip
         self.check(
             f"--index-url {base}/index/ --extra-index-url https://pypi.org/simple "
-            f"proton-mail-mcp=={VERSION}" in plan,
+            f"mcp-proton-mail=={VERSION}" in plan,
             "uv tool by name: the plan passes on the index uv recorded",
         )
 
@@ -938,7 +939,7 @@ class Smoke:
         venv = self.work / "named" / "plain"
         self.run(self.python_command(), "-m", "venv", venv)
         self.run(venv / "bin" / "python", "-m", "pip", "install", "--find-links", files,
-                 "proton-mail-mcp")  # fmt: skip
+                 "mcp-proton-mail")  # fmt: skip
         command = [venv / "bin" / "proton-mail-mcp"]
         output = self.apply_by_name(
             command, "pip-nothing", expect=1, env={"PIP_INDEX_URL": f"{base}/empty-index/"}
@@ -954,13 +955,14 @@ class Smoke:
         )
 
     def uvx_by_name(self, files: Path) -> None:
-        command = ["uvx", "--find-links", files, "--from", "proton-mail-mcp", "proton-mail-mcp"]
+        # By the distribution's name alone, as the README's command: its script of that name.
+        command = ["uvx", "--find-links", files, "mcp-proton-mail"]
         plan = self.run(
             *command, "setup", "--dry-run", "--bridge-user", ACCOUNT, "--skip-bridge",
             "--skip-bridge-service",
         )  # fmt: skip
         self.check(
-            f"--only-binary=proton-mail-mcp proton-mail-mcp=={VERSION}" in plan
+            f"--only-binary=mcp-proton-mail mcp-proton-mail=={VERSION}" in plan
             and "holds the copy running this installer" in plan,
             "uvx by name: no record, so the plan pins the version and checks the copy",
         )
@@ -991,7 +993,7 @@ def shlex_join(words: list[str]) -> str:
 
 
 def version_of(wheel: Path) -> str:
-    return re.fullmatch(r"proton_mail_mcp-([^-]+)-.*\.whl", wheel.name).group(1)
+    return re.fullmatch(r"mcp_proton_mail-([^-]+)-.*\.whl", wheel.name).group(1)
 
 
 def free_port() -> int:

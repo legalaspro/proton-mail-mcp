@@ -537,7 +537,7 @@ def test_r7_upgrade_from_the_readme_setup_loses_no_byte(tmp_path):
     """
     home = tmp_path / "home"
     checkout = home / "src" / "proton-mail-mcp"
-    write(checkout / "pyproject.toml", '[project]\nname = "proton-mail-mcp"\n')
+    write(checkout / "pyproject.toml", '[project]\nname = "mcp-proton-mail"\n')
     write(checkout / ".venv" / "pyvenv.cfg", "home = /usr/bin\n")
     write(checkout / ".venv" / "bin" / "proton-mail-mcp", "#!/bin/sh\n")
     state = home / ".local" / "state" / "proton-mail-mcp"

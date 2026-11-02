@@ -95,11 +95,11 @@ def is_source(path: Path) -> bool:
         text = (path / "pyproject.toml").read_text(encoding="utf-8")
     except OSError:
         return False
-    return 'name = "proton-mail-mcp"' in text
+    return f'name = "{PACKAGE}"' in text
 
 
 def is_wheel(path: Path) -> bool:
-    return path.is_file() and path.name.startswith("proton_mail_mcp-") and path.suffix == ".whl"
+    return path.is_file() and path.name.startswith("mcp_proton_mail-") and path.suffix == ".whl"
 
 
 def installed_source() -> str:
@@ -786,7 +786,8 @@ def handoff_launcher() -> list[str]:
         if source:
             return ["uvx", "--from", source, "proton-mail-mcp"]
     script = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else ""
-    if os.path.basename(script).startswith("proton-mail-mcp") and os.path.isfile(script):
+    names = ("proton-mail-mcp", "mcp-proton-mail")
+    if os.path.basename(script).startswith(names) and os.path.isfile(script):
         return [script]
     return ["proton-mail-mcp"]
 
@@ -1120,7 +1121,10 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
     if args.action in {"install", "setup"} and args.source:
         source = Path(args.source)
         if not is_source(source) and not is_wheel(source):
-            parser.error("--source must be a proton-mail-mcp checkout or wheel file")
+            parser.error(
+                "--source must be a checkout whose pyproject.toml names mcp-proton-mail, "
+                "or a wheel file named mcp_proton_mail-<version>-py3-none-any.whl"
+            )
     if args.action in {"install", "setup"} and args.python and not printing:
         python = _given_python(args.python)
         # A simulated plan has no such host to run the interpreter on.

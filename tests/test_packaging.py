@@ -28,7 +28,7 @@ def test_the_registry_entry_runs_connect_from_this_version_on_pypi():
     assert SERVER["version"] == __version__
     (package,) = SERVER["packages"]
     assert package["registryType"] == "pypi"
-    assert package["identifier"] == "proton-mail-mcp"
+    assert package["identifier"] == "mcp-proton-mail"
     assert package["version"] == __version__
     assert package["runtimeHint"] == "uvx"
     assert package["transport"] == {"type": "stdio"}

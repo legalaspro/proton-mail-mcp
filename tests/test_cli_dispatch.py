@@ -100,7 +100,7 @@ def test_help_names_every_command(capsys, flag):
 def test_version_comes_from_the_installed_distribution(monkeypatch, capsys):
     monkeypatch.setattr(cli.metadata, "version", lambda name: f"9.9.9 of {name}")
     assert cli.main(["--version"]) == 0
-    assert capsys.readouterr().out == "proton-mail-mcp 9.9.9 of proton-mail-mcp\n"
+    assert capsys.readouterr().out == "proton-mail-mcp 9.9.9 of mcp-proton-mail\n"
 
 
 def test_version_without_a_distribution_says_so(monkeypatch, capsys):
@@ -181,6 +181,8 @@ def test_windows_compatibility_layers_do_not_count_as_windows(system):
 def test_the_console_script_is_the_dispatcher_and_the_service_entry_is_unchanged():
     scripts = PROJECT["scripts"]
     assert scripts["proton-mail-mcp"] == "proton_mail_mcp.cli:main"
+    # `uvx mcp-proton-mail` runs the command named like the distribution: the same one.
+    assert scripts["mcp-proton-mail"] == scripts["proton-mail-mcp"]
     # Installed units and LaunchAgents run this launcher, not the dispatcher.
     assert scripts["proton-mail-mcp-service"] == "proton_mail_mcp.service_entry:main"
     assert "proton-mail-mcp-service --env-file" in templates.systemd_mcp_unit(
@@ -217,7 +219,9 @@ def test_the_version_has_one_source_that_the_wheel_reads():
 
 
 def test_package_metadata_is_complete():
-    assert PROJECT["name"] == "proton-mail-mcp"
+    # PyPI refused proton-mail-mcp as too close to another project's name; the command
+    # keeps it. --version and the installer look the distribution up by this name.
+    assert PROJECT["name"] == "mcp-proton-mail" == cli._DIST == installer_cli.PACKAGE
     assert PROJECT["requires-python"] == ">=3.12"
     assert PROJECT["readme"] == "README.md"
     assert PROJECT["license"] == "Apache-2.0"
@@ -251,14 +255,16 @@ def test_the_wheel_lists_files_that_exist():
 
 
 def test_nothing_in_this_repository_uploads_a_package():
-    # Publishing needs its own GO: no target, script or workflow may do it by accident.
+    # Publishing needs its own GO, a v* tag in the release repo, and goes only through
+    # publish.yml (test_ci_workflows.py holds it to that): nothing else may do it by accident.
     files = [
         ROOT / "Makefile",
         *(ROOT / "scripts").glob("*"),
         *(ROOT / ".github" / "workflows").glob("*"),
     ]
+    words = ("twine", "uv publish", "hatch publish", "upload.pypi", "test.pypi")
     for path in files:
         if path.is_file():
             text = path.read_text(encoding="utf-8").lower()
-            for word in ("twine", "uv publish", "hatch publish", "upload.pypi", "test.pypi"):
+            for word in words + (() if path.name == "publish.yml" else ("pypi-publish",)):
                 assert word not in text, f"{path}: {word}"

@@ -26,15 +26,19 @@ Later, once it is published (see [PyPI and the MCP Registry](#later-pypi-and-the
 Debian and Ubuntu may also need `python3-venv`, as below:
 
 ```sh
-uvx proton-mail-mcp setup
+uvx mcp-proton-mail setup
 ```
 
 Or with pipx:
 
 ```sh
-pipx install proton-mail-mcp
+pipx install mcp-proton-mail
 proton-mail-mcp setup
 ```
+
+The package is named `mcp-proton-mail`, because PyPI refuses `proton-mail-mcp`. It installs one
+command under two names: `proton-mail-mcp`, which these pages use, and `mcp-proton-mail`, which
+`uvx mcp-proton-mail` runs.
 
 `setup` first lists what it will do, then finds your Bridge username, prints its full plan and
 asks before it changes anything (add `--dry-run` to stop after the plan). Where Bridge is
@@ -110,7 +114,7 @@ The private environment gets the same copy that ran `setup`:
   could hold something else under this name. A wheel is reinstalled on every run, so a
   rebuild of the same version takes effect. If the path is gone, or the copy came from
   any other URL, `setup` stops and asks for `--source <checkout or wheel file>`;
-- installed by name: that version, from a wheel on an index (`proton-mail-mcp==<version>`),
+- installed by name: that version, from a wheel on an index (`mcp-proton-mail==<version>`),
   and then a comparison of what it installed with the running copy;
 - run from a checkout: that checkout.
 
@@ -129,8 +133,8 @@ rerun with `--source <wheel>` replaces it; a rerun by name does not. For a priva
 a wheel directory, pass the wheel instead:
 
 ```sh
-pip download --no-deps --index-url <your index> proton-mail-mcp==<version>
-proton-mail-mcp setup --source ./proton_mail_mcp-<version>-py3-none-any.whl
+pip download --no-deps --index-url <your index> mcp-proton-mail==<version>
+proton-mail-mcp setup --source ./mcp_proton_mail-<version>-py3-none-any.whl
 ```
 
 ### The service's Python
@@ -219,13 +223,15 @@ interrupted.
 ### Later: PyPI and the MCP Registry
 
 Not done yet, and each needs the maintainer's approval of a release: publishing the package to
-PyPI, after which `uvx proton-mail-mcp setup` and `pipx install proton-mail-mcp` work by name and
+PyPI, after which `uvx mcp-proton-mail setup` and `pipx install mcp-proton-mail` work by name and
 the clone step goes away; and a listing in the [MCP Registry](https://registry.modelcontextprotocol.io/),
 so that people and clients can find the server there. The repository already holds that listing's
-`server.json`, which names the PyPI package and its `connect` command, and the README's
-`mcp-name` line that proves the package's ownership. `make mcpb` builds a Claude Desktop bundle
-locally ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)). Nothing in this repository
-publishes or registers anything.
+`server.json`, which names the PyPI package, `mcp-proton-mail`, and its `connect` command, and
+the README's `mcp-name` line that proves the package's ownership. `make mcpb` builds a Claude
+Desktop bundle locally ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)). The public
+repository's `publish.yml` publishes a `v*` tag to PyPI once PyPI trusts it, and the registry
+listing is a step by hand ([CI](ci.md#publishing-to-pypi)). Nothing else here publishes or
+registers anything.
 
 ## Running from a checkout
 
@@ -649,7 +655,7 @@ proton-mail-mcp uninstall
 ```
 
 With uv, use `uvx --from <clone> proton-mail-mcp uninstall`, or once it is published
-`uvx proton-mail-mcp uninstall`; from a checkout, also `scripts/install.sh uninstall`.
+`uvx mcp-proton-mail uninstall`; from a checkout, also `scripts/install.sh uninstall`.
 All of them run the same plan.
 
 Uninstall stops the installer's own services, then proves each one stopped before it

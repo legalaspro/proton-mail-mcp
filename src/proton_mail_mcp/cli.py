@@ -8,6 +8,8 @@ import sys
 from importlib import metadata
 
 _PROG = "proton-mail-mcp"
+# The distribution on PyPI; the same entry point is also installed as `mcp-proton-mail`.
+_DIST = "mcp-proton-mail"
 _INSTALLER_COMMANDS = ("setup", "configure-client", "uninstall", "show-token", "detect")
 _HELP = f"""\
 usage: {_PROG} [serve | connect | setup | configure-client | uninstall | show-token |
@@ -66,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if command == "--version":
         try:
-            print(f"{_PROG} {metadata.version(_PROG)}")
+            print(f"{_PROG} {metadata.version(_DIST)}")
         except metadata.PackageNotFoundError:
             print(f"{_PROG} (not installed; version unknown)")
         return 0

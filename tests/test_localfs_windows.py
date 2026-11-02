@@ -52,8 +52,9 @@ ERRNO_OF = {
     ERROR_FILE_EXISTS: errno.EEXIST,
 }
 INVALID_HANDLE = ctypes.c_void_p(-1).value
-# Opens a link without following it, on Linux and on macOS.
-LINK_ITSELF = getattr(os, "O_PATH", getattr(os, "O_SYMLINK", 0))
+# Opens a link itself, without following it. macOS refuses a link with ELOOP under O_NOFOLLOW,
+# even with O_SYMLINK, so O_SYMLINK goes alone there.
+LINK_ITSELF = os.O_PATH | os.O_NOFOLLOW if hasattr(os, "O_PATH") else getattr(os, "O_SYMLINK", 0)
 O_BINARY = 0x8000
 
 
@@ -272,7 +273,7 @@ class Kernel32:
                 if disposition == CREATE_NEW:
                     raise FileExistsError
                 # The link itself, as FILE_FLAG_OPEN_REPARSE_POINT opens it.
-                descriptor = os.open(name, LINK_ITSELF | os.O_NOFOLLOW)
+                descriptor = os.open(name, LINK_ITSELF)
             elif os.path.isdir(name) and not attributes & BACKUP_SEMANTICS:
                 raise PermissionError
             else:

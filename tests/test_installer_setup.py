@@ -299,7 +299,7 @@ class Installed:
 
 def installed(monkeypatch, distribution):
     def find(name):
-        assert name == "proton-mail-mcp"
+        assert name == "mcp-proton-mail"
         if distribution is None:
             raise cli.metadata.PackageNotFoundError
         return distribution
@@ -309,12 +309,12 @@ def installed(monkeypatch, distribution):
 
 def test_an_index_install_pins_its_own_version(monkeypatch):
     installed(monkeypatch, Installed())
-    assert cli.installed_source() == "proton-mail-mcp==1.2.3"
+    assert cli.installed_source() == "mcp-proton-mail==1.2.3"
 
 
 def test_a_local_wheel_is_reinstalled_from_that_wheel_and_never_the_index(monkeypatch, tmp_path):
     # The index could hold something else under this name.
-    wheel = tmp_path / "proton_mail_mcp-1.2.3-py3-none-any.whl"
+    wheel = tmp_path / "mcp_proton_mail-1.2.3-py3-none-any.whl"
     wheel.write_bytes(b"")
     origin = json.dumps({"url": wheel.as_uri(), "archive_info": {}})
     installed(monkeypatch, Installed(origin=origin))
@@ -325,7 +325,7 @@ def test_a_local_wheel_is_reinstalled_from_that_wheel_and_never_the_index(monkey
     "origin",
     [
         # The file is gone: refuse rather than fall back to the index.
-        json.dumps({"url": "file:///gone/proton_mail_mcp-1.2.3-py3-none-any.whl"}),
+        json.dumps({"url": "file:///gone/mcp_proton_mail-1.2.3-py3-none-any.whl"}),
         # Another origin, whose URL may hold credentials pip would print.
         json.dumps({"url": "https://user:secret@example.com/x.whl", "archive_info": {}}),
         json.dumps({"url": "ssh://git@example.com/x", "vcs_info": {"vcs": "git"}}),
@@ -348,7 +348,7 @@ def test_a_wheel_install_finds_no_checkout_beside_it(monkeypatch, tmp_path):
     module = tmp_path / "lib" / "python3.12" / "site-packages" / "proton_mail_mcp"
     monkeypatch.setattr(cli, "__file__", str(module / "installer" / "cli.py"))
     installed(monkeypatch, Installed())
-    assert cli.default_source() == "proton-mail-mcp==1.2.3"
+    assert cli.default_source() == "mcp-proton-mail==1.2.3"
 
 
 def test_an_unknown_source_says_how_to_name_one(monkeypatch, capsys):
@@ -359,7 +359,7 @@ def test_an_unknown_source_says_how_to_name_one(monkeypatch, capsys):
 
 
 def test_source_accepts_a_checkout_or_this_packages_wheel_and_nothing_else(tmp_path, capsys):
-    wheel = tmp_path / "proton_mail_mcp-1.0.0-py3-none-any.whl"
+    wheel = tmp_path / "mcp_proton_mail-1.0.0-py3-none-any.whl"
     wheel.write_bytes(b"")
     base = ["setup", "--dry-run", "--simulate", "arch", "--bridge-user", USER]
     assert cli.main([*base, "--source", str(wheel)]) == 0
@@ -372,20 +372,20 @@ def test_source_accepts_a_checkout_or_this_packages_wheel_and_nothing_else(tmp_p
         with pytest.raises(SystemExit) as caught:
             cli.main([*base, "--source", source])
         assert caught.value.code == 2
-        assert "checkout or wheel file" in capsys.readouterr().err
+        assert "mcp_proton_mail-<version>-py3-none-any.whl" in capsys.readouterr().err
 
 
 def test_a_wheel_source_is_always_reinstalled_so_a_rebuild_takes_effect():
     pip = lambda steps: next(s.argv for s in kinds(steps, Command) if "pip" in s.argv)  # noqa: E731
-    assert "--force-reinstall" in pip(plan(source="/w/proton_mail_mcp-1.0.0-py3-none-any.whl"))
+    assert "--force-reinstall" in pip(plan(source="/w/mcp_proton_mail-1.0.0-py3-none-any.whl"))
     assert "--force-reinstall" not in pip(plan(source="/src/checkout"))
-    assert "--force-reinstall" not in pip(plan(source="proton-mail-mcp==1.0.0"))
+    assert "--force-reinstall" not in pip(plan(source="mcp-proton-mail==1.0.0"))
 
 
 def test_a_relative_source_reaches_pip_as_a_path(tmp_path, monkeypatch, capsys):
     # A bare name would otherwise be a package name to look up on the index.
     monkeypatch.chdir(tmp_path)
-    wheel = tmp_path / "proton_mail_mcp-1.0.0-py3-none-any.whl"
+    wheel = tmp_path / "mcp_proton_mail-1.0.0-py3-none-any.whl"
     wheel.write_bytes(b"")
     argv = ["setup", "--dry-run", "--simulate", "arch", "--bridge-user", USER]
     assert cli.main([*argv, "--source", wheel.name]) == 0
@@ -395,7 +395,7 @@ def test_a_relative_source_reaches_pip_as_a_path(tmp_path, monkeypatch, capsys):
 # Source: what pipx and uv recorded about the index ---------------------------------
 
 
-PIN = "proton-mail-mcp==1.2.3"
+PIN = "mcp-proton-mail==1.2.3"
 INDEX = "https://mirror.example/simple/"
 OTHER = "https://other.example/simple"
 # Windows Python 3.13 and later reads a path with no drive as relative.
@@ -406,7 +406,7 @@ SECRET_WORD = "s3cr3t-index-password"
 def pipx_record(*pip_args):
     return json.dumps(
         {
-            "main_package": {"package": "proton-mail-mcp", "pip_args": list(pip_args)},
+            "main_package": {"package": "mcp-proton-mail", "pip_args": list(pip_args)},
             "pipx_metadata_version": "0.12",
         }
     )
@@ -414,7 +414,7 @@ def pipx_record(*pip_args):
 
 def uv_record(options=""):
     return (
-        '[tool]\nrequirements = [{ name = "proton-mail-mcp" }]\n'
+        '[tool]\nrequirements = [{ name = "mcp-proton-mail" }]\n'
         'entrypoints = [{ name = "proton-mail-mcp", install-path = "/b/proton-mail-mcp" }]\n'
         + (f"\n[tool.options]\n{options}\n" if options else "")
     )
@@ -600,7 +600,7 @@ def test_the_recorded_index_reaches_pip_in_the_plan(pipx_installed, capsys):
     record_pipx(pipx_installed, "--index-url", INDEX, "--find-links", LINKS)
     assert cli.main(DRY) == 0
     out = capsys.readouterr().out
-    assert f"--only-binary=proton-mail-mcp --index-url {INDEX} --find-links {LINKS} {PIN}" in out
+    assert f"--only-binary=mcp-proton-mail --index-url {INDEX} --find-links {LINKS} {PIN}" in out
 
 
 def test_a_record_that_cannot_be_carried_changes_nothing_and_says_how(pipx_installed, capsys):
@@ -617,7 +617,7 @@ def test_a_record_that_cannot_be_carried_changes_nothing_and_says_how(pipx_insta
 def test_source_replaces_whatever_was_recorded(pipx_installed, tmp_path, capsys):
     # The way out of a refused record: no record is even read.
     (pipx_installed / "pipx_metadata.json").write_text("not json")
-    wheel = tmp_path / "proton_mail_mcp-1.2.3-py3-none-any.whl"
+    wheel = tmp_path / "mcp_proton_mail-1.2.3-py3-none-any.whl"
     wheel.write_bytes(b"")
     assert cli.main([*DRY, "--source", str(wheel)]) == 0
     out = capsys.readouterr().out
@@ -642,7 +642,7 @@ def test_a_pinned_source_is_checked_before_anything_from_it_runs():
     )
     assert steps[install].argv[-5:] == (
         "--disable-pip-version-check",
-        "--only-binary=proton-mail-mcp",
+        "--only-binary=mcp-proton-mail",
         "--index-url",
         INDEX,
         PIN,
@@ -658,7 +658,7 @@ def test_a_pinned_source_is_checked_before_anything_from_it_runs():
     assert "import proton_mail_mcp.server" in steps[install + 2].argv
 
 
-@pytest.mark.parametrize("source", ["/w/proton_mail_mcp-1.2.3-py3-none-any.whl", "/src/checkout"])
+@pytest.mark.parametrize("source", ["/w/mcp_proton_mail-1.2.3-py3-none-any.whl", "/src/checkout"])
 def test_a_path_source_needs_no_index_options_and_no_check(source):
     steps = plan(source=source)
     assert not kinds(steps, CheckSameCopy)
@@ -687,9 +687,9 @@ def test_pip_finding_nothing_says_how_to_pass_the_source():
 def wheel_install(site, files, installer="pip", extra_rows=()):
     """A package as an installer leaves it in site-packages. Each row's hash names the
     installer, so only the files themselves can show two copies equal."""
-    info = site / "proton_mail_mcp-1.2.3.dist-info"
+    info = site / "mcp_proton_mail-1.2.3.dist-info"
     info.mkdir(parents=True)
-    (info / "METADATA").write_text("Metadata-Version: 2.4\nName: proton-mail-mcp\nVersion: 1.2.3\n")
+    (info / "METADATA").write_text("Metadata-Version: 2.4\nName: mcp-proton-mail\nVersion: 1.2.3\n")
     (info / "entry_points.txt").write_text("[console_scripts]\nproton-mail-mcp = x:main\n")
     (info / "INSTALLER").write_text(installer)
     for name, content in files.items():
@@ -708,7 +708,7 @@ def wheel_install(site, files, installer="pip", extra_rows=()):
 
 
 def distribution_at(site):
-    return next(iter(execute.metadata.distributions(name="proton-mail-mcp", path=[str(site)])))
+    return next(iter(execute.metadata.distributions(name="mcp-proton-mail", path=[str(site)])))
 
 
 FILES = {"proton_mail_mcp/__init__.py": "x = 1\n", "proton_mail_mcp/ui/base.css": "a {}\n"}
@@ -744,7 +744,7 @@ def test_the_same_files_from_another_installer_pass(tmp_path):
         target,
         FILES,
         installer="pip",
-        extra_rows=["proton_mail_mcp-1.2.3.dist-info/direct_url.json,sha256=x,1"],
+        extra_rows=["mcp_proton_mail-1.2.3.dist-info/direct_url.json,sha256=x,1"],
     )
     executor, calls = copy_executor(tmp_path, target)
     executor.run([SAME_COPY])
@@ -760,11 +760,11 @@ def changed_file(site):
 
 
 def changed_metadata(site):
-    (site / "proton_mail_mcp-1.2.3.dist-info" / "METADATA").write_text("Name: other\n")
+    (site / "mcp_proton_mail-1.2.3.dist-info" / "METADATA").write_text("Name: other\n")
 
 
 def changed_entry_points(site):
-    (site / "proton_mail_mcp-1.2.3.dist-info" / "entry_points.txt").write_text("[x]\n")
+    (site / "mcp_proton_mail-1.2.3.dist-info" / "entry_points.txt").write_text("[x]\n")
 
 
 def missing_file(site):
@@ -774,25 +774,25 @@ def missing_file(site):
 def unlisted_file(site):
     # Listed by pip even when the wheel's RECORD left it out; RECORD's hashes are not trusted.
     (site / "evil.pth").write_text("import os\n")
-    record = site / "proton_mail_mcp-1.2.3.dist-info" / "RECORD"
+    record = site / "mcp_proton_mail-1.2.3.dist-info" / "RECORD"
     record.write_text(record.read_text() + "evil.pth,sha256=pip,1\n")
 
 
 def no_record(site):
-    (site / "proton_mail_mcp-1.2.3.dist-info" / "RECORD").unlink()
+    (site / "mcp_proton_mail-1.2.3.dist-info" / "RECORD").unlink()
 
 
 def malformed_record(site):
-    (site / "proton_mail_mcp-1.2.3.dist-info" / "RECORD").write_text("just,two\n")
+    (site / "mcp_proton_mail-1.2.3.dist-info" / "RECORD").write_text("just,two\n")
 
 
 def second_version(site):
     wheel_install(site / "x", {})
-    (site / "x" / "proton_mail_mcp-1.2.3.dist-info").rename(site / "proton_mail_mcp-9.dist-info")
+    (site / "x" / "mcp_proton_mail-1.2.3.dist-info").rename(site / "mcp_proton_mail-9.dist-info")
 
 
 def no_distribution(site):
-    (site / "proton_mail_mcp-1.2.3.dist-info").rename(site / "other.txt")
+    (site / "mcp_proton_mail-1.2.3.dist-info").rename(site / "other.txt")
 
 
 @pytest.mark.parametrize(
@@ -825,10 +825,10 @@ def test_any_difference_stops_the_run_and_says_how_to_pass_the_source(tmp_path, 
 def test_a_running_copy_with_nothing_to_compare_proves_nothing(tmp_path):
     target = tmp_path / "venv-site"
     wheel_install(target, {})
-    (target / "proton_mail_mcp-1.2.3.dist-info" / "RECORD").unlink()
+    (target / "mcp_proton_mail-1.2.3.dist-info" / "RECORD").unlink()
     running = tmp_path / "running"
     wheel_install(running, {})
-    (running / "proton_mail_mcp-1.2.3.dist-info" / "RECORD").unlink()
+    (running / "mcp_proton_mail-1.2.3.dist-info" / "RECORD").unlink()
     executor, _calls = copy_executor(tmp_path, target)
     with pytest.raises(InstallError, match="something other than"):
         executor.run([SAME_COPY])

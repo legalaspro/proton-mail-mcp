@@ -110,8 +110,8 @@ uvx --from . proton-mail-mcp setup --client claude-desktop
 Once it is published, the same two steps by name:
 
 ```powershell
-uvx proton-mail-mcp setup --dry-run
-uvx proton-mail-mcp setup
+uvx mcp-proton-mail setup --dry-run
+uvx mcp-proton-mail setup
 ```
 
 From a checkout, past the default script policy:

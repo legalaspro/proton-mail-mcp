@@ -1353,11 +1353,13 @@ def test_under_uvx_the_hand_off_starts_the_same_copy_through_uvx(host, capsys, m
 
 
 def test_outside_uvx_the_hand_off_names_the_running_script_by_path(tmp_path, monkeypatch):
-    script = tmp_path / "bin" / "proton-mail-mcp"
-    script.parent.mkdir()
-    script.write_text("")
-    monkeypatch.setattr(cli.sys, "argv", [str(script), "setup"])
-    assert cli.handoff_launcher() == [str(script)]
+    bin_dir = tmp_path / ".venv" / "bin"
+    bin_dir.mkdir(parents=True)
+    for name in ("proton-mail-mcp", "mcp-proton-mail"):
+        script = bin_dir / name
+        script.write_text("")
+        monkeypatch.setattr(cli.sys, "argv", [str(script), "setup"])
+        assert cli.handoff_launcher() == [str(script)]
     monkeypatch.setattr(cli.sys, "argv", ["-c"])
     assert cli.handoff_launcher() == ["proton-mail-mcp"]
 

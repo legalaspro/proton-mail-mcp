@@ -31,7 +31,7 @@ from proton_mail_mcp.config import (
     windows_attachments_dir,
 )
 from proton_mail_mcp.installer import cli as installer_cli
-from proton_mail_mcp.installer import execute, templates
+from proton_mail_mcp.installer import clients, execute, templates
 from proton_mail_mcp.installer import plan as planner
 from proton_mail_mcp.installer import probe as probes
 from proton_mail_mcp.installer.detect import detect, simulated
@@ -445,23 +445,41 @@ def test_a_pasted_task_name_has_nothing_powershell_reads():
     assert re.fullmatch(r"[\\A-Za-z0-9._-]+", name)
 
 
+def quoted_command(text, pattern):
+    """The command the pattern's group finds in the text, or a failure naming the wording."""
+    found = re.search(pattern, text, re.S)
+    assert found, f"no pasted command matches {pattern!r} in {text!r}"
+    return found[1]
+
+
 def pasted_powershell(path):
     """Each command naming this path that the plan tells a person to paste, as it renders them."""
     platform = simulated("windows")
     probe = simulated_probe(platform)
     paths = dataclasses.replace(paths_for(platform, probe.env, probe.home), venv=path)
     token = planner._self_check_steps(platform, "wincred", USER, Options(), paths, {})[0].text
-    hint = planner.token_hint(path, windows=True)
+    # A person pastes configure-client with a client's name in place of <name>.
+    hint = planner.token_hint(path, windows=True).replace("<name>", next(iter(clients.CLIENTS)))
     login = planner._login_note(platform, Options(bridge_bin=path), probe, paths).text
     tool = f"{path}\\Scripts\\proton-mail-mcp.exe"
     return [
-        (re.search(r"`(& .*)` \(prints", token, re.S)[1], [tool]),
-        (re.search(r"`(& .*)`, which puts it", hint, re.S)[1], [tool]),
-        (re.search(r"run `(& .*)`, then", login, re.S)[1], [path]),
+        (quoted_command(token, r"`(& .*)` \(prints"), [tool]),
+        (quoted_command(hint, r"run `(& .*)` \("), [tool]),
+        (quoted_command(hint, r"start `(& .*)`, which reads"), [tool]),
+        (quoted_command(hint, r"none\. `(& .*)`, at a terminal"), [tool]),
+        (quoted_command(login, r"run `(& .*)`, then"), [path]),
         (planner._removal_command(platform, path, "C:\\b"), [path, "C:\\b"]),
         (planner._file_removal_command(platform, path), [path]),
         (remove_command(path, True, force=True), [path]),
     ]
+
+
+@pytest.mark.parametrize(("path", "literal"), POWERSHELL_PATHS)
+def test_each_pasted_command_is_found_without_powershell(path, literal):
+    # The next test skips without pwsh, so finding the commands is checked everywhere: each one
+    # found, and none running on into the next.
+    for command, _ in pasted_powershell(path):
+        assert command.count(f"'{literal}") == 1
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell 7 not installed")

@@ -1,4 +1,7 @@
-"""The private dev repo pays for every CI minute: macOS and the heavy runs stay behind a gate."""
+"""The private dev repo pays for every CI minute: macOS and the heavy runs stay behind a gate.
+
+Publishing stays behind one too: only the public release repo builds and publishes a tag.
+"""
 
 import re
 from pathlib import Path
@@ -10,6 +13,7 @@ RELEASE_GATE = (
     "github.repository == 'legalaspro/proton-mail-mcp'"
     " && github.event.repository.visibility == 'public'"
 )
+PUBLISH_GATE = "github.repository == 'legalaspro/proton-mail-mcp'"
 RUNNER = re.compile(r"macos-[\w.]+")
 UV_VERSION = "0.13.6"
 
@@ -74,7 +78,7 @@ def test_uv_is_pinned_to_one_version_and_setup_uv_to_a_commit():
             path.name
         )
         pins += re.findall(r"pip install uv==(\S+)", text)
-    assert pins == [UV_VERSION] * 3
+    assert pins == [UV_VERSION] * 4
 
 
 def test_every_action_is_pinned_to_a_commit():
@@ -83,6 +87,39 @@ def test_every_action_is_pinned_to_a_commit():
         for action in re.findall(r"uses: (\S+)", path.read_text(encoding="utf-8")):
             pinned = re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", action)
             assert pinned or action.startswith("./"), (path.name, action)
+
+
+def test_every_workflow_reads_only_and_every_checkout_drops_its_credentials():
+    # Fork pull requests run these in the public repo; a job that needs more asks for it itself.
+    for path in WORKFLOWS.glob("*.yml"):
+        text = path.read_text(encoding="utf-8")
+        assert "\npermissions:\n  contents: read\n\n" in text, path.name
+        checkouts = text.count("uses: actions/checkout@")
+        assert text.count("persist-credentials: false") == checkouts, path.name
+
+
+def test_only_the_release_repo_publishes_and_only_a_tag():
+    text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
+    assert '\non:\n  push:\n    tags: ["v*"]\n  release:\n    types: [published]\n\n' in text
+    build, publish = jobs(text)
+    # Each job, the build too: in the dev repo a tag starts nothing, as docs/ci.md says. A
+    # release on any other tag skips the build, and with it publish, which needs it.
+    assert f"    if: {PUBLISH_GATE} && startsWith(github.ref, 'refs/tags/v')\n" in build
+    assert f"    if: {PUBLISH_GATE}\n" in publish
+    assert "id-token" not in build and "pypi-publish" not in build
+    # The build runs the build backend from the tagged tree: it keeps the read-only token.
+    assert "permissions:" not in build
+    assert "    needs: build\n" in publish
+    assert "    environment:\n      name: pypi\n" in publish
+    assert "    permissions:\n      id-token: write\n    steps:\n" in publish
+    # It runs nothing from the repository with the token at hand, and PyPI needs no stored one.
+    assert "actions/checkout" not in publish and "run:" not in publish
+    assert "secrets." not in text
+    assert publish.count("uses: pypa/gh-action-pypi-publish@") == 1
+    for path in WORKFLOWS.glob("*.yml"):
+        if path.name != "publish.yml":
+            other = path.read_text(encoding="utf-8")
+            assert "id-token" not in other and "pypi-publish" not in other, path.name
 
 
 def test_dependabot_opens_pull_requests_only_in_the_release_repo():

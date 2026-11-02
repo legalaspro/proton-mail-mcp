@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "proton-mail-mcp"
+name = "mcp-proton-mail"
 dynamic = ["version"]
 description = "Unofficial MCP server for Proton Mail Bridge: read mail, create drafts and run guarded cleanup. Not affiliated with or endorsed by Proton AG."
 readme = "README.md"
@@ -41,6 +41,8 @@ dev = ["pytest>=8,<10", "pytest-xdist>=3.6,<4", "httpx>=0.28,<1", "ruff>=0.12,<1
 
 [project.scripts]
 proton-mail-mcp = "proton_mail_mcp.cli:main"
+# The same command under the distribution's name, which `uvx mcp-proton-mail` runs.
+mcp-proton-mail = "proton_mail_mcp.cli:main"
 proton-mail-mcp-rules-run = "proton_mail_mcp.rules_timer:main"
 proton-mail-mcp-service = "proton_mail_mcp.service_entry:main"
 

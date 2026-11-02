@@ -104,9 +104,10 @@ You need:
   runners: read [docs/windows.md](docs/windows.md) first, or use WSL2.
 - [uv](https://docs.astral.sh/uv/), which brings Python 3.12 or newer if you have none, and git.
 
-> **Not on PyPI yet.** Install from a clone of this repository, as below. Do not run
-> `uvx proton-mail-mcp` by name: until the first release is published, anyone could hold that name
-> on PyPI. Installing from PyPI, and a listing in the MCP Registry, come later.
+> **Not on PyPI yet.** Install from a clone of this repository, as below. On PyPI the package will
+> be `mcp-proton-mail`, run as `uvx mcp-proton-mail`, but do not run that by name yet: until the
+> first release is published, anyone could hold that name on PyPI. Its command is `proton-mail-mcp`,
+> also installed as `mcp-proton-mail`. A listing in the MCP Registry comes later.
 
 **1. Get the code.**
 
