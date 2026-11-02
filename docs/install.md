@@ -861,7 +861,9 @@ environment, the wheel's own server started from the unit `setup` wrote, the sel
 over HTTP and IMAP, a typed password that must not appear in the output or in any file,
 argument list or service environment, a rerun, a login around the running Bridge service,
 and `uninstall`. It also installs by name from a local index with pipx, `uv tool`, plain
-`pip` and `uvx`, and proves what each one's `setup` does with that copy.
+`pip` and `uvx`, and proves what each one's `setup` does with that copy. Their dependencies come
+from PyPI through a local filter that hides this package's own releases, so pip cannot pick a
+published build over the wheel under test.
 
 `scripts/docker_smoke.sh` builds the repository's `Dockerfile`, the image a registry such as Glama
 starts, and checks it the way such a registry does: over stdio, `initialize` and `tools/list` must
