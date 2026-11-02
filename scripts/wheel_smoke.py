@@ -44,6 +44,10 @@ VERSION = re.search(
     flags=re.M,
 ).group(1)
 ACCOUNT = "smoke@proton.invalid"
+# Where the installs by name get the dependencies, through QuietFiles: PyPI also holds released
+# builds of this package, and pip may prefer one of those to the build under test.
+PYPI = "https://pypi.org/simple"
+DISTRIBUTION = "mcp-proton-mail"
 # Throwaway values for the stand-ins; they exist only in the scratch directory.
 PASSWORD = "smoke-bridge-password-Xq7"
 TOKEN_SERVICE = "proton-mail-mcp-token"
@@ -863,7 +867,7 @@ class Smoke:
             self.pipx_by_name(base, root)
             self.uv_tool_by_name(base)
             self.pip_by_name(base, files)
-            self.uvx_by_name(files)
+            self.uvx_by_name(base, files)
         finally:
             server.shutdown()
             server.server_close()
@@ -886,7 +890,7 @@ class Smoke:
         self.run(
             "uvx", "pipx", "install", "--backend", "pip", "--python", self.python_command(),
             "--index-url", f"{base}/index/",
-            "--pip-args=--extra-index-url https://pypi.org/simple", "mcp-proton-mail", env=env,
+            f"--pip-args=--extra-index-url {base}/pypi/", "mcp-proton-mail", env=env,
         )  # fmt: skip
         command = [self.work / "named" / "pipx-bin" / "proton-mail-mcp"]
         plan = self.run(
@@ -894,7 +898,7 @@ class Smoke:
             "--skip-bridge-service",
         )  # fmt: skip
         self.check(
-            f"--index-url {base}/index/ --extra-index-url https://pypi.org/simple "
+            f"--index-url {base}/index/ --extra-index-url {base}/pypi/ "
             f"mcp-proton-mail=={VERSION}" in plan,
             "pipx by name: the plan passes on the index pipx recorded",
         )
@@ -922,7 +926,7 @@ class Smoke:
         }
         self.run(
             "uv", "tool", "install", "--index-url", f"{base}/index/", "--extra-index-url",
-            "https://pypi.org/simple", "--index-strategy", "unsafe-best-match", "mcp-proton-mail",
+            f"{base}/pypi/", "--index-strategy", "unsafe-best-match", "mcp-proton-mail",
             env=env,
         )  # fmt: skip
         plan = self.run(
@@ -930,7 +934,7 @@ class Smoke:
             "--bridge-user", ACCOUNT, "--skip-bridge", "--skip-bridge-service",
         )  # fmt: skip
         self.check(
-            f"--index-url {base}/index/ --extra-index-url https://pypi.org/simple "
+            f"--index-url {base}/index/ --extra-index-url {base}/pypi/ "
             f"mcp-proton-mail=={VERSION}" in plan,
             "uv tool by name: the plan passes on the index uv recorded",
         )
@@ -939,7 +943,7 @@ class Smoke:
         venv = self.work / "named" / "plain"
         self.run(self.python_command(), "-m", "venv", venv)
         self.run(venv / "bin" / "python", "-m", "pip", "install", "--find-links", files,
-                 "mcp-proton-mail")  # fmt: skip
+                 "--index-url", f"{base}/pypi/", "mcp-proton-mail")  # fmt: skip
         command = [venv / "bin" / "proton-mail-mcp"]
         output = self.apply_by_name(
             command, "pip-nothing", expect=1, env={"PIP_INDEX_URL": f"{base}/empty-index/"}
@@ -948,15 +952,17 @@ class Smoke:
             "If this copy came from another index" in output and "--source" in output,
             "plain pip by name: an index without this copy stops setup and names --source",
         )
-        output = self.apply_by_name(command, "pip-settings", env={"PIP_FIND_LINKS": str(files)})
+        settings = {"PIP_FIND_LINKS": str(files), "PIP_INDEX_URL": f"{base}/pypi/"}
+        output = self.apply_by_name(command, "pip-settings", env=settings)
         self.check(
             "--index-url" not in output and "ok: the same files" in output,
             "plain pip by name: pip's own settings find the same copy",
         )
 
-    def uvx_by_name(self, files: Path) -> None:
+    def uvx_by_name(self, base: str, files: Path) -> None:
         # By the distribution's name alone, as the README's command: its script of that name.
-        command = ["uvx", "--find-links", files, "mcp-proton-mail"]
+        command = ["uvx", "--find-links", files, "--default-index", f"{base}/pypi/",
+                   "mcp-proton-mail"]  # fmt: skip
         plan = self.run(
             *command, "setup", "--dry-run", "--bridge-user", ACCOUNT, "--skip-bridge",
             "--skip-bridge-service",
@@ -967,7 +973,8 @@ class Smoke:
             "uvx by name: no record, so the plan pins the version and checks the copy",
         )
         # This copy was installed by uv and the service's by pip; only their own files differ.
-        output = self.apply_by_name(command, "uvx", env={"PIP_FIND_LINKS": str(files)})
+        settings = {"PIP_FIND_LINKS": str(files), "PIP_INDEX_URL": f"{base}/pypi/"}
+        output = self.apply_by_name(command, "uvx", env=settings)
         self.check("ok: the same files" in output, "uvx by name: pip's copy matches uv's")
 
     def python_command(self) -> str:
@@ -975,6 +982,28 @@ class Smoke:
 
 
 class QuietFiles(http.server.SimpleHTTPRequestHandler):
+    """The local indexes, and under /pypi/ PyPI's simple index without this package."""
+
+    def do_GET(self):
+        if not self.path.startswith("/pypi/"):
+            return super().do_GET()
+        name = re.sub(r"[-_.]+", "-", self.path.removeprefix("/pypi/").strip("/")).lower()
+        if name == DISTRIBUTION:
+            return self.send_error(404)
+        accept = self.headers.get("Accept", "text/html")
+        request = urllib.request.Request(f"{PYPI}/{name}/", headers={"Accept": accept})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = response.read()
+                kind = response.headers.get("Content-Type", "text/html")
+        except urllib.error.HTTPError as error:
+            return self.send_error(error.code)
+        self.send_response(200)
+        self.send_header("Content-Type", kind)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def log_message(self, format, *args):  # noqa: A002
         pass
 
