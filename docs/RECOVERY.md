@@ -378,7 +378,7 @@ and records from before the merge read the same. An outcome record looks like th
 ```json
 {"action":"audit","audit_id":"5d0c…","timestamp":"2026-10-25T01:12:19.329028+00:00",
  "client":{"name":"example-host","version":"1.0","transport":"http"},
- "tool":"archive","outcome":"completed","token_id":"3f6c0a9e41b27d58",
+ "tool":"archive","outcome":"completed","token_id":"<token-id>",
  "action_hash":"9b1e…","counts":{"approved":12,"done":12,"uncertain":0,"remaining":0},
  "log_ids":["a41f…"],"run_id":"c07d…","token_consumed":true}
 ```
