@@ -186,6 +186,11 @@ def client(mail):
         yield http
 
 
+def flat(tool: dict) -> str:
+    """A listed tool's description on one line, as a model reads it."""
+    return " ".join(tool["description"].split())
+
+
 def rpc(client, method, params=None, request_id=1):
     body = {"jsonrpc": "2.0", "id": request_id, "method": method}
     if params is not None:
@@ -374,7 +379,7 @@ def test_initialize_and_exact_tool_surface(client):
         assert set(tool["inputSchema"]["required"]) == required
         assert tool["annotations"]["readOnlyHint"] is False
         assert tool["annotations"]["destructiveHint"] is True
-        assert "only call after the user explicitly approved the preview" in tool["description"]
+        assert "only call after the user explicitly approved the preview" in flat(tool)
     assert by_name["undo_action"]["annotations"]["destructiveHint"] is True
     preview = by_name["preview_create_folder"]
     assert set(preview["inputSchema"]["properties"]) == {"name"}
@@ -387,7 +392,7 @@ def test_initialize_and_exact_tool_surface(client):
     assert create["annotations"]["destructiveHint"] is False
     assert create["annotations"]["idempotentHint"] is True
     assert create["annotations"]["openWorldHint"] is False
-    assert "only call after explicit approval of its preview" in create["description"]
+    assert "only call after explicit approval of its preview" in flat(create)
     sieve = by_name["create_sieve_filter"]
     assert set(sieve["inputSchema"]["properties"]) == {"token"}
     assert sieve["inputSchema"]["required"] == ["token"]
@@ -395,7 +400,7 @@ def test_initialize_and_exact_tool_surface(client):
     assert sieve["annotations"]["readOnlyHint"] is False
     assert sieve["annotations"]["destructiveHint"] is True
     assert sieve["annotations"]["openWorldHint"] is False
-    assert "only call after explicit approval of its preview" in sieve["description"]
+    assert "only call after explicit approval of its preview" in flat(sieve)
     saved = by_name["add_rule"]
     assert set(saved["inputSchema"]["properties"]) == {"token"}
     assert saved["inputSchema"]["required"] == ["token"]
@@ -403,7 +408,7 @@ def test_initialize_and_exact_tool_surface(client):
     assert saved["annotations"]["readOnlyHint"] is False
     assert saved["annotations"]["destructiveHint"] is True
     assert saved["annotations"]["openWorldHint"] is False
-    assert "only call after explicit approval of its preview" in saved["description"]
+    assert "only call after explicit approval of its preview" in flat(saved)
     assert set(by_name["preview_add_rule"]["inputSchema"]["properties"]) == {
         "name",
         "folder",
@@ -415,10 +420,10 @@ def test_initialize_and_exact_tool_surface(client):
     assert by_name["list_rules"]["inputSchema"]["properties"] == {}
     assert by_name["reindex_status"]["inputSchema"]["properties"] == {}
     assert by_name["reindex_status"]["annotations"]["destructiveHint"] is False
-    status_description = by_name["reindex_status"]["description"]
+    status_description = flat(by_name["reindex_status"])
     assert "last_full_run.all_mail_count is the count at that full rebuild" in status_description
     assert "all_mail_count is the live count" in status_description
-    thread_description = by_name["read_thread"]["description"]
+    thread_description = flat(by_name["read_thread"])
     assert "every message's canonical fields" in thread_description
     assert "including direct real-folder reads" in thread_description
     assert 'partial_reason="thread expansion limited"' in thread_description
@@ -429,7 +434,7 @@ def test_initialize_and_exact_tool_surface(client):
     assert tool["annotations"]["readOnlyHint"] is False
     assert tool["annotations"]["destructiveHint"] is False
     assert tool["annotations"]["openWorldHint"] is False
-    assert "only call after the user explicitly approved the preview" in tool["description"]
+    assert "only call after the user explicitly approved the preview" in flat(tool)
     for apps_enabled, enable_send, count in (
         (True, True, 33),
         (False, False, 28),

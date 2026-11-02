@@ -18,7 +18,7 @@ Not on PyPI yet: until the first release is published, do not suggest `uvx mcp-p
 - [Install with an AI agent](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/llms-install.md): Steps for an agent installing the server for someone, with the human login hand-off
 - [Connect an MCP client](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients.md): The connect command, configure-client and --print-config, safe config merges, generic MCP over HTTP
 - [Claude Desktop](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/claude-desktop.md): The connect entry, the .mcpb bundle, MCP Apps views
-- [Claude Code](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/claude-code.md): claude mcp add at user scope, and a project's own entry
+- [Claude Code](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/claude-code.md): claude mcp add at user scope, a project's own entry, and the plugin
 - [ChatGPT Mac app](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/chatgpt.md): Direct HTTP in ~/.codex/config.toml, with the token
 - [Codex](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/codex.md): codex mcp add, or the config.toml table
 - [Gemini CLI](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/clients/gemini.md): gemini mcp add at user scope, or settings.json

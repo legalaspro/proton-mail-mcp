@@ -105,8 +105,9 @@ and check the results. This applies to `preview_add_rule`, `add_rule`, `list_rul
 ## Server instructions
 
 Sent to every client when it connects. A client decides how to use them; many add them to the
-model's system prompt. The sending paragraph appears only with sending enabled, and the views
-paragraph only with views on.
+model's system prompt. The sending paragraph appears only with sending enabled, in place of one
+sentence that says sending is off, and the views paragraph only with views on. Likewise, a tool
+description's paragraphs that start "With sending on" are sent only with sending enabled.
 
 {instructions}
 

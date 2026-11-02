@@ -60,10 +60,48 @@ reads and changes nothing. Claude Desktop asks before it allows each tool the fi
 
 ## The .mcpb bundle
 
-`make mcpb` builds `dist/proton-mail-mcp-<version>.mcpb` from a clone. The bundle is only the
-connector: Claude Desktop runs `proton-mail-mcp connect` from it with `uv run`, so uv must be
-installed, and setup must already have run on the same computer. It is not published anywhere,
-and it has not yet been tried in Claude Desktop.
+`make mcpb` builds `dist/proton-mail-mcp-<version>.mcpb` from a clone; it uploads nothing, and
+`.gitignore` keeps the built file out of git. Open the file with Claude Desktop to install it. The
+bundle is only the connector: the manifest, a launcher and the license, with no copy of the
+package. Claude Desktop runs the manifest's command:
+
+```sh
+uvx mcp-proton-mail@<version> connect --env-file=
+```
+
+uv downloads that release from PyPI, where the public repository publishes it with Trusted
+Publishing, and Python 3.12 when there is none. So uv must be installed, and setup must already
+have run on the same computer: the bundle installs no service and asks for no password or token.
+Use the bundle or the entry setup writes, not both, or Claude sees every tool twice.
+
+**Why `uvx` under the `python` type.** MCPB 0.4 has a `uv` server type, where the host installs
+the project from a `pyproject.toml` in the bundle. Smithery's bundle publisher accepts only the
+`python`, `node` and `binary` types, so the manifest uses spec 0.3 and the `python` type, and its
+command is `uvx` instead of a Python interpreter, so nothing needs bundling. The bundle then runs
+the same published wheel as every other client, not a build of a copy of the source.
+`compatibility` names no Python version, because the host's own Python is never used.
+
+**Why it goes through `/bin/sh` on macOS.** An app started from the Dock gets only
+`/usr/bin:/bin:/usr/sbin:/sbin`, which leaves out where `uvx` usually is: `~/.local/bin` from uv's
+installer or pipx, `~/.cargo/bin`, `/opt/homebrew/bin` or `/usr/local/bin` from Homebrew, the mise
+and asdf shims, and the nix profiles. The manifest cannot add to the PATH the app has, because an
+`env` PATH would replace it and mcpb has no variable for the old one. So on macOS the command is
+`/bin/sh -c`, which puts those folders in front of PATH, or of the system folders when PATH is
+empty, and then runs `exec uvx` with the same arguments; connect inherits that PATH, so it also
+finds a Homebrew `pass` or `gpg`. On Windows and Linux the app has the login's PATH.
+`server/main.py`, the entry point the manifest declares, runs the same command for a host that
+starts it with Python instead; it also puts `~/.local/bin` after PATH and passes that PATH on.
+
+**The one setting.** *Settings file* is optional: the `proton-mail-mcp.env` that setup wrote, for
+when connect's default path is not that file. Left empty, it gives `--env-file=`, which connect
+reads as its default. The Bridge account, the port and the credential store come from that file.
+
+How this was checked: `mcpb validate` passes; the mcpb library's own `getMcpConfigForManifest`
+gives the command above on each system, and the `/bin/sh` one on macOS; the released package,
+started by that command, and the launcher from an unpacked bundle with PATH set to `/usr/bin:/bin`,
+both reached connect. Not yet installed in Claude Desktop, and not yet tried on a Mac, so it is
+open whether Claude Desktop accepts a `python` bundle that names no runtime on a Mac without a
+Python of its own.
 
 ## MCP Apps views
 

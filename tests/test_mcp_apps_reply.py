@@ -1392,9 +1392,10 @@ def test_compose_reply_is_linked_to_its_view():
         "from_address",
     }
     assert "required" not in tool.inputSchema
-    assert "never sends" in tool.description
-    assert "retryable error with partial_reason" in tool.description
-    description = tools["read_thread"].description
+    composer = " ".join(tool.description.split())
+    assert "never sends" in composer
+    assert "retryable error with partial_reason" in composer
+    description = " ".join(tools["read_thread"].description.split())
     assert "partial=true means seed discovery" in description
     assert "shared 12-second lookup/command budget" in description
     assert "fallback folder selection and UIDNEXT discovery" in description

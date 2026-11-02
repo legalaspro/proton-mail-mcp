@@ -1,0 +1,16 @@
+{
+  "name": "proton-mail-mcp",
+  "description": "The unofficial proton-mail-mcp connector for Proton Mail Bridge. Not affiliated with Proton AG.",
+  "owner": {
+    "name": "Dmitri Manajev",
+    "email": "dmitri@manajev.com"
+  },
+  "plugins": [
+    {
+      "name": "mcp-proton-mail",
+      "source": "./plugin",
+      "description": "Search and read Proton Mail, write drafts and tidy the mailbox through Proton Mail Bridge, from your own computer, with a preview you approve before anything changes. Unofficial, not affiliated with Proton AG.",
+      "category": "productivity"
+    }
+  ]
+}

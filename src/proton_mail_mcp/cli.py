@@ -12,14 +12,17 @@ _PROG = "proton-mail-mcp"
 _DIST = "mcp-proton-mail"
 _INSTALLER_COMMANDS = ("setup", "configure-client", "uninstall", "show-token", "detect")
 _HELP = f"""\
-usage: {_PROG} [serve | connect | setup | configure-client | uninstall | show-token |
-                        detect] [options]
+usage: {_PROG} [serve | connect | introspect | setup | configure-client | uninstall |
+                        show-token | detect] [options]
 
   serve             start the MCP server from PROTON_* settings (the default without a
                     command)
   connect           serve MCP on stdin and stdout for a client that starts local servers
                     as commands, relaying to the running service with the stored token,
                     which it never prints
+  introspect        list the tools on stdin and stdout with no Bridge, settings or
+                    credentials, for registries that check a server in a container; every
+                    tool call refuses
   setup             guided install: Bridge check or install, login, Bridge password,
                     services, self-check; --dry-run prints the plan and changes nothing,
                     --client writes an MCP client's config, --json is for agents
@@ -30,7 +33,7 @@ usage: {_PROG} [serve | connect | setup | configure-client | uninstall | show-to
                     on the clipboard instead
   detect            show what the installer would target
 
-Each command but serve takes --help.
+Each command but serve and introspect takes --help.
 """
 
 
@@ -59,6 +62,10 @@ def main(argv: list[str] | None = None) -> int:
         from .connect import main as connect
 
         return connect(argv[1:])
+    if command == "introspect" and len(argv) == 1:
+        from .introspect import main as introspect
+
+        return introspect()
     if command in _INSTALLER_COMMANDS:
         from .installer.cli import main as installer
 

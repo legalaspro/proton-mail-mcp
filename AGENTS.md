@@ -15,13 +15,14 @@ make lint                                        # ruff check and format check o
 make docs                                        # regenerate docs/tools.md from the tools
 .venv/bin/python -m pytest tests/test_server.py  # one test file
 make wheel-smoke                                 # prove the quick start from a built wheel
+scripts/docker_smoke.sh                          # build the Dockerfile and check it over stdio
 ```
 
 `make check` must pass before a pull request. A pull request's CI runs Python 3.12 without the
 slow tests; [docs/ci.md](docs/ci.md) says what runs when. It takes minutes: `JOBS=4` limits
 concurrency and `JOBS=0` runs it serially. Do not edit `src/` while it runs. `make wheel-smoke`
-needs uv and network access and uploads nothing. `ruff format --check .` also checks fenced Python
-in Markdown, which `make lint` does not.
+needs uv and network access and uploads nothing; `scripts/docker_smoke.sh` needs Docker.
+`ruff format --check .` also checks fenced Python in Markdown, which `make lint` does not.
 
 ## Layout
 
@@ -36,7 +37,9 @@ in Markdown, which `make lint` does not.
 | `src/proton_mail_mcp/action_log.py` | The append-only action and audit log |
 | `src/proton_mail_mcp/installer/` | The `setup`, `configure-client`, `uninstall`, `show-token` and `detect` commands |
 | `src/proton_mail_mcp/connect.py` | `proton-mail-mcp connect`, the stdio server MCP clients start; it relays to the service and reads the token itself |
+| `src/proton_mail_mcp/introspect.py`, `Dockerfile` | `proton-mail-mcp introspect`, the image registries such as Glama start: the tool list with no Bridge, and every call refused |
 | `src/proton_mail_mcp/ui/`, `mcp_apps.py`, `views.py` | MCP Apps views |
+| `mcpb/`, `plugin/`, `.claude-plugin/` | The Claude Desktop bundle `make mcpb` builds, and the Claude Code plugin and marketplace; both run `uvx mcp-proton-mail@<version> connect` |
 | `tests/` | The suite: fake IMAP connections and local sockets, no live services |
 | `docs/` | Documentation; [`docs/README.md`](docs/README.md) is the map |
 

@@ -1,0 +1,17 @@
+{
+  "name": "mcp-proton-mail",
+  "displayName": "Proton Mail (Bridge)",
+  "version": "1.30.0",
+  "description": "Search and read Proton Mail, write drafts and tidy the mailbox through Proton Mail Bridge, from your own computer, with a preview you approve before anything changes. Unofficial, not affiliated with Proton AG.",
+  "author": {
+    "name": "Dmitri Manajev",
+    "email": "dmitri@manajev.com"
+  },
+  "homepage": "https://github.com/legalaspro/proton-mail-mcp",
+  "repository": "https://github.com/legalaspro/proton-mail-mcp",
+  "license": "Apache-2.0",
+  "keywords": ["proton-mail", "proton-bridge", "email", "mcp"],
+  "documentationUrl": "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/clients/claude-code.md",
+  "supportUrl": "https://github.com/legalaspro/proton-mail-mcp/issues",
+  "privacyPolicyUrl": "https://github.com/legalaspro/proton-mail-mcp#privacy-policy"
+}

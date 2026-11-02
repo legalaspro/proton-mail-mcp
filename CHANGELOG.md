@@ -4,6 +4,29 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ## Unreleased
 
+### Added
+
+- **Every tool says what it does, when to use it and what comes back, and has a title.** Each
+  description now opens with its purpose, then says when to use it rather than a sibling tool,
+  what it changes, needs and refuses, and what it returns, within the 2,048 characters some clients
+  keep; the arguments the model fills in most, such as `folder` and `to`, give examples. Every tool
+  also has a title and declares all four hints. Reads are `idempotentHint=true` and previews
+  `idempotentHint=false`, because each issues a new token; of the writes only `create_folder`,
+  which leaves an existing folder alone, is `idempotentHint=true`. Which tools are read-only, and
+  so which calls the audit records, is unchanged, and so are every approval, form and refusal.
+  With sending off, the server instructions now say that no tool sends mail.
+- **`proton-mail-mcp introspect` and a Dockerfile for registries.** Glama, and registries like it,
+  check a server by starting it in a container and listing its tools over stdio. `introspect`
+  answers `initialize` and `tools/list` with the default tools and server instructions, sending
+  off, and refuses every tool call before it starts: it reads no settings or credentials, reaches
+  no Bridge and writes no file. The repository's `Dockerfile` builds it from the checkout and runs
+  it as a non-root user from inputs pinned for every build of a commit: the base image by digest
+  and each runtime package at the version the tests ran with, in `docker/constraints.txt`.
+  `scripts/docker_smoke.sh` builds the image and checks those answers with no network and a
+  read-only filesystem. Neither changes how the server runs anywhere else.
+
+## 1.30.0 - 2026-11-02
+
 ### Fixed
 
 - **Views read their data again when the host leaves it out.** Claude Desktop passes a view only a
@@ -186,9 +209,18 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   when the run came from uvx. `connector` gives the command any client can start, without the
   token. A usage error is a JSON document too.
 - **`show-token --copy`** puts the token on the clipboard without printing it, at a terminal only.
-- **Files for the MCP Registry and Claude Desktop, published nowhere.** `server.json` and the
-  README's `mcp-name` line describe the package for a later registry listing, and `make mcpb`
-  builds a Claude Desktop bundle that runs connect with uv.
+- **Files for the MCP Registry, Claude Desktop and Claude Code, published nowhere.** `server.json`
+  and the README's `mcp-name` line describe the package for a later registry listing. `make mcpb`
+  builds a Claude Desktop bundle, in the shape Smithery's publisher accepts, whose command is
+  `uvx mcp-proton-mail@<version> connect`: it holds no copy of the package, on macOS runs it
+  through `/bin/sh` with the folders where `uvx` is usually installed in front of PATH, so that an
+  app started from the Dock finds it, and has one optional setting, the settings file.
+  The repository is also a Claude Code plugin marketplace whose one plugin runs the same command.
+  [Claude Desktop](docs/clients/claude-desktop.md#the-mcpb-bundle) says why the bundle uses `uvx`
+  under the `python` server type.
+- **A privacy policy.** The README says what stays on your computer, what the server connects to,
+  what a send needs and when it needs no approval, and what reaches your MCP client's model
+  provider.
 - **Install docs for agents and a page per client.** `llms-install.md` is the steps an agent
   follows, with the one hand-off of the Bridge login to the person; `docs/clients/` has a page for
   each client.

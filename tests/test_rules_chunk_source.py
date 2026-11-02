@@ -26,6 +26,9 @@ def test_rules_source_conflict_stops_before_second_chunk(
 ):
     # One batched chunk would hold all 51 rows; keep a second chunk to refuse.
     monkeypatch.setattr(guarded, "EXECUTE_BATCH_SIZE", 21)
+    # Windows keeps fsync real: the first chunk's journal could spend the execute budget on the
+    # disk before the second chunk's preparation sees the changed source. Hold the clock still.
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
     sim, client = duplicate_mailbox()
     items = duplicates(sim, count=51)
     service = rules_service(client, tmp_path)

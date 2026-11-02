@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build the Claude Desktop bundle (.mcpb) from this checkout; nothing is uploaded.
 
-The bundle is a zip with mcpb/manifest.json at its root, mcpb/main.py as its entry point,
-and what `uv run` needs to install the project from it: pyproject.toml, README.md, LICENSE,
-the package and every file pyproject.toml force-includes in the wheel. The same checkout
-always gives the same bytes. The manifest's version must be the package's own.
+The bundle is a zip of three files: mcpb/manifest.json at its root, mcpb/main.py as the
+declared entry point, and the LICENSE. It holds no copy of the package. The manifest's command
+is `uvx mcp-proton-mail@<version> connect`, so uv fetches that release from PyPI on the user's
+computer. The same checkout always gives the same bytes. The manifest's version, and the
+release its command pins, must be the package's own, and a platform's own arguments must end
+with that command's.
 
     python scripts/build_mcpb.py [--output DIR]
 """
@@ -13,7 +15,6 @@ import argparse
 import json
 import re
 import sys
-import tomllib
 import zipfile
 from pathlib import Path
 
@@ -21,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "mcpb" / "manifest.json"
 ENTRY = ROOT / "mcpb" / "main.py"
 PACKAGE = ROOT / "src" / "proton_mail_mcp"
+# The distribution on PyPI that the manifest's command runs.
+DIST = "mcp-proton-mail"
 # The package's one version, as the wheel's metadata and the server read it.
 VERSION = re.search(
     r'^__version__ = "([^"]+)"$',
@@ -35,22 +38,11 @@ MODE = 0o644 << 16
 def members() -> dict[str, Path]:
     """Name in the bundle -> file in this checkout."""
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    found = {
+    return {
         "manifest.json": MANIFEST,
         manifest["server"]["entry_point"]: ENTRY,
-        "pyproject.toml": ROOT / "pyproject.toml",
-        "README.md": ROOT / "README.md",
         "LICENSE": ROOT / "LICENSE",
     }
-    for path in sorted(PACKAGE.rglob("*")):
-        # Hatch leaves out what .gitignore names, and so does the bundle.
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
-            found[path.relative_to(ROOT).as_posix()] = path
-    with (ROOT / "pyproject.toml").open("rb") as stream:
-        wheel = tomllib.load(stream)["tool"]["hatch"]["build"]["targets"]["wheel"]
-    for source in wheel.get("force-include", {}):
-        found[source] = ROOT / source
-    return found
 
 
 def build(output: Path) -> Path:
@@ -60,6 +52,19 @@ def build(output: Path) -> Path:
             f"{MANIFEST.relative_to(ROOT)} says version {manifest.get('version')}, but the "
             f"package is {VERSION}; make them the same"
         )
+    config = manifest["server"]["mcp_config"]
+    pinned = config["args"][0]
+    if pinned != f"{DIST}@{VERSION}":
+        raise ValueError(
+            f"{MANIFEST.relative_to(ROOT)} runs {pinned}, but the package is {VERSION}; make "
+            f"its first argument {DIST}@{VERSION}"
+        )
+    for system, override in config.get("platform_overrides", {}).items():
+        if "args" in override and override["args"][-len(config["args"]) :] != config["args"]:
+            raise ValueError(
+                f"{MANIFEST.relative_to(ROOT)}'s {system} override runs other arguments; end "
+                f"them with {' '.join(config['args'])}"
+            )
     output.mkdir(parents=True, exist_ok=True)
     target = output / f"proton-mail-mcp-{VERSION}.mcpb"
     with zipfile.ZipFile(target, "w") as bundle:
@@ -77,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         target = build(Path(args.output))
-    except (OSError, ValueError, KeyError) as error:
+    except (OSError, ValueError, KeyError, IndexError) as error:
         print(f"build_mcpb: {error}", file=sys.stderr)
         return 2
     print(target)

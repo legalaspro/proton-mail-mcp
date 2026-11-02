@@ -205,7 +205,7 @@ def test_requests_to_see_or_answer_mail_are_routed_to_the_views_first():
     send = settings(enable_send=True, send_from_allowlist=("bridge@example.test",))
     mcp = create_mcp(send, NoMail())
     by_name = {tool.name: tool.description for tool in asyncio.run(mcp.list_tools())}
-    # The routing sentence comes first, so clients that cut descriptions keep it.
+    # Purpose and routing open the description, so clients that cut descriptions keep them.
     first = {name: text.split("\n\n", 1)[0].replace("\n", " ") for name, text in by_name.items()}
     assert first["show_thread"] == (
         "Show an email or thread to the user in a read-only view: the default for any request "
@@ -216,12 +216,14 @@ def test_requests_to_see_or_answer_mail_are_routed_to_the_views_first():
         "reply, write back or compose."
     )
     assert first["read_thread"] == (
-        "Text-only, for analysis/summaries without a view; if show_thread is listed and the "
-        "user wants to see or open mail, call show_thread instead."
+        "Read one message and its thread as plain text, for analysis or summaries; nothing is "
+        "marked read. If show_thread is listed and the user wants to see or open mail, call "
+        "show_thread instead."
     )
     assert first["create_draft"] == (
-        "No-view path; if compose_reply is listed and the user wants to reply or compose, call "
-        "compose_reply first."
+        "Save a new unsent draft in Drafts and return its Message-ID; this never sends. If "
+        "compose_reply is listed and the user wants to reply or compose, call compose_reply "
+        "first: this is the no-view path."
     )
     assert "show_thread, not read_thread" in mcp.instructions
     assert "compose_reply, not create_draft" in mcp.instructions

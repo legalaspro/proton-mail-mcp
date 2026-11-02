@@ -463,7 +463,9 @@ def test_tools_are_listed_with_their_annotations_and_exact_arguments(case):
     assert create_tool.annotations.openWorldHint is False
     assert set(create_tool.parameters["properties"]) == {"token"}
     assert create_tool.parameters["additionalProperties"] is False
-    assert "only call after explicit approval of its preview" in create_tool.description
+    assert "only call after explicit approval of its preview" in " ".join(
+        create_tool.description.split()
+    )
     for extra in ({"script": "discard;"}, {"name": "Other"}, {"confirm": True}):
         with pytest.raises(ToolError):
             call(mcp, ACTION, {"token": "A" * 43} | extra, Host())

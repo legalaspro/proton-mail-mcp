@@ -1,10 +1,10 @@
 {
-  "manifest_version": "0.4",
+  "manifest_version": "0.3",
   "name": "proton-mail-mcp",
   "display_name": "Proton Mail (Bridge)",
   "version": "1.30.0",
   "description": "Search and read Proton Mail, write drafts and tidy the mailbox through Proton Mail Bridge, with a preview you approve before anything changes.",
-  "long_description": "This bundle is only the connector. It runs `proton-mail-mcp connect`, which passes Claude Desktop's requests to the proton-mail-mcp service on 127.0.0.1 and reads the service's bearer token from the system credential store each time it starts, so the token is never in Claude Desktop's settings. Run `proton-mail-mcp setup` on this computer first: it installs Proton Mail Bridge, stores the credentials and starts the service. Unofficial: not affiliated with or endorsed by Proton AG.",
+  "long_description": "This bundle is only the connector. It runs `uvx mcp-proton-mail@1.30.0 connect`, which passes the client's requests to the proton-mail-mcp service on 127.0.0.1 and reads the service's bearer token from the system credential store each time it starts, so the token is never in the client's settings. It needs [uv](https://docs.astral.sh/uv/), which downloads the package from PyPI, and Python 3.12 when there is none. Run `proton-mail-mcp setup` on this computer first: it installs Proton Mail Bridge, stores the credentials and starts the service. Everything runs on this computer; nothing is hosted. Unofficial: not affiliated with or endorsed by Proton AG.",
   "author": {
     "name": "Dmitri Manajev",
     "email": "dmitri@manajev.com"
@@ -14,23 +14,43 @@
     "url": "https://github.com/legalaspro/proton-mail-mcp"
   },
   "homepage": "https://github.com/legalaspro/proton-mail-mcp",
-  "documentation": "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/README.md",
+  "documentation": "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/clients/claude-desktop.md",
   "support": "https://github.com/legalaspro/proton-mail-mcp/issues",
   "server": {
-    "type": "uv",
+    "type": "python",
     "entry_point": "server/main.py",
     "mcp_config": {
-      "command": "uv",
-      "args": ["run", "--directory", "${__dirname}", "server/main.py"]
+      "command": "uvx",
+      "args": ["mcp-proton-mail@1.30.0", "connect", "--env-file=${user_config.env_file}"],
+      "platform_overrides": {
+        "darwin": {
+          "command": "/bin/sh",
+          "args": [
+            "-c",
+            "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/share/mise/shims:$HOME/.asdf/shims:$HOME/.nix-profile/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}\"; exec uvx \"$@\"",
+            "proton-mail-mcp",
+            "mcp-proton-mail@1.30.0",
+            "connect",
+            "--env-file=${user_config.env_file}"
+          ]
+        }
+      }
+    }
+  },
+  "user_config": {
+    "env_file": {
+      "type": "file",
+      "title": "Settings file (optional)",
+      "description": "The proton-mail-mcp.env that `proton-mail-mcp setup` wrote. Leave it empty to use the one on this computer. The Bridge account, the port and the credential store come from this file; the bundle never asks for a password or a token.",
+      "required": false,
+      "default": ""
     }
   },
   "tools_generated": true,
   "compatibility": {
-    "platforms": ["darwin", "linux", "win32"],
-    "runtimes": {
-      "python": ">=3.12"
-    }
+    "platforms": ["darwin", "linux", "win32"]
   },
   "keywords": ["mcp", "proton-mail", "proton-bridge", "email", "imap"],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "privacy_policies": ["https://github.com/legalaspro/proton-mail-mcp#privacy-policy"]
 }

@@ -93,7 +93,7 @@ def test_unknown_arguments_print_usage_and_exit_2(served, capsys, flag):
 def test_help_names_every_command(capsys, flag):
     assert cli.main([flag]) == 0
     out = capsys.readouterr().out
-    for command in ("serve", "setup", "uninstall", "show-token", "detect"):
+    for command in ("serve", "introspect", "setup", "uninstall", "show-token", "detect"):
         assert re.search(rf"^  {command} ", out, re.MULTILINE), command
 
 

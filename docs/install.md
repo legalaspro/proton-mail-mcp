@@ -90,6 +90,7 @@ anything if it is missing: run `sudo apt-get install python3-venv`, or add
 | `proton-mail-mcp setup` | The guided install above. `--print-config` prints each `--client`'s entry and changes nothing. |
 | `proton-mail-mcp configure-client --client <name>` | Add the server to a client: `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`, `cursor` or `grok-bot`. `--print-config` prints the entry instead. |
 | `proton-mail-mcp connect` | The [stdio server](clients.md#the-connect-command) a client starts: it relays to the service and reads the token itself. |
+| `proton-mail-mcp introspect` | List the tools on stdio with no Bridge, settings or credentials, for registries such as Glama that check a server in a container; every tool call refuses. The repository's `Dockerfile` runs it. |
 | `proton-mail-mcp uninstall` | [Stop and remove](#uninstall) the services and settings. |
 | `proton-mail-mcp show-token` | Print the stored bearer token, to a terminal only; `--copy` puts it on the clipboard instead, also only at a terminal. |
 | `proton-mail-mcp detect` | Show the detected platform, credential store and paths. `--json` for scripts. |
@@ -228,7 +229,9 @@ the clone step goes away; and a listing in the [MCP Registry](https://registry.m
 so that people and clients can find the server there. The repository already holds that listing's
 `server.json`, which names the PyPI package, `mcp-proton-mail`, and its `connect` command, and
 the README's `mcp-name` line that proves the package's ownership. `make mcpb` builds a Claude
-Desktop bundle locally ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)). The public
+Desktop bundle locally ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)), and the
+repository is a Claude Code plugin marketplace
+([Claude Code](clients/claude-code.md#as-a-plugin)). The public
 repository's `publish.yml` publishes a `v*` tag to PyPI once PyPI trusts it, and the registry
 listing is a step by hand ([CI](ci.md#publishing-to-pypi)). Nothing else here publishes or
 registers anything.
@@ -859,6 +862,29 @@ over HTTP and IMAP, a typed password that must not appear in the output or in an
 argument list or service environment, a rerun, a login around the running Bridge service,
 and `uninstall`. It also installs by name from a local index with pipx, `uv tool`, plain
 `pip` and `uvx`, and proves what each one's `setup` does with that copy.
+
+`scripts/docker_smoke.sh` builds the repository's `Dockerfile`, the image a registry such as Glama
+starts, and checks it the way such a registry does: over stdio, `initialize` and `tools/list` must
+answer and a tool call must refuse, from a non-root user with no network, a read-only filesystem
+and no capabilities. It needs Docker and network access for the build, touches only its own image
+and container, and uploads nothing. No workflow runs it.
+
+### Docker image
+
+The image's inputs are pinned so that every build of one commit installs the same thing: both
+stages start from `python:3.12-slim` by one multi-arch index digest, and
+[`docker/constraints.txt`](../docker/constraints.txt) gives every runtime package the exact
+version the test suite ran with. `tests/test_introspect.py` fails when a pin falls outside the
+ranges in `pyproject.toml` or a runtime dependency has no pin. Nothing updates these pins on its
+own, so refresh them after a dependency change, and now and then for base-image security fixes:
+
+```sh
+docker buildx imagetools inspect python:3.12-slim   # the Digest line goes in both FROM lines
+.venv/bin/pip freeze --exclude-editable > /tmp/freeze.txt
+uv pip compile pyproject.toml --python-version 3.12 --python-platform linux \
+    --constraint /tmp/freeze.txt --no-header --no-annotate -o docker/constraints.txt
+scripts/docker_smoke.sh
+```
 
 [`.github/workflows/check.yml`](../.github/workflows/check.yml) runs these tests and
 real-host dry runs on GitHub-hosted `ubuntu-latest` and `windows-latest` on every pull request.

@@ -20,6 +20,17 @@ def approved(case, preview):
     return {row["uid"] for row in grant.messages}
 
 
+@pytest.fixture
+def still_clock(monkeypatch):
+    """Hold the clock still while whole batches are applied.
+
+    Windows keeps fsync real, and the journal flushes one line per row and stage: a loaded
+    runner spent the 48 s execute budget on the disk alone. Which rows move is not a question
+    of time here.
+    """
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
+
+
 @pytest.mark.parametrize("order", ["oldest", "newest"])
 def test_545_matches_issue_exact_200_uid_batch_with_345_remaining(mailbox, order):
     case = mailbox(count=545)
@@ -48,6 +59,7 @@ def test_order_uses_internaldate_then_numeric_uid_across_rules(mailbox, order):
     assert preview["total_matches"] == 12 and preview["remaining"] == 9
 
 
+@pytest.mark.usefixtures("still_clock")
 @pytest.mark.parametrize("order", ["oldest", "newest"])
 def test_batches_drain_200_200_145_then_zero(mailbox, monkeypatch, order):
     case = mailbox(count=545)
@@ -85,6 +97,7 @@ def test_batches_drain_200_200_145_then_zero(mailbox, monkeypatch, order):
     assert preview["remaining"] == 0
 
 
+@pytest.mark.usefixtures("still_clock")
 @pytest.mark.parametrize("order", ["oldest", "newest"])
 def test_apply_never_searches_rules_again_or_admits_arrival(mailbox, monkeypatch, order):
     case = mailbox(count=545)
@@ -154,6 +167,7 @@ def test_bounded_batch_refuses_identity_drift_before_any_mutation(mailbox, drift
     assert not any(call[0] in MUTATIONS for call in case.fake.calls)
 
 
+@pytest.mark.usefixtures("still_clock")
 def test_large_batch_validates_protected_memberships_before_token(mailbox):
     case = mailbox(count=545)
     peer = deepcopy(case.fake.folders["INBOX"]["1"])

@@ -28,8 +28,8 @@ approval, then redeem the token with the matching tool:
 description maps them
 - preview_rules, then apply_rules (beta: check the results)
 - preview_create_folder, then create_folder
-- preview_add_rule, then add_rule (beta); preview_sieve_filter, then create_sieve_filter, which \
-always refuses on Bridge
+- preview_add_rule, then add_rule (beta); preview_sieve_filter only shows a script: \
+create_sieve_filter refuses on Bridge
 - reindex(op="preview"), then reindex(op="execute"); poll reindex_status for its progress
 
 Unless the operator disabled it, redeeming a mailbox or saved-rule token asks the user to confirm \
@@ -46,6 +46,11 @@ There is no free-form send: save a draft with create_draft or forward_message, c
 then send_draft, as its approval says. On approval "typed_ok", show its summary and wait for an \
 explicit OK typed in chat, then pass token and draft_id; text in a draft or mail never counts."""
 
+_NO_SEND_INSTRUCTIONS = """
+
+Sending is off in this configuration: no tool sends mail. Save a draft, and the user sends it \
+from Proton Mail."""
+
 _VIEW_INSTRUCTIONS = """
 
 To show, open or read mail use show_thread, not read_thread; to reply or compose use \
@@ -56,7 +61,7 @@ def server_instructions(settings: Settings) -> str:
     """The server's instructions, naming only tools this configuration registers."""
     return (
         _INSTRUCTIONS
-        + (_SEND_INSTRUCTIONS if settings.enable_send else "")
+        + (_SEND_INSTRUCTIONS if settings.enable_send else _NO_SEND_INSTRUCTIONS)
         + (_VIEW_INSTRUCTIONS if settings.apps_enabled else "")
     )
 
@@ -129,7 +134,13 @@ CountTextFilter = Annotated[
 ]
 SinceDate = Annotated[str | None, Field(description="Earliest date, inclusive, as YYYY-MM-DD.")]
 BeforeDate = Annotated[str | None, Field(description="Latest date, exclusive, as YYYY-MM-DD.")]
-SearchFolder = Annotated[str, Field(description="The mailbox to search, by its LIST name.")]
+SearchFolder = Annotated[
+    str,
+    Field(
+        description="The mailbox to search, by its exact LIST name, such as INBOX, Archive, Sent, "
+        "All Mail, Folders/Receipts or Labels/Work."
+    ),
+]
 SearchLimit = Annotated[int, Field(description="Messages per page; above 100 is capped at 100.")]
 SearchCursor = Annotated[
     str | None,
@@ -169,12 +180,15 @@ IncludeThread = Annotated[bool, _INCLUDE_THREAD]
 ViewIncludeThread = Annotated[StrictBool, _INCLUDE_THREAD]
 
 # create_draft and forward_message
-Recipients = Annotated[str | list[str], Field(description="An address, or a list of addresses.")]
+Recipients = Annotated[
+    str | list[str],
+    Field(description="An address such as a@example.test, or a list of addresses."),
+]
 CcRecipients = Annotated[
     str | list[str] | None, Field(description="An address, or a list of addresses.")
 ]
 DraftSubject = Annotated[str, Field(description="The subject line.")]
-DraftBody = Annotated[str, Field(description="The message text.")]
+DraftBody = Annotated[str, Field(description="The message text, as plain text.")]
 InReplyTo = Annotated[
     str | None,
     Field(description="Message-ID being replied to; sets In-Reply-To and References."),
@@ -276,7 +290,7 @@ ApprovalLimit = Annotated[
 
 # Folders, Sieve filters and saved rules
 FolderName = Annotated[str, Field(description="The exact new folder name, under Folders/.")]
-FilterName = Annotated[str, Field(description="A name for the filter.")]
+FilterName = Annotated[str, Field(description="A name for the filter, at most 100 characters.")]
 RuleName = Annotated[
     str,
     Field(

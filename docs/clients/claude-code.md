@@ -56,6 +56,34 @@ entry that already says the same is left alone.
 
 Then start a new Claude Code session: exit, and run `claude` again.
 
+## As a plugin
+
+The repository is also a Claude Code plugin marketplace, `proton-mail-mcp`, with one plugin,
+`mcp-proton-mail`. Its one server, `proton-mail`, runs the published release by name, so it needs
+[uv](https://docs.astral.sh/uv/) and a finished setup, but no clone:
+
+```json
+{
+  "mcpServers": {
+    "proton-mail": {
+      "command": "uvx",
+      "args": ["mcp-proton-mail@<version>", "connect"]
+    }
+  }
+}
+```
+
+```text
+/plugin marketplace add legalaspro/proton-mail-mcp
+/plugin install mcp-proton-mail@proton-mail-mcp
+```
+
+From a clone, `/plugin marketplace add ./` adds the same marketplace. The plugin's files are in
+`plugin/`, not at the root, because Claude Code would offer a root `.mcp.json` as a project server
+to anyone working in this repository. Use the plugin or the entry setup writes, not both, or
+Claude sees every tool twice. `claude plugin validate` passes for both files; the plugin has not
+yet been loaded in a Claude Code session.
+
 ## Try it
 
 Ask: "How many unread messages are in my inbox?" Claude Code should call `count_mail`, which reads

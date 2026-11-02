@@ -1,0 +1,23 @@
+# Only what the wheel is built from reaches the build, so no local settings, logs or mail can.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!.gitignore
+!src/
+!docker/constraints.txt
+!examples/com.proton-mail-mcp.plist
+!examples/protected-senders.example.json
+!examples/systemd/proton-mail-mcp-rules.service
+!examples/systemd/proton-mail-mcp-rules.timer
+
+# Not even inside src/: the patterns .gitignore keeps out of Git for the same reason.
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+**/*.env
+**/*.env.*
+**/*.log
+**/*.eml
+**/*.mbox

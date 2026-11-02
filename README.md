@@ -182,6 +182,19 @@ On PyPI these relative links do not resolve; read them in the
   hands the person the one step only they can do.
 - **A coding agent changing this repository** should read [`AGENTS.md`](AGENTS.md).
 
+## Privacy Policy
+
+proton-mail-mcp runs only on your computer and reaches your mail only through Proton Mail Bridge, on
+`127.0.0.1` unless `PROTON_BRIDGE_HOST` names another host with a verified certificate; Bridge syncs
+with Proton as it does for any mail app. Nothing is hosted, there is no telemetry, and its index,
+logs and saved attachments stay on your computer. Sending is off until you turn it on, and then each
+send needs a saved draft, a preview and a single-use token redeemed only after you approve. On a
+client without forms the approval is an OK you type in chat, which the server cannot tell apart from
+one the model writes. With `PROTON_MCP_SEND_SELF_NO_FORM=1`, which you have to set, a plain note to
+only your own addresses needs the token and no approval ([Sending](#sending)). Besides installing,
+its one other connection is to an unsubscribe link you approve. What your assistant reads goes to
+your MCP client, and from there to its model provider under that provider's terms.
+
 ## License
 
 [Apache-2.0](LICENSE).

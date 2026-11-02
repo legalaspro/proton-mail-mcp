@@ -9,6 +9,8 @@ out/test-runs/
 *.egg-info/
 build/
 dist/
+# Built by `make mcpb`; never committed.
+*.mcpb
 .env
 .env.*
 *.env
