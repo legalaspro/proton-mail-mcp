@@ -11,7 +11,7 @@ GITHUB = WORKFLOWS.parent
 DEPENDABOT = GITHUB.parent / "release" / "dependabot.yml"
 RELEASE_GATE = (
     "github.repository == 'legalaspro/proton-mail-mcp'"
-    " && github.event.repository.visibility == 'public'"
+    " && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true')"
 )
 PUBLISH_GATE = "github.repository == 'legalaspro/proton-mail-mcp'"
 RUNNER = re.compile(r"macos-[\w.]+")
@@ -37,7 +37,7 @@ def test_every_macos_runner_is_behind_the_release_gate():
                 else:
                     gated, fallback = line.rsplit("||", 1)
                     assert RELEASE_GATE in gated and not RUNNER.search(fallback), path.name
-    assert seen == 3
+    assert seen == 4
 
 
 def test_the_gate_fails_closed_when_the_event_has_no_repository():
@@ -46,22 +46,87 @@ def test_the_gate_fails_closed_when_the_event_has_no_repository():
         assert "repository.private" not in path.read_text(encoding="utf-8"), path.name
 
 
-def test_a_pull_request_runs_one_linux_and_one_windows_job():
+def test_every_gate_has_the_release_repos_fallback_for_an_event_without_visibility():
+    # A schedule event may carry no repository, and a nightly that skips looks green. The release
+    # repo sets FREE_MINUTES instead; the name check stays outside it, so no variable set in this
+    # repo or a fork opens the gate.
+    gates = 0
+    for path in WORKFLOWS.glob("*.yml"):
+        text = path.read_text(encoding="utf-8")
+        assert text.count("repository.visibility") == text.count(RELEASE_GATE), path.name
+        assert text.count("vars.") == text.count(RELEASE_GATE), path.name
+        gates += text.count(RELEASE_GATE)
+    assert gates == 12
+
+
+def test_the_dev_repo_runs_nothing_on_its_own():
+    # Its gate is make check; the release repo's sync pull request runs everything, for free.
     text = (WORKFLOWS / "check.yml").read_text(encoding="utf-8")
-    assert """|| '["ubuntu-latest", "windows-latest"]') }}""" in text
-    assert "pull_request" not in (WORKFLOWS / "full.yml").read_text(encoding="utf-8")
-    assert "pull_request" not in (WORKFLOWS / "installer.yml").read_text(encoding="utf-8")
+    assert (
+        "    if: (github.event_name != 'push' && github.event_name != 'pull_request')"
+        f" || ({RELEASE_GATE})\n"
+    ) in text
+    # Linux and Windows by hand or from a Full run; a Full run reports every runner.
+    assert (
+        f"|| (({RELEASE_GATE}) || github.event_name == 'workflow_dispatch' || inputs.full)"
+        """ && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}"""
+    ) in text
+    assert "      fail-fast: ${{ github.event_name == 'pull_request' && !inputs.full }}\n" in text
+    # A Full run on a pull request also reports every failure, for one fix-forward pull request.
+    maxfail = "${{ github.event_name == 'pull_request' && !inputs.full && '--maxfail=5' || '' }}"
+    assert text.count(maxfail) == text.count("--maxfail") == 2
+    for job in jobs((WORKFLOWS / "installer.yml").read_text(encoding="utf-8")):
+        assert f"    if: github.event_name == 'workflow_dispatch' || ({RELEASE_GATE})\n" in job or (
+            f"    if: {RELEASE_GATE}\n" in job
+        ), job.splitlines()[0]
+
+
+def test_a_release_pull_request_runs_the_full_and_installer_sets():
+    for name in ("check.yml", "full.yml", "installer.yml"):
+        text = (WORKFLOWS / name).read_text(encoding="utf-8")
+        assert '    paths-ignore:\n      - "docs/**"\n      - "**/*.md"\n      - LICENSE\n' in text
+        # Only a newer push to the same pull request cancels a run: never main, a tag or a night.
+        assert "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n" in text, name
+        assert text.count("cancel-in-progress:") == 1, name
+        if name != "check.yml":
+            assert "  pull_request:\n    branches: [main]\n    paths-ignore:\n" in text, name
+    full = (WORKFLOWS / "full.yml").read_text(encoding="utf-8")
+    # The full matrix runs every night and on a tag, no longer on each push to main.
+    assert '\non:\n  push:\n    tags: ["v*"]\n  pull_request:\n' in full
+    assert '  schedule:\n    - cron: "17 3 * * *"\n' in full
+    # A pull request: Linux and macOS on the oldest and newest Python; Checks adds Windows.
+    assert (
+        f"python: ${{{{ fromJSON(github.event_name != 'pull_request' && {RELEASE_GATE}"
+        """ && '["3.12", "3.13", "3.14"]' || '["3.12", "3.14"]') }}"""
+    ) in full
+    assert (
+        f"os: ${{{{ github.event_name == 'pull_request' && {RELEASE_GATE}"
+        """ && '["ubuntu-latest", "macos-latest"]' || '' }}"""
+    ) in full
+
+
+def test_every_checks_job_first_refuses_a_plugin_lock_that_names_anything_but_pypi():
+    # So a sync pull request with such a lock fails a required check by name, before the tests;
+    # the Claude directory refuses that lock, and the sync runs the same script before it pushes.
+    (job,) = jobs((WORKFLOWS / "check.yml").read_text(encoding="utf-8"))
+    step = (
+        "      - name: The plugin's lock names only PyPI\n"
+        "        run: python scripts/check_plugin_lock.py\n"
+    )
+    assert job.count(step) == 1
+    assert job.index("actions/setup-python@") < job.index(step) < job.index("uv pip install")
+    assert (GITHUB.parent / "scripts" / "check_plugin_lock.py").is_file()
 
 
 def test_a_full_run_starts_on_its_own_only_in_the_release_repo():
-    # The push and schedule triggers fire everywhere, so these lines keep them from billing here.
+    # The push, pull request and schedule triggers fire everywhere, so these lines keep them from
+    # billing here.
     checks, installer = jobs((WORKFLOWS / "full.yml").read_text(encoding="utf-8"))
     assert f"    if: github.event_name == 'workflow_dispatch' || ({RELEASE_GATE})\n" in checks
-    # The release repo's push to main already starts the installer workflow once, on its paths.
+    # A pull request starts the installer workflow itself.
     assert (
         "    if: github.event_name == 'workflow_dispatch'"
-        " || (github.ref != 'refs/heads/main' || github.event_name != 'push')"
-        f" && ({RELEASE_GATE})\n"
+        f" || github.event_name != 'pull_request' && ({RELEASE_GATE})\n"
     ) in installer
 
 
@@ -123,8 +188,9 @@ def test_only_the_release_repo_publishes_and_only_a_tag():
 
 
 def test_dependabot_opens_pull_requests_only_in_the_release_repo():
-    # Each would start a billed run here, so the config waits in release/, where Dependabot does
-    # not look, and the release sync moves it into .github there. A tree holds exactly one.
+    # Its pull requests get CI only in the release repo, so the config waits in release/, where
+    # Dependabot does not look, and the release sync moves it into .github there. A tree holds
+    # exactly one.
     found = [
         path
         for path in (DEPENDABOT, GITHUB / "dependabot.yml", GITHUB / "dependabot.yaml")

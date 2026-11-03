@@ -22,10 +22,15 @@ PLUGIN = json.loads(
 )
 PLUGIN_SERVERS = json.loads((ROOT / "plugin" / ".mcp.json").read_text(encoding="utf-8"))
 MARKETPLACE = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-# What the bundle and the plugin both run: this release from PyPI, by name with uvx. The plugin
-# pins it with ==, the form the Claude directory's checklist gives for an exact uvx pin.
+# What the bundle runs: this release from PyPI, by name with uvx. The plugin runs a release from
+# PyPI too, pinned with ==, the form the Claude directory's checklist gives for an exact uvx pin.
+# Its lock may name only PyPI's files, so until this release is uploaded the plugin stays on the
+# one before it (docs/ci.md, The plugin's lock).
 RELEASE = f"mcp-proton-mail@{__version__}"
-PLUGIN_RELEASE = f"mcp-proton-mail=={__version__}"
+PLUGIN_RELEASE = f"mcp-proton-mail=={PLUGIN['version']}"
+RELEASES = re.findall(
+    r"^## (\d+\.\d+\.\d+)\b", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), flags=re.M
+)
 REAL_RUN = subprocess.run
 
 
@@ -42,6 +47,10 @@ def builder():
 
 def launcher():
     return load("mcpb_main", ROOT / "mcpb" / "main.py")
+
+
+def lock_guard():
+    return load("check_plugin_lock", ROOT / "scripts" / "check_plugin_lock.py")
 
 
 def fake_uvx(folder):
@@ -267,11 +276,16 @@ def test_without_uvx_the_launcher_says_to_install_uv(tmp_path, monkeypatch, caps
     assert "install uv (https://docs.astral.sh/uv/)" in capsys.readouterr().err
 
 
-def test_the_claude_code_plugin_runs_the_same_release_as_the_bundle():
+def test_the_claude_code_plugin_runs_this_release_or_until_its_upload_the_one_before():
     assert PLUGIN["name"] == "mcp-proton-mail"
-    assert PLUGIN["version"] == __version__
+    # The newest release in the changelog is this one; the plugin may trail it by one, no more.
+    assert RELEASES[0] == __version__
+    assert PLUGIN["version"] in RELEASES[:2]
     assert PLUGIN["license"] == "Apache-2.0"
     assert "not affiliated with Proton AG" in PLUGIN["description"]
+    # The Claude directory's listing reads these links; validators before Claude Code 2.1.281
+    # report them as unknown fields (docs/clients/claude-code.md).
+    assert {"documentationUrl", "supportUrl", "privacyPolicyUrl"} <= set(PLUGIN)
     # No token, path or setting: connect finds the service and the token on its own.
     assert PLUGIN_SERVERS == {
         "mcpServers": {"proton-mail": {"command": "uvx", "args": [PLUGIN_RELEASE, "connect"]}}
@@ -281,7 +295,7 @@ def test_the_claude_code_plugin_runs_the_same_release_as_the_bundle():
     assert f"`uvx {PLUGIN_RELEASE} connect`" in readme
 
 
-def test_the_plugins_lock_records_the_release_its_launcher_runs():
+def test_the_plugins_lock_records_the_release_its_launcher_runs_from_pypi_only():
     with (ROOT / "plugin" / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
     with (ROOT / "pyproject.toml").open("rb") as stream:
@@ -294,18 +308,120 @@ def test_the_plugins_lock_records_the_release_its_launcher_runs():
         lock = tomllib.load(stream)
     assert lock["requires-python"] == package["requires-python"]
     locked = {entry["name"]: entry for entry in lock["package"]}
-    assert locked["mcp-proton-mail"]["version"] == __version__
-    pypi = {"registry": "https://pypi.org/simple"}
-    # Before the upload, this release is locked against the files `uv build` wrote to dist/;
-    # docs/ci.md says to refresh it from PyPI after.
-    built = {"registry": "../dist"}
-    for name, entry in locked.items():
-        if name == project["project"]["name"]:
-            assert entry["source"] == {"virtual": "."}
-        elif name == "mcp-proton-mail":
-            assert entry["source"] in (pypi, built)
-        else:
-            assert entry["source"] == pypi, name
+    assert "mcp-proton-mail" in locked, "plugin/uv.lock does not lock mcp-proton-mail"
+    assert locked["mcp-proton-mail"]["version"] == PLUGIN["version"]
+    # From PyPI, never the ../dist that `uv lock --find-links` records: the Claude directory
+    # reports that as "Launcher lock invalid".
+    assert locked["mcp-proton-mail"]["source"] == {"registry": "https://pypi.org/simple"}
+    # Every other package as well, each with PyPI's own files and their hashes.
+    found = lock_guard().problems(ROOT / "plugin")
+    assert not found, "\n".join(found)
+
+
+def plugin_copy(folder, change=None, name="mcp-proton-mail"):
+    """plugin/'s pyproject.toml and uv.lock in folder, with change applied to one package's
+    entry in the lock."""
+    folder.mkdir()
+    (folder / "pyproject.toml").write_bytes((ROOT / "plugin" / "pyproject.toml").read_bytes())
+    text = (ROOT / "plugin" / "uv.lock").read_text(encoding="utf-8")
+    if change:
+        blocks = text.split("\n[[package]]\n")
+        (index,) = [i for i, block in enumerate(blocks) if block.startswith(f'name = "{name}"\n')]
+        blocks[index] = change(blocks[index])
+        text = "\n[[package]]\n".join(blocks)
+    (folder / "uv.lock").write_text(text, encoding="utf-8")
+    return folder
+
+
+def resourced(source):
+    return lambda block: re.sub(r"(?m)^source = \{.*\}$", f"source = {source}", block, count=1)
+
+
+# What uv lock --find-links ../dist wrote for 1.30.1 before the upload, which the directory
+# refused: the built files by path, with no hashes.
+def built(block):
+    block = resourced('{ registry = "../dist" }')(block)
+    block = re.sub(r"(?m)^sdist = \{.*\}$", 'sdist = { path = "mcp_proton_mail.tar.gz" }', block)
+    return re.sub(r"(?m)^    \{ url = .*\},$", '    { path = "mcp_proton_mail.whl" },', block)
+
+
+# An entry with neither an sdist nor a wheel.
+def unfiled(block):
+    block = re.sub(r"(?m)^sdist = .*\n", "", block)
+    return re.sub(r"(?m)^wheels = \[\n(?:    .*\n)*\]\n", "", block)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        built,
+        resourced('{ registry = "../dist" }'),
+        resourced('{ path = "../dist/mcp_proton_mail.whl" }'),
+        resourced('{ editable = ".." }'),
+        resourced('{ directory = ".." }'),
+        resourced('{ git = "https://github.com/legalaspro/proton-mail-mcp?tag=v1.30.1" }'),
+        resourced('{ url = "https://example.test/mcp_proton_mail.tar.gz" }'),
+        resourced('{ registry = "https://test.pypi.org/simple" }'),
+    ],
+    ids=["dist-files", "dist", "path", "editable", "directory", "git", "url", "test-pypi"],
+)
+def test_the_lock_guard_refuses_mcp_proton_mail_from_anywhere_but_pypi(tmp_path, capsys, change):
+    guard = lock_guard()
+    plugin = plugin_copy(tmp_path / "plugin", change)
+    (found,) = guard.problems(plugin)
+    assert found.startswith("mcp-proton-mail: source { ")
+    assert found.endswith(', not { registry = "https://pypi.org/simple" }')
+    assert guard.main([str(plugin)]) == 1
+    err = capsys.readouterr().err
+    assert '"Launcher lock invalid"' in err and found in err
+    assert "uv lock --upgrade-package mcp-proton-mail" in err
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        (
+            lambda block: block.replace("https://files.pythonhosted.org/", "https://example.test/"),
+            "is not under https://files.pythonhosted.org/packages/",
+        ),
+        (lambda block: re.sub(r', hash = "sha256:[0-9a-f]+"', "", block), "has no sha256 hash"),
+        (unfiled, "mcp-proton-mail: names no sdist and no wheel"),
+        (
+            lambda block: block.replace('name = "mcp-proton-mail"', 'name = "other"'),
+            "not in the lock",
+        ),
+    ],
+    ids=["file-off-pypi", "no-hash", "no-files", "missing"],
+)
+def test_the_lock_guard_refuses_files_that_are_not_pypis_own(tmp_path, change, expected):
+    found = lock_guard().problems(plugin_copy(tmp_path / "plugin", change))
+    assert found and all(expected in line for line in found), found
+
+
+def test_the_lock_guard_refuses_any_package_from_anywhere_but_pypi(tmp_path):
+    plugin = plugin_copy(tmp_path / "plugin", resourced('{ editable = "../anyio" }'), "anyio")
+    assert lock_guard().problems(plugin) == [
+        'anyio: source { editable = "../anyio" }, not { registry = "https://pypi.org/simple" }'
+    ]
+    plugin = plugin_copy(
+        tmp_path / "root", resourced('{ editable = "." }'), "mcp-proton-mail-plugin"
+    )
+    assert lock_guard().problems(plugin) == [
+        'mcp-proton-mail-plugin: source { editable = "." }, not the plugin\'s virtual project'
+    ]
+
+
+def test_the_lock_guard_refuses_a_lock_it_cannot_read(tmp_path, capsys):
+    plugin = plugin_copy(tmp_path / "plugin")
+    (plugin / "uv.lock").write_text("[[package]\n", encoding="utf-8")
+    assert lock_guard().main([str(plugin)]) == 1
+    assert "cannot check the lock" in capsys.readouterr().err
+    assert lock_guard().main([str(tmp_path / "missing")]) == 1
+
+
+def test_the_lock_guard_passes_this_plugins_lock(capsys):
+    assert lock_guard().main([]) == 0
+    assert "every package comes from PyPI" in capsys.readouterr().out
 
 
 def test_the_marketplace_lists_the_plugin_from_this_repository():

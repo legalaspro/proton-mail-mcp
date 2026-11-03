@@ -8,8 +8,9 @@ name: Installer
 # credential is stored yet, and the plan stops rather than store over one it cannot see.
 # The wheel job alone applies the installer, against stand-ins in a scratch HOME.
 # Hosted-runner billing may block these jobs; docs/install.md describes UTM VMs as
-# the manual fallback. docs/ci.md says what runs when: never on a pull request's push, so run
-# this by hand on a branch that changes the paths below, or `make wheel-smoke` locally.
+# the manual fallback. docs/ci.md says what runs when: in the public release repo on a pull
+# request to main and on a push to main that changes the paths below; in the private dev repo
+# only by hand, so run it there on a branch that changes them, or `make wheel-smoke` locally.
 
 on:
   push:
@@ -28,11 +29,23 @@ on:
       - tests/test_service_entry.py
       - pyproject.toml
       - .github/workflows/installer.yml
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - LICENSE
   workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
+
+# A new push to a pull request cancels its older run. In a called run github.workflow is the
+# caller's name.
+concurrency:
+  group: installer-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   INSTALLER_TESTS: >-
@@ -46,13 +59,15 @@ jobs:
   wheel:
     # Builds the wheel and runs the quick start from it with stand-ins for systemctl,
     # secret-tool and Bridge: no unit, keyring or Bridge is touched, and nothing is uploaded.
+    # The private dev repo runs these by hand only, directly or from a Full run started by hand.
+    if: github.event_name == 'workflow_dispatch' || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
     name: Wheel smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        os: ${{ fromJSON(github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true') && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,6 +79,7 @@ jobs:
       - run: python scripts/wheel_smoke.py --python 3.12
 
   rpm-family:
+    if: github.event_name == 'workflow_dispatch' || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
     name: ${{ matrix.image }} (dry run)
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
@@ -99,6 +115,7 @@ jobs:
           grep -q "so only files are removed" <<<"$output"
 
   arch:
+    if: github.event_name == 'workflow_dispatch' || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
     name: Arch Linux (dry run)
     runs-on: ubuntu-latest
     container: archlinux:latest
@@ -127,7 +144,7 @@ jobs:
 
   macos:
     name: macOS (dry run)
-    if: github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public'
+    if: github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:

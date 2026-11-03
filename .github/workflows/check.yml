@@ -1,8 +1,10 @@
 name: Checks
 
-# What runs when, and why, is in docs/ci.md. One Linux and one Windows job. Another Python or the
-# slow tests: run this workflow by hand. Every Python and test: the Full run workflow, which
-# calls this one. macOS only ever runs in the public release repo, where minutes are free.
+# What runs when, and why, is in docs/ci.md. One Linux and one Windows job in the public release
+# repo, where minutes are free. The private dev repo runs this by hand only: make check is its gate,
+# and the release repo's sync pull request runs everything. Another Python or the slow tests: run
+# this workflow by hand. Every Python and test: the Full run workflow, which calls this one. macOS
+# only ever runs in the public release repo.
 
 on:
   push:
@@ -30,6 +32,10 @@ on:
         description: Every test the OS can run, not the pull request's selection
         type: boolean
         default: false
+      os:
+        description: JSON list of runners; empty picks the default for the event and the repo
+        type: string
+        default: ""
 
 concurrency:
   # github.workflow is the caller's name in a called workflow, so this never matches the caller.
@@ -44,13 +50,20 @@ env:
 
 jobs:
   test:
+    # The private dev repo runs nothing on its own: make check is its gate, and the release repo's
+    # sync pull request runs everything for free. Run this by hand when a change needs it.
+    if: (github.event_name != 'push' && github.event_name != 'pull_request') || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
     name: ${{ matrix.os }}, Python ${{ inputs.python-version || '3.12' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ inputs.full && 40 || 25 }}
     strategy:
-      fail-fast: ${{ github.event_name == 'pull_request' }}
+      # A Full run reports every runner and every failure, on a pull request too.
+      fail-fast: ${{ github.event_name == 'pull_request' && !inputs.full }}
       matrix:
-        os: ${{ fromJSON(inputs.full && github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
+        # Release repo: Linux and Windows, and macOS in a Full run. Dev repo: Linux and Windows,
+        # by hand or from a Full run started by hand. Linux alone is for a dev pull request, if
+        # the if: above ever lets one run again.
+        os: ${{ fromJSON(inputs.os || (inputs.full && github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true') && '["ubuntu-latest", "windows-latest", "macos-latest"]') || ((github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true')) || github.event_name == 'workflow_dispatch' || inputs.full) && '["ubuntu-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       # The tests compare files byte for byte, so keep the repository's line ends.
       - if: runner.os == 'Windows'
@@ -61,6 +74,10 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ inputs.python-version || '3.12' }}
+      # Before the tests, so a sync pull request whose plugin lock names anything but PyPI fails
+      # by name: the Claude directory refuses such a lock (docs/ci.md, The plugin's lock).
+      - name: The plugin's lock names only PyPI
+        run: python scripts/check_plugin_lock.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.6"
@@ -72,13 +89,13 @@ jobs:
         run: make check PYTHON=python RUFF=ruff
         env:
           PYTEST_ARGS: >-
-            ${{ github.event_name == 'pull_request' && '--maxfail=5' || '' }}
+            ${{ github.event_name == 'pull_request' && !inputs.full && '--maxfail=5' || '' }}
             ${{ !inputs.full && github.event_name != 'push' && '-m "not slow"' || '' }}
       - if: runner.os == 'Windows'
         shell: pwsh
         run: >-
           python -m pytest -q -p no:cacheprovider -n auto --dist worksteal --durations=15
-          ${{ github.event_name == 'pull_request' && '--maxfail=5' || '' }}
+          ${{ github.event_name == 'pull_request' && !inputs.full && '--maxfail=5' || '' }}
           ${{ !inputs.full && '-m "not slow"' || '' }}
 
       # The installer's dry runs. They come after the tests, which run without secret-tool and

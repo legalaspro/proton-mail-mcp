@@ -82,9 +82,11 @@ From a clone, `/plugin marketplace add ./` adds the same marketplace. The plugin
 `plugin/`, not at the root, because Claude Code would offer a root `.mcp.json` as a project server
 to anyone working in this repository. Use the plugin or the entry setup writes, not both, or
 Claude sees every tool twice. `claude plugin validate --strict` passes for both files on Claude
-Code 2.1.281 or later; earlier versions warn that `documentationUrl`, `supportUrl` and
-`privacyPolicyUrl` are unknown, though they are the fields the Claude directory's listing reads.
-The plugin has not yet been loaded in a Claude Code session.
+Code 2.1.281 or later. The manifest sets `documentationUrl`, `supportUrl` and `privacyPolicyUrl`,
+the documentation, support and privacy policy links the Claude directory requires for the
+plugin's listing. For 1.30.1, the directory's validation reported the three as unrecognized
+fields, the warning that validators before Claude Code 2.1.281 give for each. The plugin has not
+yet been loaded in a Claude Code session.
 
 ## Try it
 

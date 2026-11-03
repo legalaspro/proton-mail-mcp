@@ -18,8 +18,9 @@ make wheel-smoke                                 # prove the quick start from a 
 scripts/docker_smoke.sh                          # build the Dockerfile and check it over stdio
 ```
 
-`make check` must pass before a pull request. A pull request's CI runs Python 3.12 without the
-slow tests; [docs/ci.md](docs/ci.md) says what runs when. It takes minutes: `JOBS=4` limits
+`make check` must pass before a pull request. The dev repo runs no CI on its own, so that run is
+the gate; Windows, macOS and the other Pythons run in the release repo, on its sync pull request
+and nightly. [docs/ci.md](docs/ci.md) says what runs when. It takes minutes: `JOBS=4` limits
 concurrency and `JOBS=0` runs it serially. Do not edit `src/` while it runs. `make wheel-smoke`
 needs uv and network access and uploads nothing; `scripts/docker_smoke.sh` needs Docker.
 `ruff format --check .` also checks fenced Python in Markdown, which `make lint` does not.

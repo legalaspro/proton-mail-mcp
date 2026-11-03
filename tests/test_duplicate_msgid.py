@@ -247,9 +247,13 @@ def test_duplicate_batch_crosses_execution_chunk_boundary(
     duplicate_mailbox, monkeypatch, identical
 ):
     # One batched chunk would hold all 51; smaller chunks keep the boundary. Identical copies
-    # take one 2-second command group each: 21 of them left about 80 ms of the 42-second
-    # budget, which a garbage collection pause could use up, so chunks hold 20.
+    # take one 2-second command group each, so a full chunk plans nearly all of the call's
+    # 42 seconds of mailbox work. Windows keeps fsync real: a slow flush of the chunk's journal,
+    # after the chunk was sized and before its final headroom check, spent the rest, and the
+    # server refused the whole frozen chunk, as designed. Which rows cross the boundary is not a
+    # question of time here, so hold the clock still.
     monkeypatch.setattr(guarded, "EXECUTE_BATCH_SIZE", 20)
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
     sim, client = duplicate_mailbox()
     approved = duplicates(sim, 51, identical=identical)
     preview = preview_move(client)
