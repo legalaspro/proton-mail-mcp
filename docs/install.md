@@ -889,8 +889,8 @@ wheel smoke on `macos-latest`.
 [`.github/workflows/installer.yml`](../.github/workflows/installer.yml) adds the wheel smoke and
 Fedora, AlmaLinux 9 and Arch containers, on a pull request that changes the installer's paths,
 every night and on each tag. In the public release repo only, it also runs the wheel
-smoke and dry runs on `macos-latest` (including the bash 3.2 in `/bin/bash`). Until that repo is
-public, no GitHub runner checks macOS, so test it by hand as described below.
+smoke and dry runs on `macos-latest` (including the bash 3.2 in `/bin/bash`). The private dev
+repo runs no macOS job, so test macOS by hand there, as described below.
 
 Every Linux dry run goes through the service preflight without `--skip-services`: Ubuntu starts a
 user manager for the runner (`loginctl enable-linger`) and checks that the plan sets up the units;
