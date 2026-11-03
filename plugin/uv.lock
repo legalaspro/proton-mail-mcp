@@ -314,16 +314,16 @@ wheels = [
 
 [[package]]
 name = "mcp-proton-mail"
-version = "1.30.1"
+version = "1.30.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mcp" },
     { name = "pypdf" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/dc/2bae1672385cbf7145227a46425e7f2d205d79583f52db65b42a861f27af/mcp_proton_mail-1.30.1.tar.gz", hash = "sha256:5c1003b4aed17c87c428ea42da8f6b6693ab48ea54d4174cd5ee57214caa1a4e", size = 1600857, upload-time = "2026-11-03T01:33:47.634Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/48/44ce32e97924bab92b94bc58bd63d3f7383d47001263af12ba07bef02b0b/mcp_proton_mail-1.30.2.tar.gz", hash = "sha256:9638647fd552056fc683d92cb67b44e81f6e62d05e0995e8f43195adc89d5202", size = 1638058, upload-time = "2026-11-03T09:57:00.062Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/50/e6eb76c6e02978b5b47ad7f4c308985a4f648f2181c5f0c2fe3c92107fce/mcp_proton_mail-1.30.1-py3-none-any.whl", hash = "sha256:6a262ba98c455c7ba4e8bae3840a73b3c4d9eb2cdc44849dad13d06d5ab4c82f", size = 489713, upload-time = "2026-11-03T01:33:45.911Z" },
+    { url = "https://files.pythonhosted.org/packages/c4/33/15f979461ca77858ae8a66b38f09e0ca7ea2d87effc8dbd32724e2fba156/mcp_proton_mail-1.30.2-py3-none-any.whl", hash = "sha256:2ffdc0bfc5acf0cb81dace2d94f883bd55ea64b2e7395f16eccde2e17116ad30", size = 495562, upload-time = "2026-11-03T09:56:58.443Z" },
 ]
 
 [[package]]
@@ -335,7 +335,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp-proton-mail", specifier = "==1.30.1" }]
+requires-dist = [{ name = "mcp-proton-mail", specifier = "==1.30.2" }]
 
 [[package]]
 name = "pycparser"
