@@ -23,8 +23,10 @@ from email.utils import formatdate, getaddresses, make_msgid
 from html.parser import HTMLParser
 from typing import Any, Callable, Iterator
 
+from . import bridge_password
 from .security import (
     CredentialError,
+    EmptyCredentialError,
     bridge_endpoint,
     get_credentials,
     tls_context,
@@ -70,7 +72,18 @@ class MailValidationError(ValueError):
 
 
 class MailAuthenticationError(MailError):
-    """Unavailable credentials or a rejected login, with no server diagnostics."""
+    """Unavailable credentials or a rejected login, with no server diagnostics.
+
+    `logged` is the server's one fixed log line for it, as for the other Bridge failures.
+    """
+
+    def __init__(
+        self,
+        message: str = bridge_password.AUTH_FAILED,
+        logged: str = bridge_password.AUTH_FAILED,
+    ):
+        super().__init__(message)
+        self.logged = logged
 
 
 class CallDeadlineExceeded(MailError):
@@ -81,11 +94,21 @@ class BridgeUnavailable(MailError):
     """Nothing answers on Bridge's IMAP address; the text names only that address."""
 
     def __init__(self, host: str, port: int):
-        address = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
-        super().__init__(
-            f"Proton Mail Bridge is not running: nothing answers on {address}. Start Bridge "
-            "(its app, its service, or `bridge --noninteractive`), then retry"
-        )
+        super().__init__(bridge_password.not_running(host, port))
+        self.logged = bridge_password.logged_not_running(host, port)
+
+
+class BridgeTLSError(MailError):
+    """Something answers on Bridge's IMAP address, but STARTTLS failed; the text names only
+    that address and the connection mode Bridge must use."""
+
+    def __init__(self, host: str, port: int):
+        super().__init__(bridge_password.tls_failed(host, port))
+        self.logged = bridge_password.logged_tls_failed(host, port)
+
+
+# Each says in fixed words what a person does next, so a tool shows it as it is.
+BRIDGE_FAILURES = (BridgeUnavailable, BridgeTLSError, MailAuthenticationError)
 
 
 class _ConnectTimedOut(ConnectionError):
@@ -1159,8 +1182,14 @@ class MailClient:
             host = bridge_endpoint(self.settings)
             try:
                 credentials = self.credentials_provider(self.settings)
-            except CredentialError:
-                raise MailAuthenticationError("Mailbox authentication failed") from None
+            except CredentialError as error:
+                # The provider's own text is not trusted; say only what a person does next.
+                empty = isinstance(error, EmptyCredentialError)
+                store = self.settings.credential_store
+                raise MailAuthenticationError(
+                    bridge_password.missing(store, empty=empty),
+                    bridge_password.logged_missing(store, empty=empty),
+                ) from None
             timeout = deadline.check()
             options = (
                 {"deadline": deadline, "on_connect": on_connect}
@@ -1178,7 +1207,15 @@ class MailClient:
             timed = _TimedConnection(connection, deadline)
             timed._search_index = self.search_index
             timed._search_selection = None
-            _checked(timed.starttls(ssl_context=context))
+            try:
+                _checked(timed.starttls(ssl_context=context))
+            except imaplib.IMAP4.abort:
+                raise
+            except (imaplib.IMAP4.error, ssl.SSLError, MailError) as error:
+                if isinstance(error, CallDeadlineExceeded):
+                    raise
+                # STARTTLS not offered, refused, or a handshake that failed.
+                raise BridgeTLSError(self.settings.imap_host, self.settings.imap_port) from None
             verify_certificate(connection, self.settings)
             # Discard greeting/STARTTLS responses so only the authentication
             # exchange can supply a cached post-login CAPABILITY response.
@@ -1190,7 +1227,10 @@ class MailClient:
             except (imaplib.IMAP4.error, MailError) as error:
                 if isinstance(error, CallDeadlineExceeded):
                     raise
-                raise MailAuthenticationError("Mailbox authentication failed") from None
+                raise MailAuthenticationError(
+                    bridge_password.rejected(self.settings.credential_store),
+                    bridge_password.LOGGED_REJECTED,
+                ) from None
             _refresh_capabilities(timed)
             session_ready = True
             yield timed, credentials

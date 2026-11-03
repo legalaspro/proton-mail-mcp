@@ -11,9 +11,15 @@ The installer prints one JSON document on stdout with `--json`. Read `result`, `
 ## 1. What you need
 
 - A paid Proton plan, which Proton Mail Bridge requires.
-- Linux (Debian/Ubuntu, Fedora/RHEL or Arch) or macOS. On macOS, [Homebrew](https://brew.sh)
-  unless Bridge is already installed. On Linux, `secret-tool` (`libsecret-tools` on Debian and
-  Ubuntu) with an unlocked keyring, or an initialised `pass` store.
+- Linux (Debian/Ubuntu, Fedora/RHEL or Arch), macOS or Windows. On macOS,
+  [Homebrew](https://brew.sh) unless Bridge is already installed. On Linux, `secret-tool`
+  (`libsecret-tools` on Debian and Ubuntu) with an unlocked keyring, or an initialised `pass`
+  store. On Windows, PowerShell, where the person runs every command they are handed, and Windows
+  Credential Manager, which holds the Bridge password and the token; native Windows support is new,
+  see [Windows](docs/windows.md).
+- Bridge's IMAP connection mode set to STARTTLS, its default: the server speaks only STARTTLS to
+  Bridge. If the person changed it to SSL, they set it back in the Bridge app's settings, under
+  Connection mode.
 - [uv](https://docs.astral.sh/uv/).
 
 The package is `mcp-proton-mail` on PyPI, so there is nothing to clone: run every command below
@@ -51,7 +57,10 @@ Tell them what happens there:
 - If Bridge prints a verification link, they open it in any browser, finish the check, then press
   Enter in the terminal.
 - Setup reads the IMAP username from Bridge, then asks for the Bridge password at a hidden prompt:
-  the one Bridge's `info` just showed, not their Proton password. Pasting works.
+  the one Bridge's `info` just showed, not their Proton password. In classic PowerShell or cmd,
+  pasting at a hidden prompt often doesn't work: they use Windows Terminal and paste with
+  Ctrl+Shift+V, or type the password. Setup refuses an empty or too short entry and asks again,
+  three times in all.
 - On macOS, Keychain may ask for access: choose Always Allow.
 - It shows its plan and asks before applying it; then it does the rest, the install included
   (Bridge's package, the server's environment, the services), so there is no separate install
@@ -77,6 +86,38 @@ computer can start, and the server's URL. It holds no token, and you never need 
 
 Last, relay each `needs_user` entry whose `when` is `after`, such as restarting the client, and
 suggest a first read-only question: "How many unread messages are in my inbox?"
+
+## Mailbox authentication failed
+
+A tool error that says `Mailbox authentication failed` means the server has no Bridge password it
+can use, or Bridge refused the login. Never ask the person for the password, never accept it in the
+chat, and never put it in a command, a file or a message. The error says which case it is and the
+command to hand over; hand over that command as it is:
+
+- **No Bridge password could be read**: the person runs `uvx mcp-proton-mail setup` in their own
+  terminal (PowerShell on Windows). It asks only for what is missing and keeps the token. If the
+  store is locked, unlocking it is enough.
+- **The stored Bridge password is empty**: with Credential Manager or the Linux keyring, the same
+  `uvx mcp-proton-mail setup`. With the Keychain or `pass`, plain setup would keep the empty entry,
+  so the error names
+  `uvx mcp-proton-mail setup --replace-credentials --client <client>`.
+- **Bridge rejected the Bridge username or password**: the person runs
+  `uvx mcp-proton-mail setup --replace-credentials --client <client>` there, with the `<client>`
+  you set up. It stores a new Bridge password and a new token, and gives that client the token. If
+  setup was given another username than the one shown in Bridge's Mailbox details, they add
+  `--bridge-user` with that one.
+
+Tell them the password is the one Bridge generated, not their Proton password: in the Proton Mail
+Bridge app they select their mailbox, open Mailbox details and copy the password under Password
+(`info` in Bridge's CLI). They type it or paste it at the hidden prompt; on Windows, in Windows
+Terminal with Ctrl+Shift+V, since pasting there often doesn't work in classic PowerShell or cmd. It
+goes into Credential Manager on Windows, the Keychain on macOS or the Linux keyring. Wait until
+they say it finished, then retry the read.
+
+A tool error that says `Bridge STARTTLS failed` means STARTTLS failed on Bridge's IMAP port. A
+Bridge set to SSL is not named: reads time out and nothing is logged. In either case, when Bridge
+is running, the person checks that its connection mode is STARTTLS in the Bridge app's settings,
+under Connection mode.
 
 ## Hosts without systemd
 

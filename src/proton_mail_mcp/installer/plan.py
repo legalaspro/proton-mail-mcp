@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Protocol
 
-from .. import credential_store
+from .. import bridge_password, credential_store
 from ..config import default_attachments_dir, windows_attachments_dir
 from ..credential_store import BRIDGE_SERVICE, TOKEN_SERVICE
 from ..service_entry import parse_env_file
@@ -87,7 +87,7 @@ AUTHENTICODE_CHECK = (
     "$s.SignerCertificate.Subject -notmatch 'O=\\W?Proton( Technologies)? AG') { exit 1 }"
 )
 _VERSION = re.compile(r"\d+\.\d+\.\d+")
-_ACCOUNT_HINT = "the Bridge IMAP username shown by Bridge's `info` command"
+_ACCOUNT_HINT = f"{bridge_password.USERNAME} (Bridge's `info` command shows it too)"
 _SECRET_TOOL_PACKAGES = {
     "debian": "sudo apt-get install libsecret-tools",
     "fedora": "sudo dnf install libsecret",
@@ -217,6 +217,8 @@ class Options:
     credential_store: str | None = None
     port: int = 8765
     imap_port: int = 1143
+    # No --bridge-imap-port was given: the port the env file saved, if any, replaces imap_port.
+    saved_imap_port: bool = False
     bridge_version: str = BRIDGE_VERSION
     bridge_bin: str | None = None
     venv: str | None = None
@@ -229,6 +231,8 @@ class Options:
     skip_services: bool = False
     skip_bridge_service: bool = False
     replace_credentials: bool = False
+    # setup --password-stdin: the Bridge password comes from stdin, not a hidden prompt.
+    password_stdin: bool = False
     remove_credentials: bool = False
     remove_bridge: bool = False
     # Guided setup: offer Bridge's CLI, then prove the result with a self-check.
@@ -425,6 +429,14 @@ def validate_options(options: Options, platform: Platform | None = None) -> None
         and not _path_type(platform)(options.bridge_bin).is_absolute()
     ):
         raise PlanError(f"--bridge-bin must be an absolute path, not {options.bridge_bin}")
+
+
+def with_saved_imap_port(options: Options, settings: Mapping[str, str]) -> Options:
+    """A rerun keeps the Bridge IMAP port setup saved, unless --bridge-imap-port changes it."""
+    saved = settings.get("PROTON_BRIDGE_IMAP_PORT", "")
+    if not options.saved_imap_port or not (saved.isdigit() and 1 <= int(saved) <= 65535):
+        return options
+    return replace(options, imap_port=int(saved), saved_imap_port=False)
 
 
 def bridge_account(options: Options, settings: dict[str, str]) -> str:
@@ -868,7 +880,7 @@ def _credential_steps(
         return [Note("Skipping credential storage (--skip-credentials).")]
     steps: list[Step] = []
     for service, source, label in (
-        (BRIDGE_SERVICE, "prompt", "Bridge password"),
+        (BRIDGE_SERVICE, "stdin" if options.password_stdin else "prompt", "Bridge password"),
         (TOKEN_SERVICE, "generate", "MCP bearer token"),
     ):
         found = not options.replace_credentials and probe.has_secret(
@@ -888,14 +900,15 @@ def _credential_steps(
                 "token over any already there"
             )
         if not found:
-            verb = "Prompt for" if source == "prompt" else "Generate"
+            verb = {"prompt": "Prompt for", "stdin": "Read", "generate": "Generate"}[source]
+            given = " from stdin" if source == "stdin" else ""
             steps.append(
                 StoreSecret(
                     store,
                     service,
                     account,
                     source,
-                    f"{verb} the {label} and save it in {store}",
+                    f"{verb} the {label}{given} and save it in {store}",
                     locations=tuple(locations.items()),
                 )
             )
@@ -1522,8 +1535,7 @@ def _password_need(options: Options, credentials: list[Step], stored: bool) -> N
         return None
     text = (
         "The Bridge password is typed or pasted at a hidden prompt, so a person runs this in "
-        "their own terminal. It is the password Bridge's `info` command (or the Bridge app's "
-        "mailbox settings) shows, not the Proton account password."
+        f"their own terminal. {bridge_password.WHERE}"
     )
     if options.setup and not (options.skip_bridge or options.skip_bridge_login or stored):
         text += (
@@ -2012,6 +2024,7 @@ def install_steps(platform: Platform, options: Options, probe: Probe, paths: Pat
             "it for the service; pass --source with a checkout or a wheel file"
         )
     existing, settings = existing_settings(paths, probe)
+    options = with_saved_imap_port(options, settings)
     account = bridge_account(options, settings)
     store = choose_store(platform, options, probe, settings)
     # The service does not inherit this shell: it must use the same store and keys.

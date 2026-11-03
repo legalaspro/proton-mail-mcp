@@ -14,8 +14,15 @@ from functools import lru_cache
 
 import pytest
 
+from proton_mail_mcp import bridge_password
 from proton_mail_mcp.config import Settings
-from proton_mail_mcp.mail import MAX_SNIPPET_BYTES, MailClient, MailError, MailValidationError
+from proton_mail_mcp.mail import (
+    MAX_SNIPPET_BYTES,
+    BridgeTLSError,
+    MailClient,
+    MailError,
+    MailValidationError,
+)
 from proton_mail_mcp.security import Credentials
 from proton_mail_mcp.threading import MAX_THREAD_BODY_BYTES
 
@@ -827,8 +834,10 @@ def test_starttls_failure_never_authenticates(settings):
         return "NO", [b"test-password-secret"]
 
     fake.starttls = refused
-    with pytest.raises(MailError, match="Mailbox operation failed"):
+    with pytest.raises(BridgeTLSError) as caught:
         client(settings, fake).search_mail()
+    assert str(caught.value) == bridge_password.tls_failed("127.0.0.1", 1143)
+    assert "test-password-secret" not in str(caught.value)
     assert [call[0] for call in fake.calls] == ["STARTTLS", "LOGOUT"]
 
 

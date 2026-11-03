@@ -2405,3 +2405,49 @@ def test_r7_planner_parses_no_service_definitions():
     for probe in (planner.Probe, HostProbe, FakeProbe):
         for name in ("listdir", "read_bytes", "links_under", "same_tree", "cwd"):
             assert not hasattr(probe, name), (probe.__name__, name)
+
+
+@pytest.mark.parametrize(
+    "given,saved,expected",
+    [
+        ({"saved_imap_port": True}, "1144", 1144),
+        ({"saved_imap_port": True}, None, 1143),
+        ({"saved_imap_port": True}, "not-a-port", 1143),
+        ({"imap_port": 1145}, "1144", 1145),
+    ],
+    ids=["rerun-keeps-saved", "first-run", "unusable-saved", "flag-changes-it"],
+)
+def test_a_rerun_keeps_the_saved_bridge_imap_port_unless_the_flag_changes_it(
+    given, saved, expected
+):
+    platform = simulated("debian")
+    probe = simulated_probe(platform)
+    paths = paths_for(platform, probe.env, probe.home)
+    if saved is not None:
+        probe.files[paths.env_file] = (
+            "\n".join(templates.ENV_HEADER) + "\n"
+            f"PROTON_BRIDGE_USER={USER}\nPROTON_BRIDGE_IMAP_PORT={saved}\n"
+        )
+    steps = build("debian", probe=probe, setup=True, **given)
+    assert env_file(steps)["PROTON_BRIDGE_IMAP_PORT"] == str(expected)
+    [bridge] = [
+        step for step in steps if isinstance(step, WaitForPort) and "Bridge" in step.summary
+    ]
+    assert bridge.port == expected
+
+
+def test_the_command_line_leaves_the_bridge_imap_port_to_the_saved_one_unless_given():
+    from proton_mail_mcp.installer import cli
+
+    parser = cli.build_parser("install")
+    unset = cli._options(parser.parse_args(["setup", "--bridge-user", USER]))
+    assert (unset.imap_port, unset.saved_imap_port) == (1143, True)
+    given = cli._options(
+        parser.parse_args(["setup", "--bridge-user", USER, "--bridge-imap-port", "1144"])
+    )
+    assert (given.imap_port, given.saved_imap_port) == (1144, False)
+    zero = cli._options(
+        parser.parse_args(["setup", "--bridge-user", USER, "--bridge-imap-port", "0"])
+    )
+    with pytest.raises(PlanError, match="--bridge-imap-port must be between 1 and 65535"):
+        planner.validate_options(zero)

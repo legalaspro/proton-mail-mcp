@@ -9,12 +9,16 @@ import ssl
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import credential_store
+from . import bridge_password, credential_store
 from .config import Settings
 
 
 class CredentialError(RuntimeError):
     """Credentials are unavailable; underlying diagnostic text is intentionally omitted."""
+
+
+class EmptyCredentialError(CredentialError):
+    """The store answered with an empty Bridge password, which a retry cannot change."""
 
 
 class BridgeSecurityError(RuntimeError):
@@ -39,11 +43,9 @@ def get_credentials(settings: Settings) -> Credentials:
                 credential_store.pass_locations(settings.credential_locations),
             )
         except credential_store.CredentialStoreError:
-            if settings.credential_store == "keychain":
-                raise CredentialError("Bridge Keychain credential is unavailable") from None
-            raise CredentialError("Bridge credential is unavailable from the store") from None
+            raise CredentialError(bridge_password.missing(settings.credential_store)) from None
     if not password:
-        raise CredentialError("Bridge password is empty")
+        raise EmptyCredentialError(bridge_password.missing(settings.credential_store, empty=True))
     return Credentials(settings.bridge_user, password)
 
 

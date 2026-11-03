@@ -11,8 +11,8 @@ from test_send_http import _HTTP
 from view_assertions import assert_self_contained_view, tool_calls, view_data
 from view_browser import HOST_CAPABILITIES, browser, run_view, tool_result
 
-from proton_mail_mcp import mcp_apps, views
-from proton_mail_mcp.mail import MailValidationError
+from proton_mail_mcp import bridge_password, mcp_apps, views
+from proton_mail_mcp.mail import BridgeTLSError, MailAuthenticationError, MailValidationError
 from proton_mail_mcp.server import create_app, create_mcp
 
 rig = _send_rig
@@ -316,3 +316,39 @@ def test_refresh_asks_the_assistant_for_a_new_review(tmp_path, case):
     else:
         # Without chat messages or a plain draft ID the view offers no Refresh.
         assert checks["shown"] is None and checks["messages"] == []
+
+
+@pytest.mark.parametrize("tool", ["preview_send", "review_send"])
+@pytest.mark.parametrize(
+    "failure,logged",
+    [
+        (
+            MailAuthenticationError(
+                bridge_password.rejected("pass"), bridge_password.LOGGED_REJECTED
+            ),
+            "Bridge rejected the login: wrong Bridge username or password",
+        ),
+        (
+            BridgeTLSError("127.0.0.1", 1143),
+            "Bridge STARTTLS failed on 127.0.0.1:1143: Bridge's IMAP connection mode must be "
+            "STARTTLS",
+        ),
+    ],
+    ids=["rejected", "starttls"],
+)
+def test_a_bridge_failure_while_reading_the_draft_says_what_to_do(
+    rig, monkeypatch, caplog, tool, failure, logged
+):
+    def fail(_draft_id):
+        raise failure
+
+    monkeypatch.setattr(rig.client, "read_draft", fail)
+    mcp = create_mcp(rig.settings, rig.client)
+    with pytest.raises(Exception) as failed:
+        asyncio.run(mcp.call_tool(tool, {"draft_id": DRAFT_ID}))
+    assert str(failed.value) == f"Error executing tool {tool}: {failure}"
+    warnings = [
+        record.getMessage() for record in caplog.records if record.name == "proton_mail_mcp.server"
+    ]
+    assert warnings == [logged]
+    assert rig.settings.token not in str(failed.value) + caplog.text

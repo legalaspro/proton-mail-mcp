@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from proton_mail_mcp import credential_store
+from proton_mail_mcp import bridge_password, credential_store
 from proton_mail_mcp.config import (
     CREDENTIAL_LOCATION_KEYS,
     CREDENTIAL_STORES,
@@ -302,9 +302,19 @@ def test_get_credentials_reads_the_configured_store(monkeypatch, run):
 def test_get_credentials_store_failure_is_opaque(monkeypatch, run, caplog):
     monkeypatch.delenv("PROTON_BRIDGE_PASSWORD", raising=False)
     run.return_value = completed(1, SECRET, SECRET)
-    with pytest.raises(CredentialError, match="unavailable from the store") as caught:
+    with pytest.raises(CredentialError) as caught:
         get_credentials(settings(credential_store="pass"))
+    assert str(caught.value) == bridge_password.missing("pass")
     assert SECRET not in str(caught.value) + caplog.text
+    assert USER not in str(caught.value)
+
+
+def test_get_credentials_says_an_empty_entry_is_empty(monkeypatch, run):
+    monkeypatch.delenv("PROTON_BRIDGE_PASSWORD", raising=False)
+    run.return_value = completed(0, "\n")
+    with pytest.raises(CredentialError) as caught:
+        get_credentials(settings(credential_store="libsecret"))
+    assert str(caught.value) == bridge_password.missing("libsecret", empty=True)
 
 
 def test_environment_password_still_wins_over_any_store(monkeypatch, run):

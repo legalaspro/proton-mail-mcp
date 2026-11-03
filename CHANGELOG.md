@@ -2,7 +2,19 @@
 
 Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP clients.
 
-## Unreleased
+## 1.30.2 - 2026-11-03
+
+### Added
+
+- **`setup --password-stdin`.** Setup reads the Bridge password from one line on stdin, a pipe,
+  instead of its hidden prompt, dropping the line's LF or CRLF, with the same checks as the prompt.
+  It asks nothing again: an empty or short line, more than one line, or a terminal on stdin exits
+  with status 2 before any step runs and stores nothing, and never shows what was read or how long
+  it was. stdin holds the password, so the run needs `--yes`. Where a password is stored already it
+  needs `--replace-credentials` too, which also stores a new token. `docs/windows.md` shows it in
+  PowerShell, reading the password with `Read-Host -AsSecureString`, so the command holds no
+  password and none lands in the shell's history. No environment variable or file takes the
+  password.
 
 ### Changed
 
@@ -21,6 +33,46 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ### Fixed
 
+- **Setup refuses a Bridge password that cannot be one.** In classic PowerShell, a password pasted
+  with Ctrl+V at setup's hidden prompt was stored as one character, and Bridge rejected it. Setup
+  now refuses an empty entry and one shorter than 16 characters, at either prompt (Bridge makes
+  every password from 16 random bytes, 22 characters), and two entries that differ. It shows what
+  to do, "In classic PowerShell or cmd, pasting at a hidden prompt often doesn't work. Use Windows
+  Terminal and paste with Ctrl+Shift+V, or type the password.", and asks again, three times in
+  all; after the third it exits with status 1 and stores nothing. It never shows the entry or its
+  length. Pressing Enter no longer skips the prompt with a warning: `--skip-credentials` does. On
+  macOS the Keychain's own prompt is unchanged and unchecked, as setup never sees what is typed
+  there.
+- **A missing or wrong Bridge password says what to do.** A tool used to answer only "Mailbox
+  operation failed; check Bridge configuration and availability", and the server's own reason was
+  just "Mailbox authentication failed". The error still starts with that phrase and now reaches the
+  client: it says whether no Bridge password could be read, the stored one is empty, or Bridge
+  rejected the Bridge username or password; that it is the password Bridge generated, not the
+  Proton account password, shown in the Bridge app under Mailbox details (or by `info` in Bridge's
+  CLI); and the command to run in your own terminal, PowerShell on Windows:
+  `uvx mcp-proton-mail setup` when none could be read, and
+  `uvx mcp-proton-mail setup --replace-credentials --client <client>` when Bridge rejected it or
+  when the Keychain or `pass` holds an empty entry, which a plain rerun keeps. It says never to
+  paste the password into a chat. No password, account or token is in the text. `preview_send` and
+  `review_send` pass the same text on instead of "Draft preview failed". Setup's password prompt
+  says it wants the password Bridge generated, and the username question names the username shown
+  in Bridge's Mailbox details. `llms-install.md` tells an agent never to ask for the password and to
+  hand the person the command, and lists Windows.
+- **A failed STARTTLS is named.** When something answers on Bridge's IMAP port but STARTTLS
+  fails there, a tool says `Bridge STARTTLS failed on 127.0.0.1:1143` and that Bridge's IMAP
+  connection mode must be STARTTLS, instead of "Mailbox operation failed". A Bridge set to SSL is
+  not named: reads to it time out and nothing is logged. The server still speaks only STARTTLS to
+  Bridge.
+- **The server logs each Bridge failure.** It logged nothing when Bridge was not running, refused
+  the login, failed STARTTLS or had no usable password. It now logs one fixed line for each, with
+  Bridge's address or the store's name and never a password, an account or a token.
+- **Setup's self-check shows what the server said.** For a Bridge password problem or a failed
+  STARTTLS it shows the server's own fixed text, with the store setup used, where it named
+  Credential Manager, the Keychain and the Linux keyring for every store. For a Bridge that is not
+  running it says `Bridge not running: nothing answers on <host>:<port>`. It stops at once for an
+  empty stored password, and no longer joins its hint as `.; see`.
+- **A setup rerun keeps the Bridge IMAP port.** Without `--bridge-imap-port`, a rerun wrote 1143
+  over the port the settings file held; it now keeps the saved one.
 - **The Claude Code plugin's lock names PyPI's files for 1.30.1.** `plugin/uv.lock` still recorded
   `mcp-proton-mail` 1.30.1 from the files `uv build` wrote to `../dist` before the upload, so the
   Claude directory's validation reported "Launcher lock invalid". It now names PyPI's sdist and

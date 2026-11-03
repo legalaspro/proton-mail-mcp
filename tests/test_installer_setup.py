@@ -46,6 +46,7 @@ from proton_mail_mcp.installer.steps import (
     StoreSecret,
     WaitForPort,
 )
+from proton_mail_mcp.service_entry import parse_env_file
 
 ROOT = Path(__file__).resolve().parents[1]
 REAL_RUN = subprocess.run
@@ -1048,7 +1049,7 @@ def test_first_setup_on_libsecret_asks_instead_of_stopping(host, monkeypatch, ca
 
 
 def test_a_readable_token_is_kept_when_only_the_password_is_unreadable(host, monkeypatch, capsys):
-    # A rerun after pressing Enter at the password prompt must not change the token.
+    # A rerun after a password that was never stored must not change the token.
     unreadable(host.probe, BRIDGE_SERVICE)
     answers(monkeypatch, "", "y", "n")
     assert cli.main(["setup", "--bridge-user", USER]) == 1
@@ -1115,8 +1116,8 @@ def applied(host, monkeypatch, tmp_path):
         record.prompts.append(label)
         return PASSWORD
 
-    def check_service(port, token, say):
-        record.checks.append((port, token))
+    def check_service(port, token, say, *, store):
+        record.checks.append((port, token, store))
         say("    ok: scripted")
 
     real = cli.Executor
@@ -1325,7 +1326,7 @@ def test_no_secret_reaches_a_file_setup_wrote(applied, capsys):
 def test_the_self_check_runs_last_with_the_stored_token(applied, capsys):
     assert cli.main(["setup", "--yes", "--bridge-user", USER, "--port", "9001"]) == 0
     captured = capsys.readouterr()
-    assert applied.checks == [(9001, TOKEN)]
+    assert applied.checks == [(9001, TOKEN, "libsecret")]
     assert "ok: scripted" in captured.out
     assert TOKEN not in captured.out + captured.err
     assert captured.out.rstrip().endswith("setup finished.")
@@ -1337,7 +1338,7 @@ def test_a_failed_self_check_fails_setup_and_says_where_to_look(applied, monkeyp
     def failing(*, dry_run, **kwargs):
         executor = real(dry_run=dry_run, **kwargs)
 
-        def check_service(_port, _token, _say):
+        def check_service(_port, _token, _say, *, store):
             raise selfcheck.SelfCheckError("the named check failed")
 
         executor.check_service = check_service
@@ -1350,6 +1351,24 @@ def test_a_failed_self_check_fails_setup_and_says_where_to_look(applied, monkeyp
     assert "journalctl --user -u proton-mail-mcp.service" in captured.err
     assert "setup finished" not in captured.out
     assert PASSWORD not in captured.out + captured.err
+
+
+def test_a_rerun_keeps_the_bridge_imap_port_setup_saved(host, applied):
+    argv = ["setup", "--yes", "--bridge-user", USER]
+    assert cli.main([*argv, "--bridge-imap-port", "1144"]) == 0
+    paths = paths_for(host.platform, host.probe.env, host.probe.home)
+
+    def saved():
+        text = Path(paths.env_file).read_text()
+        # The fake probe does not read the real file back.
+        host.probe.files[paths.env_file] = text
+        return parse_env_file(text)["PROTON_BRIDGE_IMAP_PORT"]
+
+    assert saved() == "1144"
+    assert cli.main(["setup", "--yes"]) == 0
+    assert saved() == "1144"
+    assert cli.main(["setup", "--yes", "--bridge-imap-port", "1145"]) == 0
+    assert saved() == "1145"
 
 
 def test_yes_never_opens_bridges_cli_even_on_a_terminal(applied, monkeypatch, capsys):
@@ -1422,7 +1441,7 @@ def test_a_terminal_that_cannot_hide_input_refuses_to_read_the_password(
 
 def test_entries_that_differ_store_nothing(applied, monkeypatch, capsys):
     real = cli.Executor
-    typed = iter(["first", "second"])
+    typed = iter(["first-bridge-password", "second-bridge-password"] * 3)
 
     def mistyped(*, dry_run, **kwargs):
         executor = real(dry_run=dry_run, **kwargs)
@@ -1431,7 +1450,9 @@ def test_entries_that_differ_store_nothing(applied, monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "Executor", mistyped)
     assert cli.main(["setup", "--yes", "--bridge-user", USER]) == 1
-    assert "the two entries differ" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "no usable Bridge password in 3 attempts, so none was stored" in error
+    assert "bridge-password" not in error
     assert not [call for call in applied.store_calls if call[0][1] == "store"]
 
 
@@ -2171,7 +2192,7 @@ def rerun(host, monkeypatch):
             # Bridge listens with no account logged in too.
             port_open=lambda port: port == 8765 or record.bridge_running,
             sleep=lambda _seconds: None,
-            check_service=lambda port, _token, _say: record.checks.append(port),
+            check_service=lambda port, _token, _say, *, store: record.checks.append(port),
             terminal=lambda: True,
             **kwargs,
         )

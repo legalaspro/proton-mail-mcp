@@ -1,6 +1,7 @@
 import asyncio
 import hmac
 import json
+import logging
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -9,8 +10,14 @@ from merged_tools import tool_call
 from starlette.testclient import TestClient
 from test_send import Host
 
+from proton_mail_mcp import bridge_password
 from proton_mail_mcp.config import Settings
-from proton_mail_mcp.mail import BridgeUnavailable, MailClient
+from proton_mail_mcp.mail import (
+    BridgeTLSError,
+    BridgeUnavailable,
+    MailAuthenticationError,
+    MailClient,
+)
 from proton_mail_mcp.server import BearerAuth, create_app, create_mcp, main
 
 TOKEN = "server-token-secret-" + "x" * 32
@@ -846,13 +853,64 @@ def test_mail_backend_error_does_not_leak_secrets(client, mail, caplog, failure,
 
 
 @pytest.mark.parametrize("name", ["search_mail", "count_mail"])
-def test_bridge_not_running_is_said_with_its_address(client, mail, name):
-    mail.failure = BridgeUnavailable("127.0.0.1", 1143)
+@pytest.mark.parametrize(
+    "failure,message,logged",
+    [
+        (
+            BridgeUnavailable("127.0.0.1", 1143),
+            "Proton Mail Bridge is not running: nothing answers on 127.0.0.1:1143. Start Bridge "
+            "(its app, its service, or `bridge --noninteractive`), then retry",
+            "Bridge not running: nothing answers on 127.0.0.1:1143",
+        ),
+        (
+            BridgeTLSError("127.0.0.1", 1143),
+            bridge_password.tls_failed("127.0.0.1", 1143),
+            "Bridge STARTTLS failed on 127.0.0.1:1143: Bridge's IMAP connection mode must be "
+            "STARTTLS",
+        ),
+        (
+            MailAuthenticationError(
+                bridge_password.missing("wincred"), bridge_password.logged_missing("wincred")
+            ),
+            bridge_password.missing("wincred"),
+            "Bridge password missing: none could be read from wincred",
+        ),
+        (
+            MailAuthenticationError(
+                bridge_password.missing("wincred", empty=True),
+                bridge_password.logged_missing("wincred", empty=True),
+            ),
+            bridge_password.missing("wincred", empty=True),
+            "Bridge password missing: the entry in wincred is empty",
+        ),
+        (
+            MailAuthenticationError(
+                bridge_password.rejected("wincred"), bridge_password.LOGGED_REJECTED
+            ),
+            bridge_password.rejected("wincred"),
+            "Bridge rejected the login: wrong Bridge username or password",
+        ),
+    ],
+    ids=["not-running", "starttls", "missing", "empty", "rejected"],
+)
+def test_a_bridge_failure_reaches_the_model_as_is_and_is_logged_once(
+    client, mail, caplog, name, failure, message, logged
+):
+    caplog.set_level(logging.DEBUG)
+    mail.failure = failure
     result = rpc(client, "tools/call", {"name": name, "arguments": {"subject": "Example"}})
     assert result["result"].get("isError") is True
-    visible = json.dumps(result)
-    assert "Proton Mail Bridge is not running: nothing answers on 127.0.0.1:1143." in visible
+    (content,) = result["result"]["content"]
+    assert content["text"] == f"Error executing tool {name}: {message}"
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "proton_mail_mcp.server" and record.levelno >= logging.WARNING
+    ]
+    assert warnings == [logged]
+    visible = json.dumps(result) + caplog.text
     assert "Mailbox operation failed" not in visible
+    assert TOKEN not in visible and PASSWORD not in visible
 
 
 @pytest.mark.parametrize(

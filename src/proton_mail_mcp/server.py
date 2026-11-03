@@ -39,7 +39,7 @@ from .confirmation import (
 )
 from .imap_idle import MailWatcher
 from .mail import (
-    BridgeUnavailable,
+    BRIDGE_FAILURES,
     MailClient,
     MailValidationError,
     check_from_address,
@@ -229,6 +229,13 @@ def _audit_result(tool: str, result: Any) -> dict[str, Any]:
     }
 
 
+def _bridge_failure(error: Exception) -> ToolError:
+    """The tool error for a Bridge failure, logged as its one fixed line. Both are fixed text:
+    Bridge's address or the store, never a password, an account, a token or Bridge's reply."""
+    _LOGGER.warning(error.logged)
+    return ToolError(str(error))
+
+
 class _TransportDiagnostics(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         # The SDK includes raw header values in transport warnings. Keep the event,
@@ -403,10 +410,9 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
         except MailValidationError as error:
             _note(outcome="refused", reason=str(error)[:300])
             raise ToolError(f"Validation error: {error}") from None
-        except BridgeUnavailable as error:
+        except BRIDGE_FAILURES as error:
             _note(outcome="failed")
-            # Its text names only the configured Bridge address.
-            raise ToolError(str(error)) from None
+            raise _bridge_failure(error) from None
         except Exception:
             _note(outcome="failed")
             # Backend diagnostics can include credentials; never forward them to MCP or logs.
@@ -920,8 +926,8 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
                 )
             except MailValidationError as error:
                 raise ToolError(f"Validation error: {error}") from None
-            except BridgeUnavailable as error:
-                raise ToolError(str(error)) from None
+            except BRIDGE_FAILURES as error:
+                raise _bridge_failure(error) from None
             except Exception:
                 raise ToolError("Draft preview failed; check Bridge configuration") from None
             if preview["approval"] == "typed_ok":
@@ -1686,8 +1692,8 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
                 )
             except MailValidationError as error:
                 raise ToolError(f"Validation error: {error}") from None
-            except BridgeUnavailable as error:
-                raise ToolError(str(error)) from None
+            except BRIDGE_FAILURES as error:
+                raise _bridge_failure(error) from None
             except Exception:
                 raise ToolError("Draft preview failed; check Bridge configuration") from None
             if preview["approval"] == "typed_ok":

@@ -23,7 +23,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import TextIO
 
-from .. import credential_store, localfs
+from .. import bridge_password, credential_store, localfs
 from . import bridge_cli, clients, selfcheck
 from .steps import (
     MARKER,
@@ -81,6 +81,8 @@ _BRIDGE_START_RETRIES = 3
 _COMPARED_METADATA = {"METADATA", "entry_points.txt"}
 # What a terminal wraps pasted text in, when it marks a paste.
 _PASTE_MARKS = ("\x1b[200~", "\x1b[201~")
+# Tries at the Bridge password prompts, a refused entry or a mismatch each using one.
+PASSWORD_ATTEMPTS = 3
 # How long a background service may take to stop before a rerun gives up on it.
 _SERVICE_STOP_CHECKS = 20
 
@@ -191,6 +193,7 @@ class Executor:
         running_copy: Callable[[], metadata.Distribution] = _running_copy,
         bridge_session: Callable[[Sequence[str]], tuple[int, str]] | None = None,
         spawn: Callable[..., subprocess.Popen] = subprocess.Popen,
+        stdin_password: str | None = None,
     ) -> None:
         self.dry_run = dry_run
         self.force = force
@@ -198,6 +201,8 @@ class Executor:
         self.runner = runner or subprocess.run
         self.opener = opener or _default_opener
         self.prompt = prompt or getpass.getpass
+        # The Bridge password setup --password-stdin read, for a StoreSecret whose source is stdin.
+        self.stdin_password = stdin_password
         self.port_open = port_open or _port_open
         self.sleep = sleep
         self.sudo = tuple(sudo)
@@ -654,6 +659,11 @@ class Executor:
             return
         if step.source == "generate":
             secret = secrets.token_urlsafe(32)
+        elif step.source == "stdin":
+            # setup read and checked it before any step ran.
+            if self.stdin_password is None:
+                raise InstallError("no Bridge password was read from stdin")
+            secret = self.stdin_password
         elif step.store == "keychain":
             # `security` prompts on the terminal itself, so the password never
             # passes through this process.
@@ -669,9 +679,6 @@ class Executor:
             return
         else:
             secret = self._prompt_twice(step.account)
-            if not secret:
-                self.warn("no password entered; rerun the installer to store it later")
-                return
         try:
             credential_store.store_secret(
                 step.store, step.service, step.account, secret, dict(step.locations)
@@ -687,13 +694,32 @@ class Executor:
         self.changed.add(step.tag)
 
     def _prompt_twice(self, account: str) -> str:
-        label = f"Bridge IMAP password for {account} (input hidden; pasting works; Enter to skip): "
-        first = pasted(self._hidden(label))
-        if not first:
-            return ""
-        if pasted(self._hidden("Repeat the Bridge password: ")) != first:
-            raise InstallError("the two entries differ")
-        return first
+        """The Bridge password, typed twice. An empty or short entry, at either prompt, or two
+        that differ start again, PASSWORD_ATTEMPTS times in all; what was refused is never
+        shown, nor how long it was."""
+        label = (
+            f"Bridge IMAP password for {account}, the password Bridge generated (not your Proton "
+            "password); input hidden: "
+        )
+        for attempt in range(1, PASSWORD_ATTEMPTS + 1):
+            first = pasted(self._hidden(label))
+            problem = bridge_password.refusal(first)
+            if not problem:
+                again = pasted(self._hidden("Repeat the Bridge password: "))
+                problem = bridge_password.refusal(again)
+                if not problem and again != first:
+                    problem = "The two entries differ, so neither was kept."
+            if not problem:
+                return first
+            if attempt < PASSWORD_ATTEMPTS:
+                self.say(f"    {problem} {bridge_password.PASTE_HINT} Try again.")
+            else:
+                self.say(f"    {problem}")
+        raise InstallError(
+            f"no usable Bridge password in {PASSWORD_ATTEMPTS} attempts, so none was stored. "
+            f"{bridge_password.PASTE_HINT} Then rerun setup, or give the password on stdin with "
+            "--password-stdin"
+        )
 
     def _hidden(self, label: str) -> str:
         """getpass warns and then reads with echo when it cannot hide input; never echo."""
@@ -704,7 +730,8 @@ class Executor:
             except getpass.GetPassWarning:
                 raise InstallError(
                     "this terminal cannot hide the password, so the installer will not read "
-                    "it; rerun in a terminal, or use --skip-credentials and store it yourself"
+                    "it; rerun in a terminal, pipe it into setup with --password-stdin, or use "
+                    "--skip-credentials and store it yourself"
                 ) from None
 
     def _DeleteSecret(self, step: DeleteSecret) -> None:
@@ -1225,10 +1252,13 @@ class Executor:
             token = credential_store.lookup(
                 step.store, step.service, step.account, dict(step.locations)
             )
-            self.check_service(step.port, token, self.say)
+            self.check_service(step.port, token, self.say, store=step.store)
         except (credential_store.CredentialStoreError, selfcheck.SelfCheckError) as error:
-            hint = f"; see {step.hint}" if step.hint else ""
-            raise InstallError(f"{error}{hint}") from None
+            text = str(error)
+            hint = ""
+            if step.hint:
+                hint = f" See {step.hint}." if text.endswith(".") else f"; see {step.hint}"
+            raise InstallError(f"{text}{hint}") from None
 
 
 def primary_keys_from_colons(text: str) -> list[tuple[str, str, str]]:

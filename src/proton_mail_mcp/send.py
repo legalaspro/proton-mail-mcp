@@ -30,8 +30,8 @@ from .confirmation import (
 )
 from .guarded import TokenStore, approval_hash
 from .mail import (
+    BRIDGE_FAILURES,
     MAX_DRAFT_BYTES,
-    BridgeUnavailable,
     MailError,
     MailValidationError,
     _draft_message_id,
@@ -501,7 +501,7 @@ class SendService:
         draft_id = _draft_message_id(draft_id)
         try:
             row = self.client.read_draft(draft_id)
-        except BridgeUnavailable:
+        except BRIDGE_FAILURES:
             raise
         except Exception:
             raise MailError("Draft read failed; request a new preview") from None

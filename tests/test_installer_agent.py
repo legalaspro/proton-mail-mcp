@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from proton_mail_mcp import credential_store
+from proton_mail_mcp import bridge_password, credential_store
 from proton_mail_mcp.credential_store import BRIDGE_SERVICE, TOKEN_SERVICE
 from proton_mail_mcp.installer import cli, clients
 from proton_mail_mcp.installer import plan as planner
@@ -814,7 +814,13 @@ def test_the_password_hand_off_sits_right_before_the_login_offer_and_prompt():
     steps = plan()
     [need] = needs(steps, "bridge_password")
     assert need.terminal and not need.blocking and need.when == "during"
-    assert "not the Proton account password" in need.text and "two-factor" in need.text
+    assert need.text.startswith(
+        "The Bridge password is typed or pasted at a hidden prompt, so a person runs this in "
+        "their own terminal. It is the password Bridge generated, not your Proton account "
+        "password: open the Proton Mail Bridge app, select your mailbox, open Mailbox details "
+        "and copy the password under Password (Bridge's CLI shows it with `info`). If Bridge is "
+    )
+    assert bridge_password.WHERE in need.text and "two-factor" in need.text
     after = steps[steps.index(need) + 1 :]
     assert type(after[0]).__name__ == "BridgeLogin"
     assert type(after[1]).__name__ == "StoreSecret" and after[1].source == "prompt"
@@ -1172,7 +1178,7 @@ def applied(host, monkeypatch):
         record.commands.append(list(argv))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
-    def check_service(port, token, say):
+    def check_service(port, token, say, *, store):
         record.checks.append((port, token))
         say("    ok: scripted")
 
@@ -1664,9 +1670,9 @@ def test_a_login_showing_another_username_stops_before_the_password():
 
 
 def test_a_pasted_password_loses_its_paste_marks_and_line_break():
-    answers = iter(["\x1b[200~s3cret\x1b[201~\n", " s3cret "])
+    answers = iter(["\x1b[200~s3cret-bridge-password\x1b[201~\n", " s3cret-bridge-password "])
     executor = Executor(dry_run=False, out=io.StringIO(), prompt=lambda _label: next(answers))
-    assert executor._prompt_twice(USER) == "s3cret"
+    assert executor._prompt_twice(USER) == "s3cret-bridge-password"
 
 
 # A background service where no service manager runs (F28) ---------------------------------

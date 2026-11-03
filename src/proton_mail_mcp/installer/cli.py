@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
-from .. import credential_store, localfs
+from .. import bridge_password, credential_store, localfs
 from ..config import default_attachments_dir, valid_attachments_dir
 from ..credential_store import STORES, TOKEN_SERVICE
 from . import bridge_cli, clients
@@ -56,10 +56,11 @@ from .plan import (
     paths_for,
     service_python,
     uninstall_plan,
+    with_saved_imap_port,
     with_venv,
 )
 from .probe import HostProbe, simulated_probe
-from .steps import PACKAGE, NeedsUser, Note, Step
+from .steps import PACKAGE, NeedsUser, Note, Step, StoreSecret
 
 # Shown for the Bridge username in a dry run that has none yet; no store is asked about it.
 PLACEHOLDER_ACCOUNT = "you@proton.me"
@@ -69,8 +70,11 @@ _ADDRESS = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s.]+")
 _TRUSTED_HOST = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:[0-9]+)?")
 # Answers without a prompt only while sudo still holds this user's credentials.
 SUDO_CACHED = ("sudo", "-n", "true")
-# Words that make a run ask nothing; a person running it in their own terminal drops them.
-_UNATTENDED = {"--json", "--non-interactive", "--yes", "-y", "--dry-run"}
+# Words that make a run ask nothing; a person running it in their own terminal drops them, and
+# --password-stdin too, since setup asks for the password at a hidden prompt there.
+_UNATTENDED = {"--json", "--non-interactive", "--yes", "-y", "--dry-run", "--password-stdin"}
+# More than any Bridge password and its line break: --password-stdin reads no further.
+_STDIN_LIMIT = 1024
 # Programs that take the token on stdin and keep it on the clipboard, by platform.
 _CLIPBOARDS = {
     "macos": (("pbcopy",),),
@@ -284,7 +288,9 @@ def build_parser(prog: str = "install", json_errors: bool = False) -> argparse.A
         help="as --non-interactive, with one JSON result on stdout (progress on stderr)",
     )
     common = argparse.ArgumentParser(add_help=False, parents=[unattended])
-    common.add_argument("--bridge-user", help="Bridge IMAP username (from Bridge's `info`)")
+    common.add_argument(
+        "--bridge-user", help="Bridge IMAP username, as Bridge's Mailbox details show it"
+    )
     common.add_argument("--credential-store", choices=STORES)
     common.add_argument(
         "--force", action="store_true", help="replace files the installer did not write (.bak kept)"
@@ -294,7 +300,9 @@ def build_parser(prog: str = "install", json_errors: bool = False) -> argparse.A
     )
     target = argparse.ArgumentParser(add_help=False)
     target.add_argument("--port", type=int, default=8765, help="MCP port on 127.0.0.1")
-    target.add_argument("--bridge-imap-port", type=int, default=1143)
+    target.add_argument(
+        "--bridge-imap-port", type=int, help="Bridge's IMAP port (default: the saved one, or 1143)"
+    )
     target.add_argument("--bridge-version", default=BRIDGE_VERSION, help="Linux .deb/.rpm only")
     target.add_argument("--bridge-bin", help="Bridge executable for the Bridge service")
     target.add_argument("--source", help="proton-mail-mcp checkout or wheel file to install")
@@ -337,6 +345,11 @@ def build_parser(prog: str = "install", json_errors: bool = False) -> argparse.A
         "--skip-bridge-login", action="store_true", help="do not offer to open Bridge's CLI"
     )
     setup.add_argument("--attachments-dir", help="the one folder attachment tools may use")
+    setup.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="read the Bridge password from one line on stdin, a pipe, instead of a hidden prompt",
+    )
     uninstall = add(
         "uninstall", parents=[common], help="stop and remove services and settings (keeps the venv)"
     )
@@ -482,7 +495,8 @@ def _options(args: argparse.Namespace) -> Options:
     return Options(
         **common,
         port=args.port,
-        imap_port=args.bridge_imap_port,
+        imap_port=1143 if args.bridge_imap_port is None else args.bridge_imap_port,
+        saved_imap_port=args.bridge_imap_port is None,
         bridge_version=args.bridge_version,
         bridge_bin=bridge_bin,
         source=source,
@@ -492,6 +506,7 @@ def _options(args: argparse.Namespace) -> Options:
         skip_services=args.skip_services,
         skip_bridge_service=args.skip_bridge_service,
         replace_credentials=args.replace_credentials,
+        password_stdin=getattr(args, "password_stdin", False),
         setup=args.action == "setup",
         skip_bridge_login=getattr(args, "skip_bridge_login", False),
         clients=tuple(dict.fromkeys(args.clients or ())),
@@ -501,7 +516,9 @@ def _options(args: argparse.Namespace) -> Options:
 def _ask_account() -> str:
     """Ask for the Bridge username. A rejected answer is never shown again: a password
     pasted here by mistake must not reach the plan, the settings file or the screen."""
-    label = "Bridge IMAP username (your Proton address; Bridge's `info` command shows it): "
+    label = (
+        f"Bridge IMAP username, {bridge_password.USERNAME} (Bridge's `info` command shows it too): "
+    )
     for _attempt in range(3):
         answer = pasted(input(label))
         if _ADDRESS.fullmatch(answer):
@@ -509,8 +526,60 @@ def _ask_account() -> str:
                 return credential_store.validate_account(answer)
             except credential_store.CredentialStoreError:
                 pass
-        print("That is not an address like you@proton.me; it was not kept.", file=sys.stderr)
-    raise PlanError("No Bridge username given. Nothing was changed; pass --bridge-user")
+        print(
+            f"That is not an address like you@proton.me; it was not kept. Type "
+            f"{bridge_password.USERNAME}, not a password.",
+            file=sys.stderr,
+        )
+    raise PlanError(
+        "No Bridge username given. Nothing was changed; pass --bridge-user with "
+        f"{bridge_password.USERNAME}"
+    )
+
+
+PASSWORD_STDIN_TERMINAL = (
+    "--password-stdin reads the Bridge password from a pipe, and stdin here is a terminal, so "
+    "setup read nothing. Nothing was changed. At a terminal, run setup without "
+    "--password-stdin: it asks for the password at a hidden prompt"
+)
+
+
+def _password_from_stdin(stream) -> str:
+    """--password-stdin's Bridge password: one line, without its LF or CRLF, checked as the
+    prompt checks an entry. A refusal never shows what was read, nor how long it was."""
+    if stream is not None and stream.isatty():
+        raise PlanError(PASSWORD_STDIN_TERMINAL)
+    data = b"" if stream is None else getattr(stream, "buffer", stream).read(_STDIN_LIMIT + 1)
+    try:
+        # PowerShell may start what it pipes with a byte order mark.
+        text = data.decode("utf-8-sig") if isinstance(data, bytes) else data
+    except UnicodeDecodeError:
+        text = None
+    line = (text or "").removesuffix("\n").removesuffix("\r")
+    if text is None:
+        found = "--password-stdin found something on stdin that is not text"
+    elif len(data) > _STDIN_LIMIT or "\n" in line or "\r" in line:
+        found = "--password-stdin takes one line, the Bridge password, and stdin held more"
+    elif not line:
+        found = "--password-stdin found no Bridge password on stdin"
+    elif bridge_password.refusal(line):
+        found = "--password-stdin found a line on stdin too short to be a Bridge password"
+    else:
+        return line
+    raise PlanError(
+        f"{found}. Nothing was stored or changed. {bridge_password.WHERE} Pipe it in again, or "
+        "run setup at a terminal without --password-stdin, which asks at a hidden prompt"
+    )
+
+
+def _check_password_stdin(steps: list[Step]) -> None:
+    """--password-stdin only where the plan stores the Bridge password it gives."""
+    if not any(isinstance(step, StoreSecret) and step.source == "stdin" for step in steps):
+        raise PlanError(
+            "--password-stdin gives a Bridge password, but setup keeps the one already stored. "
+            "Nothing was changed. Add --replace-credentials to store the new one, which also "
+            "stores a new MCP token, with --client for each client that needs it"
+        )
 
 
 def _attachments_path(value: str, home: str, flavor=os.path) -> str | None:
@@ -592,6 +661,7 @@ def _setup_plan(
     refusals stand.
     """
     _text, settings = existing_settings(paths, probe)
+    options = with_saved_imap_port(options, settings)
     can_ask = not args.dry_run and not args.yes and not _unattended(args) and on_terminal()
     if can_ask:
         _outline(platform, options, probe, paths, settings)
@@ -647,7 +717,7 @@ LOGIN_NEED = NeedsUser(
     "type their Proton email and password (pasting works) and the two-factor code, and open any "
     "verification link Bridge prints in a browser. Setup then reads the IMAP username from "
     "Bridge, takes the Bridge password at a hidden prompt and does the rest. Or pass "
-    "--bridge-user with the username Bridge's `info` shows.",
+    f"--bridge-user with {bridge_password.USERNAME}.",
     when="before",
     blocking=True,
     terminal=True,
@@ -1115,6 +1185,17 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
         parser.error("--simulate only plans; add --dry-run")
     if _unattended(args) and not (args.dry_run or args.yes or printing):
         parser.error("--json and --non-interactive ask nothing: add --dry-run or --yes")
+    password_stdin = getattr(args, "password_stdin", False) and not printing
+    if password_stdin and args.skip_credentials:
+        parser.error("--password-stdin gives the Bridge password, which --skip-credentials skips")
+    if password_stdin and sys.stdin is not None and sys.stdin.isatty():
+        # Refused before anything is planned, in a dry run too.
+        parser.error(PASSWORD_STDIN_TERMINAL)
+    if password_stdin and not (args.dry_run or args.yes):
+        parser.error(
+            "--password-stdin takes stdin, so setup cannot ask there whether to apply its plan: "
+            "add --yes, once --dry-run has shown the plan"
+        )
     report = _Report(args, platform, argv)
     if not platform.supported:
         return report.refuse(prog, platform.refusal)
@@ -1159,6 +1240,8 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
         else:
             build = install_plan if args.action == "install" else uninstall_plan
             steps = build(platform, options, probe, paths)
+        if password_stdin:
+            _check_password_stdin(steps)
         # A dry run reports what would stop the same command run with --yes.
         stops = _stops(steps, args, probe)
         if args.action in {"setup", "configure-client"}:
@@ -1216,6 +1299,13 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
         if _unattended(args):
             # No prompt opens: anything that needed one stopped the run above.
             quiet["terminal"] = lambda: False
+        password = None
+        if password_stdin:
+            # Read only now, when nothing stops the run, and checked before any step runs.
+            try:
+                password = _password_from_stdin(sys.stdin)
+            except PlanError as error:
+                return report.refuse(prog, str(error))
         session = bridge_cli.login_session if bridge_cli.available() else None
         executor = Executor(
             dry_run=False,
@@ -1224,6 +1314,7 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
             assume_yes=args.yes,
             sudo=sudo,
             bridge_session=session,
+            stdin_password=password,
             **quiet,
         )
         executor.run(steps)

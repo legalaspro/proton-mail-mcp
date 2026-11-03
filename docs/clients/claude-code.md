@@ -99,8 +99,14 @@ and changes nothing.
   one from an earlier `claude mcp add --transport http`, is local scope, and Claude Code uses it in
   that project instead. Setup warns and names the project; in that folder run
   `claude mcp remove --scope local proton-mail`.
-- [Troubleshooting](../clients.md#troubleshooting) covers a service that is not running and a
-  refused token.
+- **"Mailbox authentication failed".** The Bridge password is missing, empty or wrong, and the
+  error says which and the command to run. When it names `--replace-credentials`, run
+  `uvx mcp-proton-mail setup --replace-credentials --client claude-code` in your own terminal
+  (PowerShell on Windows) and type or paste the password Bridge generated at its hidden prompt,
+  never into the chat. On Windows, [paste in Windows Terminal](../windows.md#the-bridge-password)
+  with Ctrl+Shift+V, or type it.
+- [Troubleshooting](../clients.md#troubleshooting) covers a service that is not running, a
+  refused token and a missing Bridge password.
 
 How this was checked: Claude Code 2.1.302 connected to this server over HTTP on 1 Nov 2026. The
 connect entry and `claude mcp add` were checked by tests only, not yet with Claude Code.

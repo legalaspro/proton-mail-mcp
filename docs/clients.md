@@ -146,6 +146,21 @@ the default, so a client must initialize a session and read Server-Sent Events.
 - **No token to read.** The credential store is locked or holds none: unlock it, or run setup
   first. On macOS, choose Always Allow when Keychain asks whether `security` may read it. On Linux
   the client must reach the same Secret Service as setup did.
+- **"Mailbox authentication failed".** The service has no Bridge password it can use, or Bridge
+  refused the login, and the error says which case and the command to run in your own terminal
+  (PowerShell on Windows). No Bridge password could be read: run `uvx mcp-proton-mail setup`,
+  which keeps the token. The stored one is empty: in Credential Manager or the Linux keyring,
+  plain `setup` asks again; in the Keychain or `pass` it would keep the empty entry, so the error
+  names
+  `uvx mcp-proton-mail setup --replace-credentials --client <client>`. Bridge rejected the Bridge
+  username or password: run that command too, which also stores a new token and gives it to that
+  client, adding `--bridge-user` if setup was given another username than the one in Bridge's
+  Mailbox details. It is the password Bridge generated, not your Proton password: in the Bridge
+  app, select your mailbox, open Mailbox details and copy it under Password. Never paste it into a
+  chat.
+- **"Bridge STARTTLS failed".** Something answers on Bridge's IMAP port, but STARTTLS did not
+  complete. The server speaks only STARTTLS to Bridge: in the Bridge app's settings, under
+  Connection mode, choose STARTTLS for IMAP.
 - **Searches come back incomplete after a first login.** Bridge is still downloading the mailbox;
   the index catches up by itself ([`bridge_syncing`](search-index.md#automatic-startup-recovery)).
 
