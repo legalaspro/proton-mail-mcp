@@ -103,8 +103,10 @@ jobs:
           python -m pytest -q -p no:cacheprovider -n auto --dist worksteal --durations=15
           ${{ github.event_name == 'pull_request' && !inputs.full && '--maxfail=5' || '' }}
           ${{ !inputs.full && '-m "not slow"' || '' }}
-      # The one macOS job of a pull request also builds the wheel and runs the quick start from
-      # it, with stand-ins (scripts/wheel_smoke.py). A Full run leaves that to the installer.
+      # The one macOS job of a pull request also runs the wheel smoke's macOS part
+      # (scripts/wheel_smoke.py): the wheel built and inspected, its uvx dry runs, and its server
+      # starting. The applied quick start needs Linux and runs only in the installer's wheel job.
+      # A Full run leaves the macOS part to the installer too.
       - if: runner.os == 'macOS' && !inputs.full
         run: python scripts/wheel_smoke.py --python ${{ matrix.python }}
 

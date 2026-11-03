@@ -21,7 +21,10 @@ on:
       - scripts/wheel_smoke.py
       - "src/proton_mail_mcp/installer/**"
       - src/proton_mail_mcp/cli.py
+      - src/proton_mail_mcp/config.py
+      - src/proton_mail_mcp/connect.py
       - src/proton_mail_mcp/credential_store.py
+      - src/proton_mail_mcp/localfs.py
       - src/proton_mail_mcp/service_entry.py
       - "examples/**"
       - "tests/test_installer_*.py"

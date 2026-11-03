@@ -154,6 +154,10 @@ def test_a_release_pull_request_runs_the_lean_set():
         '"scripts/install*"',
         "scripts/wheel_smoke.py",
         '"src/proton_mail_mcp/installer/**"',
+        # Imported by the installer, or driven by the wheel smoke.
+        "src/proton_mail_mcp/config.py",
+        "src/proton_mail_mcp/connect.py",
+        "src/proton_mail_mcp/localfs.py",
         '"tests/test_installer_*.py"',
         ".github/workflows/installer.yml",
     ):

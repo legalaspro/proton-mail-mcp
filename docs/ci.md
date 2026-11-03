@@ -129,15 +129,18 @@ the [required checks](#required-checks), all with `-m "not slow"`:
 - `ubuntu-latest, Python 3.12`: the plugin's lock, `ruff check .` and `ruff format --check .` on
   the whole tree, `make check`, and the installer's quick dry runs.
 - `ubuntu-latest, Python 3.14`: the same, on the newest Python.
-- `macos-latest, Python 3.12`: the plugin's lock and `make check`, then the wheel smoke: the wheel
-  built, and its quick start run from it against stand-ins.
+- `macos-latest, Python 3.12`: the plugin's lock and `make check`, then the wheel smoke's macOS
+  part: the wheel built, its files, metadata and entry points, its dry runs through `uvx`, and its
+  server starting and refusing a request without a token. The applied quick start (`setup`
+  against stand-ins, `connect`, the token, pipx and the installs by name) needs Linux, so only
+  Installer's Linux wheel job runs it.
 
 pytest stops after 5 failures in each job, and no job cancels another, so that one fix-forward pull
 request can fix every runner's failures. GitHub's CodeQL default setup also analyzes each pull
 request. A sync that changes the installer's paths, the list in `installer.yml` (the install
-scripts, the installer, the commands and stores it drives, their tests, `pyproject.toml` and
-`installer.yml` itself), also runs **Installer**: the wheel smoke on Linux and macOS, and the
-Fedora, AlmaLinux, Arch and macOS dry runs. No pull request starts a Full run.
+scripts, the installer, the commands, settings, stores and file calls it drives, their tests,
+`pyproject.toml` and `installer.yml` itself), also runs **Installer**: the wheel smoke on Linux
+and macOS, and the Fedora, AlmaLinux, Arch and macOS dry runs. No pull request starts a Full run.
 
 Merge when they pass. A new push to the pull request cancels its older runs in Checks and
 Installer. Pushes to `main`, tags, the nightly and runs by hand never cancel: outside a pull
@@ -329,13 +332,12 @@ Python patch therefore reaches CI when the runner image picks it up.
 
 ## Required checks
 
-In the release repo, a ruleset on `main` requires a pull request and the Checks jobs that every
-pull request runs: `ubuntu-latest, Python 3.12`, `ubuntu-latest, Python 3.14` and
-`macos-latest, Python 3.12`. Until 3 Nov 2026 it required `ubuntu-latest, Python 3.12` and
-`windows-latest, Python 3.12`. No pull request runs the Windows job now, and GitHub leaves a
-required check that never reports waiting forever, so the ruleset has to swap that check for the
-other two before the sync that brings this set merges, or that sync merges with the ruleset's
-bypass.
+As of 3 Nov 2026, a ruleset on `main` in the release repo requires a pull request and the three
+Checks jobs that every pull request runs: `ubuntu-latest, Python 3.12`,
+`ubuntu-latest, Python 3.14` and `macos-latest, Python 3.12`. It no longer requires
+`windows-latest, Python 3.12`: Windows runs only in the nightly, on tags and by hand, never on a
+pull request, and GitHub leaves a required check that never reports waiting forever. When the
+Checks jobs of a pull request change, change the ruleset to match.
 
 Don't require the Installer jobs: they run only when their paths change, and GitHub leaves a
 required check waiting forever on a pull request whose path filter skipped it. Nor the Full run's:
