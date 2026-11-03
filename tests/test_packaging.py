@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -21,8 +22,10 @@ PLUGIN = json.loads(
 )
 PLUGIN_SERVERS = json.loads((ROOT / "plugin" / ".mcp.json").read_text(encoding="utf-8"))
 MARKETPLACE = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-# What the bundle and the plugin both run: this release from PyPI, by name with uvx.
+# What the bundle and the plugin both run: this release from PyPI, by name with uvx. The plugin
+# pins it with ==, the form the Claude directory's checklist gives for an exact uvx pin.
 RELEASE = f"mcp-proton-mail@{__version__}"
+PLUGIN_RELEASE = f"mcp-proton-mail=={__version__}"
 REAL_RUN = subprocess.run
 
 
@@ -61,6 +64,16 @@ def test_the_registry_entry_runs_connect_from_this_version_on_pypi():
     assert package["runtimeHint"] == "uvx"
     assert package["transport"] == {"type": "stdio"}
     assert package["packageArguments"] == [{"type": "positional", "value": "connect"}]
+
+
+def test_the_registry_entry_the_bundle_and_the_plugin_name_the_packages_homepage():
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        urls = tomllib.load(stream)["project"]["urls"]
+    assert urls["Homepage"] == "https://manajev.com/proton-mail-mcp/"
+    assert SERVER["websiteUrl"] == MANIFEST["homepage"] == PLUGIN["homepage"] == urls["Homepage"]
+    # The bundle and the plugin each point at their own client's page in the documentation.
+    assert MANIFEST["documentation"].startswith(urls["Documentation"].replace("/tree/", "/blob/"))
+    assert PLUGIN["documentationUrl"].startswith(urls["Documentation"].replace("/tree/", "/blob/"))
 
 
 def test_the_readme_names_the_registry_entry_for_pypi_to_prove_ownership():
@@ -261,11 +274,38 @@ def test_the_claude_code_plugin_runs_the_same_release_as_the_bundle():
     assert "not affiliated with Proton AG" in PLUGIN["description"]
     # No token, path or setting: connect finds the service and the token on its own.
     assert PLUGIN_SERVERS == {
-        "mcpServers": {"proton-mail": {"command": "uvx", "args": [RELEASE, "connect"]}}
+        "mcpServers": {"proton-mail": {"command": "uvx", "args": [PLUGIN_RELEASE, "connect"]}}
     }
     assert MANIFEST["server"]["mcp_config"]["args"][:2] == [RELEASE, "connect"]
     readme = (ROOT / "plugin" / "README.md").read_text(encoding="utf-8")
-    assert f"`uvx {RELEASE} connect`" in readme
+    assert f"`uvx {PLUGIN_RELEASE} connect`" in readme
+
+
+def test_the_plugins_lock_records_the_release_its_launcher_runs():
+    with (ROOT / "plugin" / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        package = tomllib.load(stream)["project"]
+    # Only the requirement: a uv index or source here would be a package source of the plugin's.
+    assert set(project) == {"project"}
+    assert project["project"]["dependencies"] == [PLUGIN_RELEASE]
+    assert project["project"]["requires-python"] == package["requires-python"]
+    with (ROOT / "plugin" / "uv.lock").open("rb") as stream:
+        lock = tomllib.load(stream)
+    assert lock["requires-python"] == package["requires-python"]
+    locked = {entry["name"]: entry for entry in lock["package"]}
+    assert locked["mcp-proton-mail"]["version"] == __version__
+    pypi = {"registry": "https://pypi.org/simple"}
+    # Before the upload, this release is locked against the files `uv build` wrote to dist/;
+    # docs/ci.md says to refresh it from PyPI after.
+    built = {"registry": "../dist"}
+    for name, entry in locked.items():
+        if name == project["project"]["name"]:
+            assert entry["source"] == {"virtual": "."}
+        elif name == "mcp-proton-mail":
+            assert entry["source"] in (pypi, built)
+        else:
+            assert entry["source"] == pypi, name
 
 
 def test_the_marketplace_lists_the_plugin_from_this_repository():

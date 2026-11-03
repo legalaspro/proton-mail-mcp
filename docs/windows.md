@@ -97,21 +97,11 @@ there is no setting to turn the checks off, so please report it.
 
 ## Install
 
-**Not on PyPI yet:** until the first release is published, the by-name commands below do not
-install this project, and must not be run: anyone could hold that name on PyPI. Install from a
-clone of this repository instead. In PowerShell, read the plan, then apply it:
-
-```powershell
-git clone https://github.com/legalaspro/proton-mail-mcp.git; cd proton-mail-mcp
-uvx --from . proton-mail-mcp setup --dry-run
-uvx --from . proton-mail-mcp setup --client claude-desktop
-```
-
-Once it is published, the same two steps by name:
+In PowerShell, read the plan, then apply it:
 
 ```powershell
 uvx mcp-proton-mail setup --dry-run
-uvx mcp-proton-mail setup
+uvx mcp-proton-mail setup --client claude-desktop
 ```
 
 From a checkout, past the default script policy:

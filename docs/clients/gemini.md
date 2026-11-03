@@ -27,10 +27,10 @@ It goes in `~/.gemini/settings.json` (on Windows `%USERPROFILE%\.gemini\settings
 
 ## Set it up
 
-In your own terminal, in the clone:
+In your own terminal:
 
 ```sh
-uvx --from . proton-mail-mcp setup --client gemini
+uvx mcp-proton-mail setup --client gemini
 ```
 
 After setup, `proton-mail-mcp configure-client --client gemini` adds it on its own, with your

@@ -262,15 +262,38 @@ def test_the_install_buttons_add_the_connect_command_and_no_token():
     assert entries[:2] == entries[2:]
 
 
-def test_the_pypi_warning_stands_or_falls_on_every_page():
-    readme = "Not on PyPI yet" in read(ROOT / "README.md")
-    for page in (ROOT / "llms.txt", DOCS / "install.md", DOCS / "windows.md"):
-        assert readme == ("Not on PyPI yet" in read(page)), page.name
+def test_the_install_runs_the_package_from_pypi_by_name():
+    # The package is on PyPI, so no page tells a person to install from a clone.
+    readme = read(ROOT / "README.md")
+    assert readme.index("uvx mcp-proton-mail setup") < readme.index("## ")
+    for page in (ROOT / "llms.txt", *PAGES):
+        if page.name != "CHANGELOG.md":
+            text = read(page)
+            assert "Not on PyPI yet" not in text and "uvx --from ." not in text, page.name
+
+
+def test_no_page_says_the_package_is_not_on_pypi():
+    # mcp-proton-mail is on PyPI; the changelog keeps the history of the old warnings.
+    stale = (
+        "not on pypi",
+        "not released",
+        "no release",
+        "not published",
+        "first upload",
+        "until we publish",
+        "later: pypi",
+        "(later, `uvx`)",
+    )
+    for page in (ROOT / "llms.txt", ROOT / "plugin" / "README.md", *PAGES):
+        if page.name != "CHANGELOG.md":
+            text = " ".join(read(page).lower().split())
+            for phrase in stale:
+                assert phrase not in text, (page.relative_to(ROOT), phrase)
 
 
 def test_the_readme_stays_short_and_points_each_reader_on():
     readme = read(ROOT / "README.md")
-    assert len(readme.splitlines()) <= 200
+    assert len(readme.splitlines()) <= 240
     for target in ("docs/README.md", "docs/getting-started.md", "AGENTS.md", "llms.txt"):
         assert f"]({target})" in readme, target
 

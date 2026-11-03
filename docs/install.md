@@ -7,26 +7,14 @@ own [page](windows.md).
 
 ## Quick start
 
-**Not on PyPI yet:** until the first release is published, the by-name commands below do not
-install this project, and must not be run: anyone could hold that name on PyPI. Install from a
-clone of this repository instead:
+[uv](https://docs.astral.sh/uv/) installs the package from
+[PyPI](https://pypi.org/project/mcp-proton-mail/) in one command. uv finds or fetches a compatible
+Python; Debian and Ubuntu may also need `python3-venv`, as below:
 
 ```sh
-git clone https://github.com/legalaspro/proton-mail-mcp.git && cd proton-mail-mcp
-uvx --from . proton-mail-mcp setup --dry-run
-uvx --from . proton-mail-mcp setup --client claude-desktop
-# or, with uv's own Python: uvx --managed-python --from . proton-mail-mcp setup
-# or: pipx install . && proton-mail-mcp setup
-```
-
-`uvx --from .` builds the clone it runs in, and builds it again after a `git pull` or an edit.
-
-Later, once it is published (see [PyPI and the MCP Registry](#later-pypi-and-the-mcp-registry)),
-[uv](https://docs.astral.sh/uv/) does it in one command. uv finds or fetches a compatible Python;
-Debian and Ubuntu may also need `python3-venv`, as below:
-
-```sh
-uvx mcp-proton-mail setup
+uvx mcp-proton-mail setup --dry-run
+uvx mcp-proton-mail setup --client claude-desktop
+# or, with uv's own Python: uvx --managed-python mcp-proton-mail setup
 ```
 
 Or with pipx:
@@ -99,7 +87,8 @@ anything if it is missing: run `sudo apt-get install python3-venv`, or add
 Services do not use this command: they keep running
 `proton-mail-mcp-service --env-file <settings>` from the private environment.
 
-With `uvx`, put `uvx --from <clone>` (later, `uvx`) before each of these. `setup` also leaves
+With `uvx`, put `uvx mcp-proton-mail` in place of `proton-mail-mcp`, as in
+`uvx mcp-proton-mail configure-client --client cursor`. `setup` also leaves
 `~/.local/share/proton-mail-mcp/venv/bin/proton-mail-mcp` (on macOS under
 `~/Library/Application Support/proton-mail-mcp/venv/bin/`), which works without `uvx`.
 
@@ -155,7 +144,7 @@ An AI agent can drive setup and hand over only what needs a person;
 [llms-install.md](../llms-install.md) is its step-by-step guide. `--json` asks nothing, opens no
 prompt and prints one JSON document on stdout, with the usual progress on stderr; it needs
 `--dry-run`, `--yes` or `--print-config`. `--non-interactive` does the same with the usual output.
-Put the launcher you use, such as `uvx --from <clone>`, in front:
+With `uvx`, put `uvx mcp-proton-mail` in place of `proton-mail-mcp`:
 
 ```sh
 proton-mail-mcp setup --dry-run --json --client claude-desktop
@@ -171,8 +160,9 @@ The document holds:
   `exit_code`; `error`; and `next`, what to do now.
 - `steps`: each step's number, kind, summary and status; `notes` and `warnings`.
 - `launcher`: how a person starts this same copy in their own terminal. Under `uvx` that is
-  `uvx --from <source> proton-mail-mcp`, since `proton-mail-mcp` is not on `PATH` there;
-  otherwise the running script, by absolute path.
+  `uvx --from <source> proton-mail-mcp`, since `proton-mail-mcp` is not on `PATH` there; for a
+  run from PyPI, `<source>` is `mcp-proton-mail==<version>`. Otherwise it is the running script,
+  by absolute path.
 - `connector`, for `setup` and `configure-client`: the `command` and `args` any MCP client on
   this computer can start, the server's `url`, and a `token` field that only says it is not
   shown.
@@ -221,22 +211,25 @@ would write (it refuses that before any change); 2 when it refused anything else
 changing anything, a person's turn (`needs_user`) and a usage error included; and 130 when
 interrupted.
 
-### Later: PyPI and the MCP Registry
+### PyPI and the MCP Registry
 
-Not done yet, and each needs the maintainer's approval of a release: publishing the package to
-PyPI, after which `uvx mcp-proton-mail setup` and `pipx install mcp-proton-mail` work by name and
-the clone step goes away; and a listing in the [MCP Registry](https://registry.modelcontextprotocol.io/),
-so that people and clients can find the server there. The repository already holds that listing's
-`server.json`, which names the PyPI package, `mcp-proton-mail`, and its `connect` command, and
-the README's `mcp-name` line that proves the package's ownership. `make mcpb` builds a Claude
-Desktop bundle locally ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)), and the
-repository is a Claude Code plugin marketplace
-([Claude Code](clients/claude-code.md#as-a-plugin)). The public
-repository's `publish.yml` publishes a `v*` tag to PyPI once PyPI trusts it, and the registry
-listing is a step by hand ([CI](ci.md#publishing-to-pypi)). Nothing else here publishes or
-registers anything.
+The package is on [PyPI](https://pypi.org/project/mcp-proton-mail/) as `mcp-proton-mail`, so
+`uvx mcp-proton-mail setup` and `pipx install mcp-proton-mail` work by name, and the server is
+listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as
+`io.github.legalaspro/proton-mail-mcp`. That listing comes from the repository's `server.json`,
+which names the PyPI package and its `connect` command, and the README's `mcp-name` line proves
+the package's ownership. `make mcpb` builds a Claude Desktop bundle locally
+([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)), and the repository is a Claude Code
+plugin marketplace ([Claude Code](clients/claude-code.md#as-a-plugin)). The public repository's
+`publish.yml` publishes a `v*` tag to PyPI, and the registry listing is a step by hand
+([CI](ci.md#publishing-to-pypi)). Nothing else here publishes or registers anything.
 
 ## Running from a checkout
+
+For development, or to try a change before it is released:
+`uvx --from <checkout> proton-mail-mcp setup` runs the guided setup from a clone of this repository,
+and builds the clone again after a `git pull` or an edit. The service gets that same copy, as
+[Where the service's copy comes from](#where-the-services-copy-comes-from) says.
 
 `scripts/install.sh install` runs the same plan from a clone of this repository, without
 the username question, the login offer and the self-check. The script only locates
@@ -657,8 +650,8 @@ proton-mail-mcp uninstall --dry-run
 proton-mail-mcp uninstall
 ```
 
-With uv, use `uvx --from <clone> proton-mail-mcp uninstall`, or once it is published
-`uvx mcp-proton-mail uninstall`; from a checkout, also `scripts/install.sh uninstall`.
+With uv, use `uvx mcp-proton-mail uninstall`; from a checkout, also
+`scripts/install.sh uninstall`.
 All of them run the same plan.
 
 Uninstall stops the installer's own services, then proves each one stopped before it
@@ -866,10 +859,11 @@ from PyPI through a local filter that hides this package's own releases, so pip 
 published build over the wheel under test.
 
 `scripts/docker_smoke.sh` builds the repository's `Dockerfile`, the image a registry such as Glama
-starts, and checks it the way such a registry does: over stdio, `initialize` and `tools/list` must
-answer and a tool call must refuse, from a non-root user with no network, a read-only filesystem
-and no capabilities. It needs Docker and network access for the build, touches only its own image
-and container, and uploads nothing. No workflow runs it.
+starts ([Glama](glama.md) has the settings its listing uses), and checks it the way such a registry
+does: over stdio, `initialize` and `tools/list` must answer and a tool call must refuse, from a
+non-root user with no network, a read-only filesystem and no capabilities. It needs Docker and
+network access for the build, touches only its own image and container, and uploads nothing. No
+workflow runs it.
 
 ### Docker image
 

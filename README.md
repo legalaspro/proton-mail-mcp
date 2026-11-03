@@ -2,12 +2,22 @@
 
 <!-- mcp-name: io.github.legalaspro/proton-mail-mcp -->
 
+[![PyPI](https://img.shields.io/pypi/v/mcp-proton-mail)](https://pypi.org/project/mcp-proton-mail/) [![Python](https://img.shields.io/pypi/pyversions/mcp-proton-mail)](https://pypi.org/project/mcp-proton-mail/) [![License](https://img.shields.io/pypi/l/mcp-proton-mail?color=blue)](https://github.com/legalaspro/proton-mail-mcp/blob/main/LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/legalaspro/proton-mail-mcp/check.yml?branch=main&event=push&label=CI)](https://github.com/legalaspro/proton-mail-mcp/actions/workflows/check.yml) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-blue)](https://registry.modelcontextprotocol.io/?q=io.github.legalaspro/proton-mail-mcp) [![mcp-proton-mail on Glama](https://glama.ai/mcp/servers/legalaspro/proton-mail-mcp/badges/score.svg)](https://glama.ai/mcp/servers/legalaspro/proton-mail-mcp)
+
 An MCP server that lets an AI assistant read your Proton Mail, write drafts and tidy your
 mailbox, with a preview you approve before mail is moved, deleted or sent. It runs on your own
 computer, under the same login as [Proton Mail Bridge](https://proton.me/mail/bridge), and listens
 only on `127.0.0.1`.
 
 proton-mail-mcp is unofficial and is not affiliated with or endorsed by Proton AG.
+
+```sh
+uvx mcp-proton-mail setup
+```
+
+Run it in your own terminal. [Install](#install) says what you need first, what it asks and how it
+adds the server to your MCP client.
 
 ## What it does
 
@@ -102,30 +112,20 @@ You need:
 - Linux (Debian/Ubuntu, Fedora/RHEL or Arch) or macOS, with [Homebrew](https://brew.sh) unless
   Bridge is already installed. Native Windows support is new and has run only on Windows Server
   runners: read [docs/windows.md](docs/windows.md) first, or use WSL2.
-- [uv](https://docs.astral.sh/uv/), which brings Python 3.12 or newer if you have none, and git.
+- [uv](https://docs.astral.sh/uv/), which brings Python 3.12 or newer if you have none.
 
-> **Not on PyPI yet.** Install from a clone of this repository, as below. On PyPI the package will
-> be `mcp-proton-mail`, run as `uvx mcp-proton-mail`, but do not run that by name yet: until the
-> first release is published, anyone could hold that name on PyPI. Its command is `proton-mail-mcp`,
-> also installed as `mcp-proton-mail`. A listing in the MCP Registry comes later.
+The package is [`mcp-proton-mail`](https://pypi.org/project/mcp-proton-mail/) on PyPI, which
+`uvx` fetches and runs; there is nothing to clone. Its command is `proton-mail-mcp`, also installed
+as `mcp-proton-mail`.
 
-**1. Get the code.**
-
-```sh
-git clone https://github.com/legalaspro/proton-mail-mcp.git
-cd proton-mail-mcp
-```
-
-Or unpack an archive of the repository you were given and run the rest there.
-
-**2. Quit the Proton Mail Bridge app** if it runs, and turn off its start-at-login setting. Setup
+**1. Quit the Proton Mail Bridge app** if it runs, and turn off its start-at-login setting. Setup
 runs Bridge as a background service, which cannot run beside the app; the app's login carries
 over. To keep using the app instead, add `--skip-bridge-service` below.
 
-**3. Run the guided setup in your own terminal**, naming your MCP client:
+**2. Run the guided setup in your own terminal**, naming your MCP client:
 
 ```sh
-uvx --from . proton-mail-mcp setup --client claude-desktop
+uvx mcp-proton-mail setup --client claude-desktop
 # or claude-code, chatgpt, codex, gemini, cursor, grok-bot; repeatable
 ```
 
@@ -150,10 +150,10 @@ Only you can do these, and setup says when:
 - **On macOS, allow Keychain access** when asked: choose Always Allow.
 - **Restart your client** at the end, as setup says.
 
-**4. Check it.** Ask your assistant which Proton Mail tools it has; it should name tools such as
+**3. Check it.** Ask your assistant which Proton Mail tools it has; it should name tools such as
 `search_mail`.
 
-`uvx --from . proton-mail-mcp configure-client --client <name>` adds another client later, and
+`uvx mcp-proton-mail configure-client --client <name>` adds another client later, and
 [Connect an MCP client](docs/clients.md) has a page for each client and covers the others. An AI
 agent setting this up for you follows [llms-install.md](llms-install.md): it does everything else
 and hands you only the Bridge login, as one command for your own terminal.
@@ -191,9 +191,29 @@ logs and saved attachments stay on your computer. Sending is off until you turn 
 send needs a saved draft, a preview and a single-use token redeemed only after you approve. On a
 client without forms the approval is an OK you type in chat, which the server cannot tell apart from
 one the model writes. With `PROTON_MCP_SEND_SELF_NO_FORM=1`, which you have to set, a plain note to
-only your own addresses needs the token and no approval ([Sending](#sending)). Besides installing,
-its one other connection is to an unsubscribe link you approve. What your assistant reads goes to
-your MCP client, and from there to its model provider under that provider's terms.
+only your own addresses needs the token and no approval ([Sending](#sending)).
+[Network connections](#network-connections) lists every connection it makes. What your assistant
+reads goes to your MCP client, and from there to its model provider under that provider's terms.
+
+## Network connections
+
+- **While the server runs:** `proton-mail-mcp connect`, which your MCP client starts, to the
+  service at `http://127.0.0.1:PORT/mcp`, and the service to Proton Mail Bridge on `127.0.0.1`,
+  over IMAP and, once sending is on, SMTP. If `PROTON_BRIDGE_HOST` names a remote Bridge, IMAP goes
+  there over TLS with a verified certificate; sending always stays on this computer. An HTTPS
+  unsubscribe link is opened only after a preview that names its host, and after you approve it
+  unless you turned the form off.
+- **Each time a client starts the Claude Desktop bundle or the Claude Code plugin:** both run
+  `uvx`, which checks PyPI for the pinned release and its dependencies, reusing PyPI's answer for
+  up to 600 seconds, and downloads only what it has not cached. A client set up by `setup` runs its
+  own copy and does not.
+- **Install and setup only:** PyPI, for the package and its dependencies; uv may download Python
+  3.12 or newer. `proton-mail-mcp setup`, which the plugin never runs, installs Bridge: on Debian,
+  Ubuntu and Fedora it downloads Bridge and Proton's signing key, and on Debian and Ubuntu Proton's
+  debsig policy, from `proton.me/download/bridge`, then installs it with apt or dnf; on Arch, macOS
+  and Windows it uses pacman, Homebrew or winget. Each package manager also reaches its own sources.
+
+No telemetry, no analytics, and the views load no external URLs.
 
 ## License
 

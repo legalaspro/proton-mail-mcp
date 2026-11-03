@@ -49,6 +49,7 @@ Pages are grouped by what you need right now, following [Diátaxis](https://diat
 - [Contributing](../CONTRIBUTING.md) and [Development and offline checks](development.md).
 - [Security policy](../SECURITY.md): how to report a vulnerability privately.
 - [CI](ci.md): what GitHub Actions runs, where and when, and how a release reaches PyPI.
+- [Glama](glama.md): the build settings Glama's listing uses to start the server without Bridge.
 - [Changelog](../CHANGELOG.md).
 
 ## Where each kind of content lives

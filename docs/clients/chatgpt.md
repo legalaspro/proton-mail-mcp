@@ -20,10 +20,10 @@ It goes in `~/.codex/config.toml` (on Windows `%USERPROFILE%\.codex\config.toml`
 
 ## Set it up
 
-In your own terminal, in the clone:
+In your own terminal:
 
 ```sh
-uvx --from . proton-mail-mcp setup --client chatgpt
+uvx mcp-proton-mail setup --client chatgpt
 ```
 
 After setup, `proton-mail-mcp configure-client --client chatgpt` adds it on its own, with your

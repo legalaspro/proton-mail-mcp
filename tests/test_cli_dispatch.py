@@ -100,7 +100,7 @@ def test_help_names_every_command(capsys, flag):
 def test_version_comes_from_the_installed_distribution(monkeypatch, capsys):
     monkeypatch.setattr(cli.metadata, "version", lambda name: f"9.9.9 of {name}")
     assert cli.main(["--version"]) == 0
-    assert capsys.readouterr().out == "proton-mail-mcp 9.9.9 of mcp-proton-mail\n"
+    assert capsys.readouterr().out == "mcp-proton-mail 9.9.9 of mcp-proton-mail\n"
 
 
 def test_version_without_a_distribution_says_so(monkeypatch, capsys):
@@ -109,7 +109,7 @@ def test_version_without_a_distribution_says_so(monkeypatch, capsys):
 
     monkeypatch.setattr(cli.metadata, "version", missing)
     assert cli.main(["--version"]) == 0
-    assert "version unknown" in capsys.readouterr().out
+    assert capsys.readouterr().out == "mcp-proton-mail (not installed; version unknown)\n"
 
 
 def test_a_startup_refusal_keeps_its_status_and_points_at_setup(monkeypatch, capsys):
@@ -229,9 +229,13 @@ def test_package_metadata_is_complete():
     assert PROJECT["authors"] == [{"name": "Dmitri Manajev", "email": "dmitri@manajev.com"}]
     assert "not affiliated" in PROJECT["description"].lower()
     assert set(PROJECT["urls"]) >= {"Homepage", "Repository", "Documentation", "Issues"}
+    urls = dict(PROJECT["urls"])
+    assert urls.pop("Homepage") == "https://manajev.com/proton-mail-mcp/"
+    # The public repository only, never the development one.
     assert all(
-        url.startswith("https://github.com/legalaspro/proton-mail-mcp")
-        for url in PROJECT["urls"].values()
+        url == "https://github.com/legalaspro/proton-mail-mcp"
+        or url.startswith("https://github.com/legalaspro/proton-mail-mcp/")
+        for url in urls.values()
     )
     classifiers = PROJECT["classifiers"]
     assert "Operating System :: POSIX :: Linux" in classifiers

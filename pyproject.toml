@@ -30,8 +30,8 @@ classifiers = [
 dependencies = ["mcp>=1.30,<2", "pypdf>=6,<7", "uvicorn>=0.35,<1"]
 
 [project.urls]
-Homepage = "https://github.com/legalaspro/proton-mail-mcp"
-Documentation = "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/README.md"
+Homepage = "https://manajev.com/proton-mail-mcp/"
+Documentation = "https://github.com/legalaspro/proton-mail-mcp/tree/main/docs"
 Repository = "https://github.com/legalaspro/proton-mail-mcp"
 Issues = "https://github.com/legalaspro/proton-mail-mcp/issues"
 Changelog = "https://github.com/legalaspro/proton-mail-mcp/blob/main/CHANGELOG.md"

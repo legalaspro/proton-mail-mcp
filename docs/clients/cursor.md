@@ -27,10 +27,10 @@ It goes in `~/.cursor/mcp.json` (on Windows `%USERPROFILE%\.cursor\mcp.json`).
 
 ## Set it up
 
-In your own terminal, in the clone:
+In your own terminal:
 
 ```sh
-uvx --from . proton-mail-mcp setup --client cursor
+uvx mcp-proton-mail setup --client cursor
 ```
 
 After setup, `proton-mail-mcp configure-client --client cursor` adds it on its own, with your
