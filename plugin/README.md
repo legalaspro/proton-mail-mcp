@@ -6,7 +6,7 @@ tools: search and read Proton Mail, write drafts and tidy the mailbox through
 moved, deleted or sent. It is unofficial, not affiliated with Proton AG.
 
 The plugin is only the connector. Its one MCP server, `proton-mail`, runs
-`uvx mcp-proton-mail==1.30.1 connect`, which relays the agent's requests to the proton-mail-mcp
+`uvx mcp-proton-mail==1.30.2 connect`, which relays the agent's requests to the proton-mail-mcp
 service on `127.0.0.1` that `proton-mail-mcp setup` installed on the same computer.
 
 ## Before you install it
