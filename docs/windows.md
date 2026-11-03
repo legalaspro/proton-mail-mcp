@@ -107,6 +107,71 @@ uvx mcp-proton-mail setup --client claude-desktop
 From a checkout, past the default script policy:
 `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -DryRun -BridgeUser you@example.com`.
 
+## The Bridge password
+
+Setup asks for the password Bridge generated, not your Proton password: in the Proton Mail Bridge
+app, select your mailbox, open Mailbox details and copy the password under Password (`info` in
+Bridge's CLI shows it too). It stores it in Windows Credential Manager as a generic credential named
+`proton-mail-mcp/<user>`, with `<user>` your Bridge username; the MCP token is beside it as
+`proton-mail-mcp-token/<user>`.
+
+In classic PowerShell or cmd, pasting at a hidden prompt often doesn't work. Use Windows Terminal
+and paste with Ctrl+Shift+V, or type the password. A failed paste can leave a single character,
+which Bridge rejects, so setup refuses an empty entry and one shorter than 16 characters (Bridge's
+passwords are 22), at either prompt, and two entries that differ. It then shows that hint and asks
+again, three times in all, and after the third refusal stops and stores nothing. It never shows
+what you typed or how long it was.
+
+Or let PowerShell read the password and pipe it into setup's `--password-stdin`, which reads one
+line from stdin and checks it the same way, but asks only once: a refusal exits with status 2 and
+stores nothing. The command holds no password, so none lands in PowerShell's history:
+
+```powershell
+$secure = Read-Host -AsSecureString "Bridge password"
+[System.Net.NetworkCredential]::new("", $secure).Password | uvx mcp-proton-mail setup --replace-credentials --client claude-desktop --password-stdin --yes
+Remove-Variable secure
+```
+
+`--replace-credentials` stores the password over the one already there, and a new MCP token with
+it, which `--client` gives that client. stdin holds the password, so setup cannot ask there whether
+to apply its plan: `--yes` applies it, so read it first with
+`uvx mcp-proton-mail setup --replace-credentials --client claude-desktop --dry-run`. At a terminal,
+with nothing piped in, `--password-stdin` refuses and reads nothing: run setup without it to use the
+hidden prompt. These commands have not been run on Windows by this project's tests.
+
+Setup asks for the username shown in Bridge's Mailbox details when it cannot read it from Bridge.
+
+A tool error that says `Mailbox authentication failed` also says which case it is, and the
+command to run in PowerShell yourself. Never paste the password into a chat:
+
+```powershell
+# No Bridge password could be read, or the stored one is empty: keeps the token
+uvx mcp-proton-mail setup
+# Bridge rejected the Bridge username or password: also stores a new token and gives it to the client
+uvx mcp-proton-mail setup --replace-credentials --client claude-desktop
+```
+
+Both ask at the hidden prompt above; the `--password-stdin` command above does what the second
+does.
+
+Bridge's IMAP connection mode must be STARTTLS, its default: the server speaks only STARTTLS to
+Bridge and cannot read mail from a Bridge set to SSL, so set it back in the Bridge app's settings,
+under Connection mode. A Bridge set to SSL is not named: reads time out and nothing is logged, so
+check Connection mode when Bridge is running but reads time out. A tool that reaches Bridge but
+cannot start TLS there says `Bridge STARTTLS failed on 127.0.0.1:1143`. The service logs
+one line for each Bridge failure to `%LOCALAPPDATA%\proton-mail-mcp\logs\mcp.log`, such as
+`Bridge not running: nothing answers on 127.0.0.1:1143`, and never a password or a token.
+
+To see both entries, which shows the user name and never the password, and to delete the stored
+Bridge password so that plain `setup` asks for it again and keeps the token:
+
+```powershell
+cmdkey /list | Select-String proton-mail-mcp
+cmdkey /delete:proton-mail-mcp/you@proton.me
+```
+
+These two commands have not been run by this project's tests.
+
 ## What was checked, and how
 
 **Real Windows, on GitHub's `windows-latest` runners (Windows Server 2025).** With the access-rule

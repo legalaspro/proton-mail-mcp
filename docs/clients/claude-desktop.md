@@ -115,8 +115,14 @@ confirmed in a live Claude Desktop session. Through `mcp-remote`, a live test sh
 ## If it does not work
 
 - Claude Desktop's MCP logs hold connect's messages: on macOS in `~/Library/Logs/Claude/`.
-- [Troubleshooting](../clients.md#troubleshooting) covers a service that is not running and a
-  refused token.
+- **"Mailbox authentication failed".** The Bridge password is missing, empty or wrong, and the
+  error says which and the command to run. When it names `--replace-credentials`, run
+  `uvx mcp-proton-mail setup --replace-credentials --client claude-desktop` in your own terminal
+  (PowerShell on Windows) and type or paste the password Bridge generated at its hidden prompt,
+  never into the chat. On Windows, [paste in Windows Terminal](../windows.md#the-bridge-password)
+  with Ctrl+Shift+V, or type it.
+- [Troubleshooting](../clients.md#troubleshooting) covers a service that is not running, a
+  refused token and a missing Bridge password.
 
 How this was checked: the entry by tests, and connect against the real server in tests. Not yet
 run in Claude Desktop.

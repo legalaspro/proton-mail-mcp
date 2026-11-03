@@ -100,10 +100,20 @@ cannot approve anything is a normal result with no `token`, so check for one.
 | `Error executing tool <tool>: Validation error: User confirmation was not accepted...` | No accepted form; the token is retired | New preview |
 | `Error executing tool <tool>: Mailbox operation failed; check Bridge configuration and availability` | Bridge or the backend failed; details are hidden | Check Bridge. Retry reads. For writes, check `list_actions` first |
 | `Error executing tool <tool>: Proton Mail Bridge is not running: nothing answers on 127.0.0.1:1143...` | Nothing accepts a connection on Bridge's IMAP address (`PROTON_BRIDGE_HOST` and `PROTON_BRIDGE_IMAP_PORT`) | Start Bridge: its app, its service, or `bridge --noninteractive` (see [Hosts without systemd](install.md#hosts-without-systemd)), then retry. For writes, check `list_actions` first |
+| `Error executing tool <tool>: Bridge STARTTLS failed on 127.0.0.1:1143...` | Something answers on Bridge's IMAP address, but STARTTLS did not complete there | In the Bridge app's settings, under Connection mode, choose STARTTLS for IMAP, then retry |
+| `Error executing tool <tool>: Mailbox authentication failed: no Bridge password could be read...` | The credential store holds no Bridge password, or is locked | Unlock the store, or the person runs `uvx mcp-proton-mail setup` in their own terminal and types or pastes the password Bridge generated at its hidden prompt (on Windows, in Windows Terminal with Ctrl+Shift+V). Never ask for it in the chat |
+| `Error executing tool <tool>: Mailbox authentication failed: the stored Bridge password is empty...` | The store holds an empty Bridge password | The person runs the command the error names: `uvx mcp-proton-mail setup` for Credential Manager or the Linux keyring, and `uvx mcp-proton-mail setup --replace-credentials --client <client>` for the Keychain or `pass`, where a plain rerun keeps the empty entry |
+| `Error executing tool <tool>: Mailbox authentication failed: Bridge rejected the Bridge username or password...` | Bridge refused the login | The person runs `uvx mcp-proton-mail setup --replace-credentials --client <client>` in their own terminal, as the error says, adding `--bridge-user` if setup was given another username than the one in Bridge's Mailbox details; the client then gets a new token |
 | `Error executing tool <tool>: Draft preview failed; check Bridge configuration` | From `preview_send` or `review_send`: Bridge failed, or `draft_id` names no single complete saved draft | Check the `draft_id` and Bridge, then preview again |
 | `Error executing tool send_draft: Validation error: Guarded send failed; no automatic retry is permitted` | Bridge or the journal failed during the send; the message may have gone out | Check `list_actions` and Sent. There is no automatic retry |
 | `Error executing tool send_draft: Send failed; inspect the action log before retrying` | The failure could not be journaled either; the message may have gone out | Check `list_actions` and Sent. There is no automatic retry |
 | `Action log is busy or unavailable; no change was made; retry` | The audit record could not be written, so the write did not start | Retry |
+
+For each Bridge failure in this table, the server also logs one fixed line, with no password,
+account or token: `Bridge not running: nothing answers on 127.0.0.1:1143`,
+`Bridge STARTTLS failed on 127.0.0.1:1143: Bridge's IMAP connection mode must be STARTTLS`,
+`Bridge password missing: none could be read from <store>` (or `the entry in <store> is empty`),
+or `Bridge rejected the login: wrong Bridge username or password`.
 
 `compose_reply` also returns `isError: true`, with `partial_reason`, when its lookup could not
 finish. That does not mean the message is missing, so retry.

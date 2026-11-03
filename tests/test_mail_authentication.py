@@ -6,6 +6,7 @@ import pytest
 from test_mail import FakeImap, client
 from test_mail import settings as settings
 
+from proton_mail_mcp import bridge_password
 from proton_mail_mcp.mail import CallDeadlineExceeded, MailAuthenticationError, MailError
 from proton_mail_mcp.security import CredentialError
 
@@ -31,7 +32,11 @@ def test_authentication_failure_has_a_fixed_safe_reason(settings, mode):
     with pytest.raises(MailAuthenticationError) as caught:
         with reader._session():
             pytest.fail("Rejected credentials cannot open a usable session")
-    assert str(caught.value) == "Mailbox authentication failed"
+    if mode == "credentials":
+        assert str(caught.value) == bridge_password.missing(settings.credential_store)
+    else:
+        assert str(caught.value) == bridge_password.rejected(settings.credential_store)
+    assert "untrusted diagnostic" not in str(caught.value)
     assert caught.value.__suppress_context__
 
 

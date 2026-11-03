@@ -2,4 +2,4 @@
 
 # The one place the version lives: the wheel's metadata (hatch) and the server's
 # serverInfo both read it.
-__version__ = "1.30.1"
+__version__ = "1.30.2"

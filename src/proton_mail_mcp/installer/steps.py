@@ -146,7 +146,9 @@ class StoreSecret:
     store: str
     service: str
     account: str
-    source: str  # "prompt" for the Bridge password, "generate" for the MCP token
+    # "prompt" or, with setup --password-stdin, "stdin" for the Bridge password; "generate"
+    # for the MCP token.
+    source: str
     summary: str
     tag: str = "credentials"
     # PASSWORD_STORE_DIR and GNUPGHOME for pass, the values the service uses.

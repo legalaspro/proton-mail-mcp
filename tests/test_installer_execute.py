@@ -659,19 +659,21 @@ def test_generated_token_is_stored_but_never_printed(monkeypatch):
 def test_prompted_password_is_confirmed_and_hidden(monkeypatch):
     stored = []
     monkeypatch.setattr(credential_store, "store_secret", lambda *args: stored.append(args))
-    answers = iter(["bridge-pass-123", "bridge-pass-123"])
+    answers = iter(["bridge-pass-1234567890", "bridge-pass-1234567890"])
     run, out = executor(prompt=lambda label: next(answers))
     run.run([StoreSecret("libsecret", "proton-mail-mcp", "you@example.com", "prompt", "password")])
-    assert stored[0][3] == "bridge-pass-123"
-    assert "bridge-pass-123" not in out.getvalue()
-    answers = iter(["one", "two"])
-    run, _out = executor(prompt=lambda label: next(answers))
-    with pytest.raises(InstallError, match="differ") as caught:
+    assert stored[0][3] == "bridge-pass-1234567890"
+    assert "bridge-pass-1234567890" not in out.getvalue()
+    answers = iter(["one-bridge-password-xx", "two-bridge-password-xx"] * 3)
+    run, out = executor(prompt=lambda label: next(answers))
+    with pytest.raises(InstallError, match="no usable Bridge password in 3 attempts") as caught:
         run.run([StoreSecret("libsecret", "proton-mail-mcp", "you@example.com", "prompt", "pw")])
-    assert "one" not in str(caught.value)
+    assert "differ" in out.getvalue()
+    assert "bridge-password-xx" not in str(caught.value) + out.getvalue()
     run, _out = executor(prompt=lambda label: "")
-    run.run([StoreSecret("libsecret", "proton-mail-mcp", "you@example.com", "prompt", "pw")])
-    assert run.warnings and run.changed == set()
+    with pytest.raises(InstallError, match="none was stored"):
+        run.run([StoreSecret("libsecret", "proton-mail-mcp", "you@example.com", "prompt", "pw")])
+    assert len(stored) == 1 and run.changed == set()
 
 
 @pytest.mark.parametrize("warn_on", [1, 2])
@@ -688,7 +690,7 @@ def test_password_prompt_never_falls_back_to_echoed_input(monkeypatch, warn_on):
         if len(prompts) == warn_on:
             # What getpass.getpass does when it cannot turn terminal echo off.
             return getpass.fallback_getpass(label)
-        return "hidden-entry"
+        return "hidden-entry-long-enough"
 
     run, out = executor(prompt=prompt)
     with pytest.raises(InstallError, match="cannot hide the password") as caught:

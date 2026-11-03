@@ -2,16 +2,20 @@
 
 The token goes only into the Authorization header of a request to 127.0.0.1, which
 follows no redirect and no proxy. Errors name status codes, never values, and nothing
-the server says about the mailbox is kept or shown.
+the server says about the mailbox is kept or shown: a tool error is shown only when it is
+one of the server's fixed texts about Bridge.
 """
 
 import http.client
 import json
+import re
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import Any
+
+from .. import bridge_password
 
 SERVER_NAME = "proton-mail-mcp"
 # One cheap read-only tool: LIST and EXAMINE, with no header or body fetched.
@@ -23,6 +27,12 @@ _MAX_REPLY_BYTES = 1024 * 1024
 # Bridge can still be starting when its port first opens.
 _BRIDGE_ATTEMPTS = 4
 _BRIDGE_PAUSE = 5.0
+# FastMCP's lead before a tool error's own text.
+_TOOL_ERROR = f"Error executing tool {PROBE_TOOL}: "
+# The Bridge address in the server's not-running and STARTTLS texts.
+_ADDRESS = re.compile(
+    r" on (?:\[(?P<ip6>[0-9A-Fa-f:.]+)\]|(?P<host>[A-Za-z0-9.-]+)):(?P<port>\d{1,5})[.:]"
+)
 
 
 class SelfCheckError(RuntimeError):
@@ -133,11 +143,49 @@ def _tool_result(reply: dict[str, Any] | None) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _bridge_problem(reply: dict[str, Any] | None, store: str | None) -> tuple[str | None, bool]:
+    """What the server's tool error says about Bridge, and whether no retry can change it.
+
+    The server's words are shown only when they are one of its fixed texts for this store or
+    the Bridge address they name; otherwise only their lead is compared.
+    """
+    result = (reply or {}).get("result")
+    try:
+        text = result["content"][0]["text"] if result.get("isError") else ""
+    except (AttributeError, KeyError, IndexError, TypeError):
+        return None, False
+    if not isinstance(text, str):
+        return None, False
+    text = text.removeprefix(_TOOL_ERROR)
+    cannot = "the MCP server runs, but it cannot read INBOX."
+    if text == bridge_password.missing(store, empty=True):
+        # The store answered, with an empty entry: waiting changes nothing. A locked store
+        # can be unlocked at its prompt meanwhile, and a Bridge still loading the account
+        # refuses its login, so those are asked again.
+        return f"{cannot} {text}", True
+    if text in (bridge_password.missing(store), bridge_password.rejected(store)):
+        return f"{cannot} {text}", False
+    found = _ADDRESS.search(text)
+    if found:
+        host, port = found["ip6"] or found["host"], int(found["port"])
+        if text == bridge_password.not_running(host, port):
+            return bridge_password.logged_not_running(host, port), False
+        if text == bridge_password.tls_failed(host, port):
+            return f"{cannot} {text}", False
+    # Another version's words: rebuilt from this one's fixed text.
+    if bridge_password.REJECTED in text:
+        return f"{cannot} {bridge_password.rejected(store)}", False
+    if bridge_password.AUTH_FAILED in text:
+        return f"{cannot} {bridge_password.missing(store)}", False
+    return None, False
+
+
 def check_service(
     port: int,
     token: str,
     say: Callable[[str], None],
     *,
+    store: str | None = None,
     open_url: Callable = _default_open,
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
@@ -145,7 +193,8 @@ def check_service(
 
     Without the token the server must answer 401, so it enforces it; with the stored
     token it must initialize as this server; then one read-only tool must read INBOX
-    through Bridge, which proves the Bridge login and the stored password.
+    through Bridge, which proves the Bridge login and the stored password. `store` is the
+    credential store setup used, which the server's texts about the password name.
     """
     status, _reply_body, _headers = _Client(port, None, open_url).call(
         "initialize", _initialize_params()
@@ -171,6 +220,7 @@ def check_service(
     client.protocol = protocol if isinstance(protocol, str) else None
     client.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
     say(f"    ok: the MCP server on 127.0.0.1:{port} enforces and accepts the stored token")
+    problem = None
     for attempt in range(_BRIDGE_ATTEMPTS):
         if attempt:
             sleep(_BRIDGE_PAUSE)
@@ -181,7 +231,12 @@ def check_service(
         if found is not None and not found.get("partial") and not found.get("timed_out"):
             say("    ok: the MCP server reads INBOX through Bridge with the stored password")
             return
+        problem, final = _bridge_problem(reply, store) if status == 200 else (None, False)
+        if final:
+            break
+    if problem:
+        raise SelfCheckError(problem)
     raise SelfCheckError(
         "the MCP server runs, but it cannot read INBOX through Bridge: Bridge is not "
-        "running or not signed in, or the stored Bridge password is wrong"
+        "running or not signed in, or the Bridge username or password is wrong"
     )

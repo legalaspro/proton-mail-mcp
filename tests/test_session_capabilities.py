@@ -82,7 +82,7 @@ def test_failed_login_never_refreshes_or_exposes_session(settings):
         return "NO", [b"private-server-detail"]
 
     fake.login = login
-    with pytest.raises(MailError, match="^Mailbox authentication failed$"):
+    with pytest.raises(MailError, match="^Mailbox authentication failed: Bridge rejected"):
         with client(settings, fake)._session():
             pytest.fail("A failed login exposed a session")
     assert [call[0] for call in fake.calls] == ["STARTTLS", "LOGIN", "LOGOUT"]

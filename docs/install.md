@@ -38,14 +38,18 @@ it ([Bridge login](#bridge-login)); otherwise it asks. Then it:
    keeps running after `pipx uninstall` or `uv cache clean`;
 3. offers to open Bridge's CLI on your terminal, where you log in, unless a Bridge password is
    stored already or you just logged in;
-4. asks for the **Bridge** password (the one `info` shows, not your Proton password)
-   with a hidden prompt, where pasting works, and stores it and a new bearer token in the
-   operating system's credential store;
+4. asks for the **Bridge** password (the one Bridge's Mailbox details and `info` show, not your
+   Proton password)
+   with a hidden prompt, or reads it from stdin with `--password-stdin`, and stores it and a new
+   bearer token in the operating system's credential store;
 5. writes and starts per-user services for Bridge and the MCP server, which binds only
    to `127.0.0.1`;
 6. runs a self-check: the server must refuse a request without the token, accept the
    stored one, and read `INBOX` through Bridge with the stored password. A failure
-   exits with status 1 and says what to fix; rerunning is safe;
+   exits with status 1 and says what to fix: for a Bridge password problem or a failed
+   STARTTLS, the same text a client would get from the server, and for a Bridge that is not
+   running, `Bridge not running: nothing answers on 127.0.0.1:1143` with the address the server
+   used. Rerunning is safe;
 7. with `--client` (repeatable: `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`,
    `cursor` or `grok-bot`), adds the server to that client, as
    [Connect an MCP client](clients.md#let-the-installer-write-the-config) describes, and says
@@ -175,8 +179,8 @@ The document holds:
   their own terminal, with the launcher in front.
 
 A usage error, such as a missing `--yes` or an unknown `--client`, is a document too, with
-`result` `refused` and `exit_code` 2. The token never appears in the document, the plan or any
-output.
+`result` `refused` and `exit_code` 2. Its `error` names at most the option, never what was typed.
+The token never appears in the document, the plan or any output.
 
 | `id` | What the person does |
 | --- | --- |
@@ -404,13 +408,30 @@ the store cannot show, so a token it can read is kept. Without a terminal, or wi
 `--yes`, it stops like `install`.
 
 At step 3 the installer asks for the **Bridge** password, not your Proton account
-password: the one Bridge's `info` showed. Pasting works: the marks some terminals put around a
-paste, and the spaces and line break a copied line brings along, are dropped. On macOS the
-Keychain `security` tool prompts for the password itself. Press Enter to skip the prompt and
-rerun the installer later. If the terminal cannot hide what you type, the
-installer stops rather than read the password with echo; rerun it in a terminal,
+password: the one Bridge generated, which Bridge's `info` showed, and which the Proton Mail Bridge
+app shows when you select your mailbox and open Mailbox details, under Password. The marks some
+terminals put around a paste, and the spaces and line break a copied line brings along, are
+dropped. In classic PowerShell or cmd, pasting at a hidden prompt often doesn't work. Use Windows
+Terminal and paste with Ctrl+Shift+V, or type the password. Setup refuses an empty entry and one
+shorter than 16 characters (Bridge's passwords are 22), at either prompt, and two entries that
+differ; it shows that hint and asks again, three times in all, then stops and stores nothing. It
+never shows what was typed or how long it was. `--skip-credentials` leaves the password for later.
+On macOS the Keychain `security` tool prompts for the password itself, so setup cannot see what
+you typed and checks none of this; an empty password there is kept by a plain rerun, so replace
+it with `uvx mcp-proton-mail setup --replace-credentials --client <client>`, which the server's
+error names too. If the terminal cannot hide what
+you type, the installer stops rather than read the password with echo; rerun it in a terminal,
 or pass `--skip-credentials` and store the password yourself under the names in
 [What goes where](#what-goes-where).
+
+`setup --password-stdin` reads the password from stdin instead, for a person who pipes it in from
+their own shell: one line, whose LF or CRLF is dropped, with the same checks. It asks nothing
+again: an empty or short line, or more than one, exits with status 2 before any step runs and
+stores nothing, and so does a terminal on stdin, where the hidden prompt is the way. stdin holds
+the password, so the run needs `--yes`; a dry run reads nothing. Where a Bridge password is stored
+already, add `--replace-credentials`, which also stores a new token.
+[Windows](windows.md#the-bridge-password) shows it in PowerShell, with no password in the command
+or its history.
 
 Bridge's CLI and its service cannot run at the same time. `setup` on a terminal can
 stop and restart the service for you. To log in by hand, stop the Bridge service first
@@ -605,10 +626,10 @@ uses nor shows its values, only its keys. Move it elsewhere, then rerun.
 | --- | --- |
 | `--dry-run` | Print the plan; change nothing. |
 | `--yes` | Apply without asking. |
-| `--bridge-user USER` | Bridge IMAP username; reruns read it from the settings file. |
+| `--bridge-user USER` | Bridge IMAP username, the one shown in Bridge's Mailbox details; reruns read it from the settings file. |
 | `--credential-store libsecret\|pass` | Linux only; default libsecret when `secret-tool` exists, else an initialised `pass`. |
 | `--port N` | MCP port on `127.0.0.1` (default 8765). |
-| `--bridge-imap-port N` | Bridge IMAP port (default 1143). |
+| `--bridge-imap-port N` | Bridge IMAP port, which must use STARTTLS (default: the one the settings file saved, else 1143). |
 | `--bridge-version X.Y.Z` | Linux `.deb`/`.rpm` release. |
 | `--bridge-bin PATH` | Bridge executable for the Bridge service; a relative path is resolved against the current directory. |
 | `--venv PATH` | Virtual environment path, new or made by the installer; saved for later runs. The previous one stays. |
@@ -625,6 +646,7 @@ uses nor shows its values, only its keys. Move it elsewhere, then rerun.
 | `--skip-credentials` | Do not prompt or store credentials. |
 | `--skip-services` | Install files only; no service is written, stopped or started. On a Linux host that does not run systemd, `setup` [starts the processes itself](#hosts-without-systemd) instead. |
 | `--replace-credentials` | Prompt again and generate a new token. |
+| `--password-stdin` | `setup` only: read the Bridge password from one line on stdin, a pipe, instead of the hidden prompt; needs `--yes`. See [Install](#install). |
 | `--force` | Replace a file the installer did not write (not the settings file), keeping it in a new `.bak` file beside it; an earlier backup is never replaced. |
 | `--simulate FAMILY` | With `--dry-run`, print the plan for another platform. |
 

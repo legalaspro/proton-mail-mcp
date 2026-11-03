@@ -145,8 +145,12 @@ Only you can do these, and setup says when:
 - **Log in to Bridge**, if it is not logged in yet: setup opens Bridge's CLI, where you type
   `login`, your Proton email and password and the two-factor code, and open any verification link
   it prints in a browser. Pasting works. Setup then reads your IMAP username from Bridge.
-- **Type the Bridge password** at a hidden prompt: the one Bridge's `info` (or the Bridge app)
-  shows, not your Proton password. That is why setup runs in your own terminal.
+- **Type the Bridge password** at a hidden prompt: the one Bridge generated, not your Proton
+  password. In the Proton Mail Bridge app, select your mailbox, open Mailbox details and copy the
+  password under Password; Bridge's CLI shows it with `info`. That is why setup runs in your own
+  terminal. In classic PowerShell or cmd, pasting at a hidden prompt often doesn't work. Use Windows
+  Terminal and paste with Ctrl+Shift+V, or type the password. If a tool later says
+  `Mailbox authentication failed`, the error names the setup command to run there.
 - **On macOS, allow Keychain access** when asked: choose Always Allow.
 - **Restart your client** at the end, as setup says.
 
