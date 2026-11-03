@@ -4,6 +4,22 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ## Unreleased
 
+### Changed
+
+- **The Claude Code plugin moves to a new release after its upload.** The plugin's lock may now
+  name only PyPI's files, and a release reaches PyPI only with the upload, so a release leaves the
+  plugin on the version before it until a follow-up bumps it. `scripts/check_plugin_lock.py`
+  refuses a lock with any other source in `make check`, in each Checks job and in the release
+  sync, so a lock the Claude directory reports as "Launcher lock invalid" no longer reaches the
+  release repo.
+
+### Fixed
+
+- **The Claude Code plugin's lock names PyPI's files for 1.30.1.** `plugin/uv.lock` still recorded
+  `mcp-proton-mail` 1.30.1 from the files `uv build` wrote to `../dist` before the upload, so the
+  Claude directory's validation reported "Launcher lock invalid". It now names PyPI's sdist and
+  wheel with their hashes, like every other package it locks; no other package changed.
+
 ## 1.30.1
 
 ### Added

@@ -11,6 +11,7 @@ import pytest
 from bridge_costs import ZERO_COSTS, CommandClock, WorkCounters
 from bridge_sim import Msg, hdr, make_client, mutations
 from certified_index_peer import CertifiedIndexPeer
+from test_preview_identity_cost import hold_until_watchdog
 from test_preview_speed import OPTION_A_LIVE45_SECONDS, SENDER, command_counts, option_a_bounds
 
 from proton_mail_mcp import identity_index, mail
@@ -422,27 +423,32 @@ def test_uidvalidity_reset_cannot_reuse_previously_certified_identity(indexed_ma
 
 
 def test_certified_index_rebuild_obeys_remaining_command_deadline(indexed_mailbox, monkeypatch):
-    sim, client, service, _, _ = indexed_mailbox(count=1, filler=2, latency=0)
-    monkeypatch.setattr(mail, "time", time)
+    sim, client, service, clock, _ = indexed_mailbox(count=1, filler=2, latency=0)
     client.settings = replace(client.settings, call_timeout=0.8, timeout=5)
-    # Initial candidate FETCH succeeds; the cold full-identity audit then stalls.
+    stall = hold_until_watchdog(monkeypatch, clock)
+    # Initial candidate FETCH succeeds, spending part of the call; the cold full-identity
+    # audit then stalls. A deadline started afresh for the rebuild would outlast the call.
     fetch_count = 0
 
     def stall_rebuild(sid, folder, op, command):
         nonlocal fetch_count
         if op == "FETCH":
             fetch_count += 1
+            if fetch_count == 1:
+                clock.elapsed += 0.3
             if fetch_count == 2:
-                return "stall"
+                return stall()
         return None
 
     sim.hooks.append(stall_rebuild)
-    started = time.monotonic()
+    started, wall = clock.monotonic(), time.monotonic()
     result = indexed_preview(client, service)
-    elapsed = time.monotonic() - started
+    elapsed = clock.monotonic() - started
     assert result["token"] is None and result["partial"]
     assert "deadline" in result["reason"].lower()
-    assert elapsed < client.settings.call_timeout
+    assert len(stall.held) == 1 and elapsed < client.settings.call_timeout
+    # The watchdog cut the stall, which the peer would otherwise hold for 5 s.
+    assert time.monotonic() - wall < client.settings.timeout
     assert sim.peers[0][0].fileno() == -1
     assert not any(command.startswith("LOGOUT") for *_, command in sim.commands)
     assert_no_mutations_or_header_search(sim)

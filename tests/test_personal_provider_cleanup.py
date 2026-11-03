@@ -300,7 +300,11 @@ def test_legacy_record_without_bypass_field_loads_and_can_be_undone(mailbox, tmp
 
 
 @pytest.mark.parametrize("count", [200, 201])
-def test_allowlist_preserves_batch_cap_and_trash_only_mutations(mailbox, count):
+def test_allowlist_preserves_batch_cap_and_trash_only_mutations(mailbox, monkeypatch, count):
+    # The chunk of 200 flushes a journal line per row before its MOVE, and Windows keeps fsync
+    # real: a loaded runner spent the execute budget on the disk and moved nothing. Hold the
+    # clock still; which rows move is not a question of time here.
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
     service, fake = mailbox(count=count)
     preview = service.preview_action("move_to_trash", query={})
     assert preview["count"] == count

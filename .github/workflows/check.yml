@@ -1,8 +1,10 @@
 name: Checks
 
-# What runs when, and why, is in docs/ci.md. One Linux and one Windows job. Another Python or the
-# slow tests: run this workflow by hand. Every Python and test: the Full run workflow, which
-# calls this one. macOS only ever runs in the public release repo, where minutes are free.
+# What runs when, and why, is in docs/ci.md. In the public release repo, where minutes are free, a
+# pull request and a push to main run three jobs: Linux on Python 3.12 and 3.14, and macOS on 3.12
+# with the wheel smoke, none of them the slow tests. Windows, Python 3.13 and the slow tests run in
+# the Full run, which calls this workflow every night and on a tag. The private dev repo runs this
+# by hand only: make check is its gate. macOS only ever runs in the public release repo.
 
 on:
   push:
@@ -33,7 +35,8 @@ on:
 
 concurrency:
   # github.workflow is the caller's name in a called workflow, so this never matches the caller.
-  group: checks-${{ github.workflow }}-${{ inputs.python-version || '3.12' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  # Only a newer push to the same pull request cancels a run: every other run has its own group.
+  group: checks-${{ github.workflow }}-${{ inputs.python-version || '3.12' }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -44,13 +47,25 @@ env:
 
 jobs:
   test:
-    name: ${{ matrix.os }}, Python ${{ inputs.python-version || '3.12' }}
+    # The private dev repo runs nothing on its own: make check is its gate, and the release repo
+    # runs everything for free, on its sync pull request and every night. Run this by hand when a
+    # change needs it.
+    if: (github.event_name != 'push' && github.event_name != 'pull_request') || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
+    name: ${{ matrix.os }}, Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ inputs.full && 40 || 25 }}
     strategy:
-      fail-fast: ${{ github.event_name == 'pull_request' }}
+      # Every runner reports every failure, so that one fix-forward pull request can fix them all.
+      fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.full && github.repository == 'legalaspro/proton-mail-mcp' && github.event.repository.visibility == 'public' && '["ubuntu-latest", "windows-latest", "macos-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
+        # Release repo: Linux, Windows and macOS with full, as in a Full run; Linux and macOS on a
+        # pull request or a push to main. Linux and Windows by hand without full, and in the dev
+        # repo's Full run by hand. Linux alone is for a dev pull request, if the if: above ever
+        # lets one run again.
+        os: ${{ fromJSON(inputs.full && github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true') && '["ubuntu-latest", "windows-latest", "macos-latest"]' || (github.event_name == 'workflow_dispatch' || inputs.full) && '["ubuntu-latest", "windows-latest"]' || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true')) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        python: ["${{ inputs.python-version || '3.12' }}"]
+        # A pull request and a push to main add Linux on the newest Python.
+        include: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'push') && !inputs.full && '[{"os":"ubuntu-latest","python":"3.14"}]' || '[]') }}
     steps:
       # The tests compare files byte for byte, so keep the repository's line ends.
       - if: runner.os == 'Windows'
@@ -60,26 +75,38 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: ${{ inputs.python-version || '3.12' }}
+          python-version: ${{ matrix.python }}
+      # Before the tests, so a sync pull request whose plugin lock names anything but PyPI fails
+      # by name: the Claude directory refuses such a lock (docs/ci.md, The plugin's lock).
+      - name: The plugin's lock names only PyPI
+        run: python scripts/check_plugin_lock.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.6"
           enable-cache: true
           cache-dependency-glob: pyproject.toml
       - run: uv pip install --system -e ".[dev]"
-      # A push to main adds the slow tests on Linux only.
+      # make lint covers the package, the tests and the scripts it names; this is the whole tree,
+      # with the fenced Python in the docs.
+      - if: runner.os == 'Linux'
+        run: ruff check . && ruff format --check .
+      # The slow tests run only in a Full run, or by hand with full.
       - if: runner.os != 'Windows'
         run: make check PYTHON=python RUFF=ruff
         env:
           PYTEST_ARGS: >-
-            ${{ github.event_name == 'pull_request' && '--maxfail=5' || '' }}
-            ${{ !inputs.full && github.event_name != 'push' && '-m "not slow"' || '' }}
+            ${{ github.event_name == 'pull_request' && !inputs.full && '--maxfail=5' || '' }}
+            ${{ !inputs.full && '-m "not slow"' || '' }}
       - if: runner.os == 'Windows'
         shell: pwsh
         run: >-
           python -m pytest -q -p no:cacheprovider -n auto --dist worksteal --durations=15
-          ${{ github.event_name == 'pull_request' && '--maxfail=5' || '' }}
+          ${{ github.event_name == 'pull_request' && !inputs.full && '--maxfail=5' || '' }}
           ${{ !inputs.full && '-m "not slow"' || '' }}
+      # The one macOS job of a pull request also builds the wheel and runs the quick start from
+      # it, with stand-ins (scripts/wheel_smoke.py). A Full run leaves that to the installer.
+      - if: runner.os == 'macOS' && !inputs.full
+        run: python scripts/wheel_smoke.py --python ${{ matrix.python }}
 
       # The installer's dry runs. They come after the tests, which run without secret-tool and
       # a user manager. Nothing here installs Bridge, stores credentials or starts services.

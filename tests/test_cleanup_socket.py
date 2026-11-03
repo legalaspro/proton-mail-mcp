@@ -206,6 +206,19 @@ def test_socket_missing_capability_refuses_before_mutation(socket_mailbox, actio
     assert peer.folders == before and not mutations(peer.commands)
 
 
+@pytest.fixture
+def still_clock(monkeypatch):
+    """Hold the clock still, so only the stalled mutation reaches the deadline.
+
+    These 1 s budgets leave about 0.25 s before the first mutation, and Windows keeps fsync
+    real: a loaded runner spent it on the journal, and the headroom gate refused the whole
+    chunk before any command could stall. The watchdog and the socket timeout still run on
+    the real clock, and the interruption ends the deadline at once.
+    """
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
+
+
+@pytest.mark.usefixtures("still_clock")
 def test_socket_deadline_records_completed_move_and_partial_batch(socket_mailbox, monkeypatch):
     # Admit this tiny two-folder batch (one MOVE per source folder), then exceed
     # its planning allowance on the second MOVE to exercise the real socket
@@ -230,6 +243,7 @@ def test_socket_deadline_records_completed_move_and_partial_batch(socket_mailbox
     assert preview["token"] not in log_path.read_text()
 
 
+@pytest.mark.usefixtures("still_clock")
 def test_socket_interrupted_label_removal_undo_clears_only_label_flag(socket_mailbox, monkeypatch):
     monkeypatch.setattr(guarded, "EXECUTE_MUTATION_SECONDS_PER_MESSAGE", 0.25)
     monkeypatch.setattr(guarded, "EXECUTE_LOG_RESERVE_SECONDS", 0.1)

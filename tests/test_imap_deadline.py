@@ -203,6 +203,23 @@ def mailbox_peer(
         assert not worker.is_alive()
 
 
+def timed_searches(monkeypatch, backend):
+    """Each search's criteria and when the client sent it.
+
+    A lookup's cap starts when the lookup does, after connection setup, so a bound on what the
+    cap ends counts from the lookup's own command: a loaded host's setup is not part of it.
+    """
+    sent = []
+    search = backend._search
+
+    def timed(connection, criteria, *args, **kwargs):
+        sent.append((criteria, time.monotonic()))
+        return search(connection, criteria, *args, **kwargs)
+
+    monkeypatch.setattr(backend, "_search", timed)
+    return sent
+
+
 @pytest.mark.parametrize("mode", ["stall", "multiline", "literal", "line"])
 def test_deadline_interrupts_stalls_and_trickles_inside_a_command(monkeypatch, mode):
     stage = "SEARCH" if mode == "line" else "FETCH"
@@ -287,12 +304,14 @@ def test_thread_seed_miss_short_cap_interrupts_lookup_with_real_watchdog(monkeyp
         seed=True,
         call_timeout=2,
     ) as (backend, commands, local):
-        started = time.monotonic()
+        searches = timed_searches(monkeypatch, backend)
         result = backend.read_thread("<seed@example.test>", include_thread=False)
+        returned = time.monotonic()
 
         # The dedicated seed budget ends stalls and trickling responses before
         # the full thread deadline, without claiming a content-read timeout.
-        assert time.monotonic() - started < 0.7
+        [lookup] = [sent for criteria, sent in searches if "Message-ID" in criteria]
+        assert returned - lookup < 0.7
         assert result["partial"] is True and result["messages"] == []
         assert "lookup incomplete" in result["partial_reason"]
         assert "timed_out" not in result and "error" not in result
@@ -310,10 +329,13 @@ def test_thread_canonical_cap_interrupts_search_with_real_watchdog(monkeypatch):
     with mailbox_peer(
         monkeypatch, stage="SEARCH ON", default_factory=True, seed=True, call_timeout=2
     ) as (backend, commands, local):
-        started = time.monotonic()
+        searches = timed_searches(monkeypatch, backend)
         result = backend.read_thread("<seed@example.test>")
-        # The socket watchdog must unwind before the cap plus outer close grace.
-        assert time.monotonic() - started < 0.7
+        returned = time.monotonic()
+        # The socket watchdog must unwind before the cap plus outer close grace. The cap starts
+        # after the seed's body is read, so count from the day scan's own command.
+        [scan] = [sent for criteria, sent in searches if "ON" in criteria]
+        assert returned - scan < 0.7
         assert result["partial"] is False and "partial_reason" not in result
         assert "timed_out" not in result and "error" not in result
         [item] = result["messages"]

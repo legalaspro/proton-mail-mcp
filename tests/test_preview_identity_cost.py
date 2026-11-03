@@ -189,6 +189,32 @@ def evidence(sim, clock):
     }
 
 
+def hold_until_watchdog(monkeypatch, clock):
+    """A stalled command's hook outcome: on `clock`, it lasts until its watchdog is due.
+
+    The real watchdog still cuts the stall. Only the stall moves the call's clock, so what
+    the runner spends after the interrupt is not on it: Windows flushes the audit record to
+    disk for real, and a loaded runner spent the whole response reserve on that flush.
+    """
+    due, held = [], []
+    timer = mail.threading.Timer
+
+    def tracked(interval, function, *args, **kwargs):
+        due.append(clock.monotonic() + interval)
+        return timer(interval, function, *args, **kwargs)
+
+    monkeypatch.setattr(mail.threading, "Timer", tracked)
+
+    def stall():
+        if due:
+            clock.elapsed = max(clock.elapsed, due[-1])
+            held.append(clock.elapsed)
+        return "stall"
+
+    stall.held = held
+    return stall
+
+
 def assert_no_identity_search(sim):
     assert not any(
         re.search(r"\bSEARCH\b.*\bHEADER\s+Message-ID\b", command, re.I)
@@ -340,19 +366,29 @@ def test_unsubscribe_preview_and_confirm_never_search_identity_headers(
     assert not mutations(sim)
 
 
-def test_blocking_preview_search_returns_clean_refusal_before_call_budget(tmp_path):
+def test_blocking_preview_search_returns_clean_refusal_before_call_budget(tmp_path, monkeypatch):
+    clock = CommandClock()
+    monkeypatch.setattr(mail, "time", clock)
+    stall = hold_until_watchdog(monkeypatch, clock)
     sim = BridgeSim(folders=(TARGET,))
     try:
         sim.add(Msg(hdr("<blocked-command@example.invalid>", from_=SENDER)))
         client = make_client(sim, tmp_path, call_timeout=0.8, timeout=5)
-        sim.hooks.append(lambda sid, folder, op, command: "stall" if op == "SEARCH" else None)
-        started = time.monotonic()
+        sim.hooks.append(lambda sid, folder, op, command: stall() if op == "SEARCH" else None)
+        started, wall = clock.monotonic(), time.monotonic()
         result = preview(client)
-        elapsed = time.monotonic() - started
-        print("BLOCKING_PREVIEW", json.dumps({"wall_seconds": elapsed, "budget": 0.8}))
+        elapsed = clock.monotonic() - started
+        wall = time.monotonic() - wall
+        print(
+            "BLOCKING_PREVIEW",
+            json.dumps({"call_seconds": elapsed, "wall_seconds": wall, "budget": 0.8}),
+        )
         assert result["token"] is None and result["partial"] is True
         assert "deadline" in result["reason"].lower()
-        assert elapsed < client.settings.call_timeout
+        assert len(stall.held) == 1 and elapsed < client.settings.call_timeout
+        # The watchdog cut the stall, which the peer would otherwise hold for 5 s.
+        assert wall < client.settings.timeout
+        assert not sim.errors
         assert not mutations(sim)
         assert not any(command.startswith("LOGOUT") for _, _, _, command in sim.commands)
         assert sim.peers[0][0].fileno() == -1

@@ -114,6 +114,10 @@ def test_preview_is_read_only_and_first_matching_rule_wins(mailbox, field, conta
 def test_apply_uses_chunked_moves_logs_outer_token_and_is_undoable(mailbox, monkeypatch):
     # One batched chunk would hold all 51 rows; keep several chunks.
     monkeypatch.setattr(guarded, "EXECUTE_BATCH_SIZE", 21)
+    # Each chunk logs the token of the call that ran it. Windows keeps fsync real, and a slow
+    # disk pushed later chunks into continuation calls with tokens of their own: hold the clock
+    # still, so every chunk runs in the call the preview's token authorizes.
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
     case = mailbox(count=51)
     preview = case.rules.preview_rules()
     grant = case.cleanup.tokens.inspect(preview["token"], "apply_rules")
@@ -414,6 +418,9 @@ def test_skipped_reviewed_candidate_is_rechecked_before_later_mutations(
 ):
     # One batched chunk would hold all 51 eligible rows; keep a next chunk.
     monkeypatch.setattr(guarded, "EXECUTE_BATCH_SIZE", 21)
+    # Windows keeps fsync real: the first chunk's journal could spend the execute budget on the
+    # disk before the next chunk's preparation sees the changed candidate. Hold the clock still.
+    monkeypatch.setattr("proton_mail_mcp.mail.time.monotonic", lambda: 1000.0)
     case = mailbox(
         rules=(
             [rule("subject", "First"), rule("subject", "Second", "Folders/Other")]
