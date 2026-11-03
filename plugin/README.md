@@ -35,7 +35,7 @@ From a clone, `/plugin marketplace add ./` adds the same marketplace from your o
 ## Network and credentials
 
 - **Network:** every connection the plugin and the service make is listed under
-  [Network connections](https://github.com/legalaspro/proton-mail-mcp#network-connections).
+  [Network connections](https://github.com/legalaspro/proton-mail-mcp/blob/main/PRIVACY.md#network-connections).
 - **Credentials:** none in the plugin. The relay reads the service's bearer token from the system
   credential store each time it starts and never prints it; on macOS, Keychain may ask once.
 
@@ -45,8 +45,8 @@ proton-mail-mcp runs on your computer and nothing is hosted; there is no telemet
 until you turn it on, and then each send needs a preview and your approval. On a client without
 forms the approval is an OK you type in chat, which the server cannot tell apart from one the model
 writes. What the agent reads goes to your agent client and its model provider. The
-[privacy policy](https://github.com/legalaspro/proton-mail-mcp#privacy-policy) has the details,
-including the setting that sends to your own addresses with no approval.
+[privacy policy](https://github.com/legalaspro/proton-mail-mcp/blob/main/PRIVACY.md) has the
+details, including the setting that sends to your own addresses with no approval.
 
 ## License
 

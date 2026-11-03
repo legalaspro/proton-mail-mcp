@@ -184,36 +184,14 @@ On PyPI these relative links do not resolve; read them in the
 
 ## Privacy Policy
 
-proton-mail-mcp runs only on your computer and reaches your mail only through Proton Mail Bridge, on
-`127.0.0.1` unless `PROTON_BRIDGE_HOST` names another host with a verified certificate; Bridge syncs
-with Proton as it does for any mail app. Nothing is hosted, there is no telemetry, and its index,
-logs and saved attachments stay on your computer. Sending is off until you turn it on, and then each
-send needs a saved draft, a preview and a single-use token redeemed only after you approve. On a
-client without forms the approval is an OK you type in chat, which the server cannot tell apart from
-one the model writes. With `PROTON_MCP_SEND_SELF_NO_FORM=1`, which you have to set, a plain note to
-only your own addresses needs the token and no approval ([Sending](#sending)).
-[Network connections](#network-connections) lists every connection it makes. What your assistant
-reads goes to your MCP client, and from there to its model provider under that provider's terms.
+proton-mail-mcp runs only on your computer, has no telemetry and sends nothing to its author.
+[PRIVACY.md](PRIVACY.md) is the policy: what it reads, what it keeps where and how to delete it,
+when a send needs no approval, and what reaches your MCP client's model provider.
 
 ## Network connections
 
-- **While the server runs:** `proton-mail-mcp connect`, which your MCP client starts, to the
-  service at `http://127.0.0.1:PORT/mcp`, and the service to Proton Mail Bridge on `127.0.0.1`,
-  over IMAP and, once sending is on, SMTP. If `PROTON_BRIDGE_HOST` names a remote Bridge, IMAP goes
-  there over TLS with a verified certificate; sending always stays on this computer. An HTTPS
-  unsubscribe link is opened only after a preview that names its host, and after you approve it
-  unless you turned the form off.
-- **Each time a client starts the Claude Desktop bundle or the Claude Code plugin:** both run
-  `uvx`, which checks PyPI for the pinned release and its dependencies, reusing PyPI's answer for
-  up to 600 seconds, and downloads only what it has not cached. A client set up by `setup` runs its
-  own copy and does not.
-- **Install and setup only:** PyPI, for the package and its dependencies; uv may download Python
-  3.12 or newer. `proton-mail-mcp setup`, which the plugin never runs, installs Bridge: on Debian,
-  Ubuntu and Fedora it downloads Bridge and Proton's signing key, and on Debian and Ubuntu Proton's
-  debsig policy, from `proton.me/download/bridge`, then installs it with apt or dnf; on Arch, macOS
-  and Windows it uses pacman, Homebrew or winget. Each package manager also reaches its own sources.
-
-No telemetry, no analytics, and the views load no external URLs.
+[PRIVACY.md](PRIVACY.md#network-connections) lists every connection proton-mail-mcp makes, while
+it runs, each time a client starts the plugin or the bundle, and during install and setup.
 
 ## License
 

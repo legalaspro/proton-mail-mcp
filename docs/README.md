@@ -34,6 +34,8 @@ Pages are grouped by what you need right now, following [Diátaxis](https://diat
 ## Understand how it works
 
 - [How approvals work](safety.md): previews, tokens and forms, and what each change needs.
+- [Privacy policy](../PRIVACY.md): what it reads, what it keeps where and how to delete it, and
+  every network connection it makes.
 - [Searching and reading mail](search.md): search, counts, threads and message handles.
 - [Drafts and attachments](drafts.md): drafts, replies, forwards and the allowed folder.
 - [Sending mail](sending.md): the guarded send path, aliases and the typed OK.

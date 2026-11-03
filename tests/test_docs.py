@@ -20,6 +20,7 @@ PAGES = [
     ROOT / "AGENTS.md",
     ROOT / "CONTRIBUTING.md",
     ROOT / "SECURITY.md",
+    ROOT / "PRIVACY.md",
     ROOT / "CHANGELOG.md",
     ROOT / "llms-install.md",
     *sorted(DOCS.glob("*.md")),
