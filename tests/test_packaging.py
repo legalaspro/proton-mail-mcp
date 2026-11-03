@@ -85,6 +85,16 @@ def test_the_registry_entry_the_bundle_and_the_plugin_name_the_packages_homepage
     assert PLUGIN["documentationUrl"].startswith(urls["Documentation"].replace("/tree/", "/blob/"))
 
 
+def test_the_bundle_and_the_plugin_link_the_privacy_policy_in_this_repository():
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        urls = tomllib.load(stream)["project"]["urls"]
+    # The Claude directory's listing links this page; it must be the file, not a README section.
+    policy = urls["Repository"] + "/blob/main/PRIVACY.md"
+    assert PLUGIN["privacyPolicyUrl"] == policy
+    assert MANIFEST["privacy_policies"] == [policy]
+    assert (ROOT / "PRIVACY.md").is_file()
+
+
 def test_the_readme_names_the_registry_entry_for_pypi_to_prove_ownership():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     named = re.findall(r"mcp-name: ([a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+)(?=\s|-->|<|$)", readme)

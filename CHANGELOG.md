@@ -12,6 +12,12 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   refuses a lock with any other source in `make check`, in each Checks job and in the release
   sync, so a lock the Claude directory reports as "Launcher lock invalid" no longer reaches the
   release repo.
+- **The privacy policy is its own page, `PRIVACY.md`.** It says what the server reads, what it
+  keeps where on Linux, macOS and Windows and how to delete it, and every network connection,
+  including that sending uses Bridge's SMTP on this computer only, even with a remote Bridge, and
+  that setup runs a client's own `mcp list`, which checks every server that client has. The
+  plugin's `privacyPolicyUrl` and the bundle's `privacy_policies` link it; the README's Privacy
+  Policy and Network connections sections now point there.
 
 ### Fixed
 

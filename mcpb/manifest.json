@@ -52,5 +52,5 @@
   },
   "keywords": ["mcp", "proton-mail", "proton-bridge", "email", "imap"],
   "license": "Apache-2.0",
-  "privacy_policies": ["https://github.com/legalaspro/proton-mail-mcp#privacy-policy"]
+  "privacy_policies": ["https://github.com/legalaspro/proton-mail-mcp/blob/main/PRIVACY.md"]
 }
