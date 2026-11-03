@@ -2,18 +2,13 @@ name: Full run
 
 # Every Python and test, plus the installer workflow. The private dev repo pays for every minute,
 # so there it runs only by hand, on Linux and Windows. The public release repo runs it on its
-# own too, because minutes are free there: on a pull request to main, Linux and macOS on the
-# oldest and newest Python; every night and on a tag, macOS and every Python. See docs/ci.md.
+# own too, because minutes are free there: every night and on a tag, on Linux, Windows and macOS
+# and every Python. A pull request runs none of it: Checks runs the pull request's three jobs, and
+# the installer workflow runs when its paths change. See docs/ci.md.
 
 on:
   push:
     tags: ["v*"]
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - LICENSE
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
@@ -21,8 +16,8 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request cancels its older run; tags, the nightly run and runs by hand
-# never cancel.
+# Only a newer push to the same pull request would cancel a run, and no pull request starts this
+# one: tags, the nightly run and runs by hand never cancel.
 concurrency:
   group: full-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -34,17 +29,14 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
     strategy:
       fail-fast: false
-      # A pull request, and a run by hand in a private repo: the oldest and newest supported Python.
+      # A run by hand in a private repo: the oldest and newest supported Python.
       matrix:
-        python: ${{ fromJSON(github.event_name != 'pull_request' && github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true') && '["3.12", "3.13", "3.14"]' || '["3.12", "3.14"]') }}
+        python: ${{ fromJSON(github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true') && '["3.12", "3.13", "3.14"]' || '["3.12", "3.14"]') }}
     uses: ./.github/workflows/check.yml
     with:
       python-version: ${{ matrix.python }}
       full: true
-      # On a pull request Checks already runs Linux and Windows 3.12; this adds Linux and macOS.
-      os: ${{ github.event_name == 'pull_request' && github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true') && '["ubuntu-latest", "macos-latest"]' || '' }}
 
   installer:
-    # A pull request starts the installer workflow itself.
-    if: github.event_name == 'workflow_dispatch' || github.event_name != 'pull_request' && (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
+    if: github.event_name == 'workflow_dispatch' || (github.repository == 'legalaspro/proton-mail-mcp' && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true'))
     uses: ./.github/workflows/installer.yml

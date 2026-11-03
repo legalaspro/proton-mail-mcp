@@ -9,11 +9,12 @@ name: Installer
 # The wheel job alone applies the installer, against stand-ins in a scratch HOME.
 # Hosted-runner billing may block these jobs; docs/install.md describes UTM VMs as
 # the manual fallback. docs/ci.md says what runs when: in the public release repo on a pull
-# request to main and on a push to main that changes the paths below; in the private dev repo
-# only by hand, so run it there on a branch that changes them, or `make wheel-smoke` locally.
+# request to main that changes the paths below, and in every Full run, every night and on a tag;
+# in the private dev repo only by hand, so run it there on a branch that changes them, or
+# `make wheel-smoke` locally. A pull request's macOS job in Checks runs the wheel smoke too.
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
       - "scripts/install*"
@@ -29,20 +30,14 @@ on:
       - tests/test_service_entry.py
       - pyproject.toml
       - .github/workflows/installer.yml
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - LICENSE
   workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
 
-# A new push to a pull request cancels its older run. In a called run github.workflow is the
-# caller's name.
+# Only a newer push to the same pull request cancels a run; the nightly, tags and runs by hand
+# never cancel. In a called run github.workflow is the caller's name.
 concurrency:
   group: installer-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -98,7 +93,9 @@ jobs:
         with:
           persist-credentials: false
       - run: ${{ matrix.python }} -m venv /opt/venv && /opt/venv/bin/python -m pip install -e '.[dev]'
-      - run: /opt/venv/bin/python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      - run: |
+          # shellcheck disable=SC2086 # One argument per test file.
+          /opt/venv/bin/python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
       - name: Dry run as an unprivileged user (the installer refuses root)
         shell: bash
         run: |
@@ -126,7 +123,9 @@ jobs:
         with:
           persist-credentials: false
       - run: python -m venv /opt/venv && /opt/venv/bin/python -m pip install -e '.[dev]'
-      - run: /opt/venv/bin/python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      - run: |
+          # shellcheck disable=SC2086 # One argument per test file.
+          /opt/venv/bin/python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
       - name: Dry run as an unprivileged user (the installer refuses root)
         shell: bash
         run: |
@@ -160,7 +159,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
       - run: uv pip install --system -e ".[dev]"
-      - run: python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
+      - run: |
+          # shellcheck disable=SC2086 # One argument per test file.
+          python -m pytest -q -p no:cacheprovider $INSTALLER_TESTS
       # /bin/bash is bash 3.2 on macOS; the script must stay compatible with it.
       - run: /bin/bash -n scripts/install.sh
       - run: PMM_PYTHON="$(command -v python)" /bin/bash scripts/install.sh detect --json

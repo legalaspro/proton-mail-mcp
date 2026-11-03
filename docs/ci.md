@@ -3,23 +3,25 @@
 What GitHub Actions runs, where and at what cost, and how a release reaches PyPI. The same
 workflow files run in a private dev repo, where every minute is billed, and in the public release
 repo, where hosted runners are free. The dev repo runs nothing on its own, and `make check` is its
-gate. The release repo runs everything: on each sync pull request, every night and on each tag.
-Only the release repo publishes.
+gate. The release repo runs everything: three quick jobs on each sync pull request, and the full
+matrix every night and on each tag. Only the release repo publishes.
 
 ## Two repos, one set of workflows
 
 | | Private dev repo | Public `legalaspro/proton-mail-mcp` |
 | --- | --- | --- |
 | Minutes | billed | free on hosted runners |
-| Gate before a merge | [`make check`, run locally](#the-local-gate) | the [sync pull request's](#how-a-change-reaches-the-release-repo) 12 jobs |
-| Pull request | nothing | Checks: Linux and Windows, Python 3.12, `not slow`. Full run: Linux and macOS, Python 3.12 and 3.14, all tests. Installer: all six jobs |
-| Docs-only pull request | nothing | nothing |
-| Push to `main` | nothing | Checks: Linux with the slow tests, Windows `not slow`; Installer if its paths changed |
+| Gate before a merge | [`make check`, run locally](#the-local-gate) | the [sync pull request's](#how-a-change-reaches-the-release-repo) 3 Checks jobs |
+| Pull request | nothing | Checks: Linux on Python 3.12 and 3.14, and macOS on 3.12 with the wheel smoke, `not slow`. Installer, all six jobs, only if its paths changed |
+| Docs-only pull request | nothing | none of these workflows |
+| Push to `main` | nothing | the same three Checks jobs |
 | Every night, 03:17 UTC | nothing | Full run: Linux, Windows and macOS, Python 3.12, 3.13 and 3.14, all tests, with Installer |
 | `v*` tag | nothing | the same Full run, and [Publish](#publishing-to-pypi) |
 | Published GitHub release | nothing | [Publish](#publishing-to-pypi) |
 | By hand | Checks, Installer or a Full run, on Linux and Windows | the same, plus macOS (in Checks only with `full`), and Python 3.13 in a Full run |
-| macOS | **never** | in every Full run and every Installer run |
+| Windows | by hand only | every night, on each tag and by hand; no pull request |
+| macOS | **never** | the one macOS job of each pull request and push to `main`, every Full run and every Installer run |
+| CodeQL | **never** | GitHub's default setup, not a file here: each pull request, each push to `main` and weekly |
 | Dependabot | **never** | weekly pull requests for the Python dependencies and the actions |
 
 **No macOS job can run in the private dev repo**, and nothing runs there that nobody started by
@@ -49,8 +51,8 @@ starts at all.
 
 GitHub's documents don't say that a `schedule` event carries `github.event.repository`, and other
 projects have found it missing there. Without it the visibility check is false, so the nightly
-would skip every job and still show green. Python 3.13, Windows 3.14 and the Windows slow tests
-would then run in the release repo only on tags.
+would skip every job and still show green. Windows, Python 3.13 and the slow tests would then run
+in the release repo only on tags.
 
 So the release repo also has a repository variable, `FREE_MINUTES`, set to `true` under
 **Settings**, **Secrets and variables**, **Actions**, **Variables**. A maintainer sets it there by
@@ -86,7 +88,7 @@ repo: one merged only in the release repo is lost at the next sync.
 
 A run by hand bills (see [Costs](#costs)). Start one when a change needs what `make check` can't
 give you here, such as Windows, another Python or the installer containers. Everything else runs
-for free on the sync pull request.
+for free in the release repo: three jobs on the sync pull request, and the rest every night.
 
 ### The local gate
 
@@ -105,8 +107,11 @@ tests that a Checks job runs; [Running locally](#running-locally) has the varian
   ```
 
 It can't cover Windows, macOS, a Python you don't have, the installer containers or a clean runner.
-Those first run on the sync pull request, so a break there needs a fix-forward pull request here
-and a new sync.
+macOS and Python 3.14 first run on the sync pull request, and the installer containers there too
+when the installer's paths changed. Windows, Python 3.13 and the slow tests on any other OS first
+run in the release repo's nightly, after the merge. A break in either needs a fix-forward pull
+request here and a new sync, so run **Checks** or a **Full run** by hand first when a change is
+likely to break Windows.
 
 ## How a change reaches the release repo
 
@@ -118,32 +123,39 @@ directory refuses a plugin lock that names anything but PyPI (see
 a lock also fails a required check by name.
 
 A `pull_request` run uses the workflow files of the pull request's merge ref, so a sync that
-changes these files runs the new ones. A sync that is not docs-only runs 12 jobs:
+changes these files runs the new ones. A sync that is not docs-only runs three **Checks** jobs,
+the [required checks](#required-checks), all with `-m "not slow"`:
 
-- **Checks**: Linux and Windows, Python 3.12, `not slow`. These are the
-  [required checks](#required-checks). pytest stops after 5 failures, and the first failing job
-  cancels the other.
-- **Full run**: Linux and macOS, Python 3.12 and 3.14, all tests. It reports every runner and every
-  failure, so that one fix-forward pull request can fix them all.
-- **Installer**: the wheel smoke on Linux and macOS, and the Fedora, AlmaLinux, Arch and macOS dry
-  runs.
+- `ubuntu-latest, Python 3.12`: the plugin's lock, `ruff check .` and `ruff format --check .` on
+  the whole tree, `make check`, and the installer's quick dry runs.
+- `ubuntu-latest, Python 3.14`: the same, on the newest Python.
+- `macos-latest, Python 3.12`: the plugin's lock and `make check`, then the wheel smoke: the wheel
+  built, and its quick start run from it against stand-ins.
 
-Merge when all 12 pass. A new push to the pull request cancels its older runs in all three
-workflows. Pushes to `main`, tags, the nightly and runs by hand never cancel.
+pytest stops after 5 failures in each job, and no job cancels another, so that one fix-forward pull
+request can fix every runner's failures. GitHub's CodeQL default setup also analyzes each pull
+request. A sync that changes the installer's paths, the list in `installer.yml` (the install
+scripts, the installer, the commands and stores it drives, their tests, `pyproject.toml` and
+`installer.yml` itself), also runs **Installer**: the wheel smoke on Linux and macOS, and the
+Fedora, AlmaLinux, Arch and macOS dry runs. No pull request starts a Full run.
 
-After the merge, the push to `main` runs Checks again, with the slow tests on Linux, and Installer
-if its paths changed. It no longer starts a Full run. The nightly runs that on `main`, with what no
-pull request runs: Python 3.13, Windows 3.14 and the Windows slow tests. A failure there shows only
-after the merge, so check the nightly after each sync. GitHub turns off a public repo's schedule
-after 60 days without activity.
+Merge when they pass. A new push to the pull request cancels its older runs in Checks and
+Installer. Pushes to `main`, tags, the nightly and runs by hand never cancel: outside a pull
+request, each run of Checks, the Full run and Installer has a concurrency group of its own, and
+Publish never cancels.
+
+After the merge, the push to `main` runs the same three Checks jobs again. The nightly runs the
+Full run on `main`, with what no pull request runs: Windows, Python 3.13, the slow tests on every
+OS, and Installer. A failure there shows only after the merge, so check the nightly after each
+sync. GitHub turns off a public repo's schedule after 60 days without activity.
 
 A `v*` tag runs the same Full run, and Publish, which does not wait for it: tag a commit whose
 nightly or Full run passed (see [Publishing to PyPI](#publishing-to-pypi)).
 
 Each Checks job also runs the installer's quick dry runs: `shellcheck` and `install.sh` under the
-service preflight on Linux, and `install.ps1` on Windows. They take seconds. The installer workflow
-holds what takes longer: the wheel smoke and the three Linux containers, plus macOS in the release
-repo. There it runs on each pull request to `main` that is not docs-only, on a push to `main` that
+service preflight on Linux, and `install.ps1` on Windows, which runs in a Full run or by hand. They
+take seconds. The installer workflow holds what takes longer: the wheel smoke and the three Linux
+containers, plus macOS in the release repo. There it runs on each pull request to `main` that
 changes its paths, and in every Full run. Here it runs only by hand: if you change the installer,
 run `make wheel-smoke`, or run **Installer** by hand on the branch.
 
@@ -152,15 +164,15 @@ run `make wheel-smoke`, or run **Installer** by hand on the branch.
 | Coverage | Here | Release repo pull request | Release repo, after the merge |
 | --- | --- | --- | --- |
 | Your OS and Python, every test | `make check` | | |
-| Linux 3.12, `not slow` | **Checks** by hand | Checks | |
-| Linux 3.12, every test | **Full run** by hand | Full run | push to `main`, nightly, tag |
-| Linux 3.14, every test | **Full run** by hand | Full run | nightly, tag |
-| Windows 3.12, `not slow` | **Checks** by hand | Checks | push to `main` |
-| Windows, every test; Windows 3.14 | **Full run** by hand | no | nightly, tag |
-| macOS 3.12 and 3.14, every test | never | Full run | nightly, tag |
+| Linux 3.12 and 3.14, `not slow`; the whole tree's lint | **Checks** by hand | Checks | push to `main` |
+| Linux 3.12 and 3.14, every test | **Full run** by hand | no | nightly, tag |
+| macOS 3.12, `not slow`, and the wheel smoke | never | Checks | push to `main` |
+| macOS 3.12 and 3.14, every test | never | no | nightly, tag |
+| Windows, any Python and test | **Checks** or **Full run** by hand | no | nightly, tag |
 | Python 3.13, every OS | **Checks** by hand, on Linux and Windows | no | nightly, tag |
-| Wheel smoke on Linux; Fedora, AlmaLinux and Arch dry runs | `make wheel-smoke`, or **Installer** by hand | Installer | push to `main` if its paths changed, nightly, tag |
-| Wheel smoke and dry runs on macOS, bash 3.2 | never | Installer | the same |
+| Wheel smoke on Linux; Fedora, AlmaLinux and Arch dry runs | `make wheel-smoke`, or **Installer** by hand | Installer, if its paths changed | nightly, tag |
+| Dry runs on macOS, bash 3.2 | never | Installer, if its paths changed | nightly, tag |
+| CodeQL | never | every pull request | push to `main`, weekly |
 
 ## The test selections
 
@@ -317,22 +329,19 @@ Python patch therefore reaches CI when the runner image picks it up.
 
 ## Required checks
 
-In the release repo, a ruleset on `main` requires a pull request and the two Checks jobs,
-`ubuntu-latest, Python 3.12` and `windows-latest, Python 3.12`. The Full run and Installer jobs
-report on every sync pull request but are not required. To require them, add these to the
-ruleset:
+In the release repo, a ruleset on `main` requires a pull request and the Checks jobs that every
+pull request runs: `ubuntu-latest, Python 3.12`, `ubuntu-latest, Python 3.14` and
+`macos-latest, Python 3.12`. Until 3 Nov 2026 it required `ubuntu-latest, Python 3.12` and
+`windows-latest, Python 3.12`. No pull request runs the Windows job now, and GitHub leaves a
+required check that never reports waiting forever, so the ruleset has to swap that check for the
+other two before the sync that brings this set merges, or that sync merges with the ruleset's
+bypass.
 
-- Full run: `checks (3.12) / ubuntu-latest, Python 3.12`,
-  `checks (3.12) / macos-latest, Python 3.12`, `checks (3.14) / ubuntu-latest, Python 3.14` and
-  `checks (3.14) / macos-latest, Python 3.14`;
-- Installer: `Wheel smoke (ubuntu-latest)`, `Wheel smoke (macos-latest)`, `fedora:latest (dry run)`,
-  `almalinux:9 (dry run)`, `Arch Linux (dry run)` and `macOS (dry run)`.
-
-Check first that the wheel smoke passes on `main`, or every sync pull request waits on it. A
-docs-only pull request starts none of the three workflows, and GitHub leaves a required check
-waiting forever on a pull request whose path filter skipped it. So merge a docs-only sync with the
-ruleset's bypass, or add a small always-on workflow that reports the same job names on docs-only
-changes. This repo's `main` requires no checks, since none run.
+Don't require the Installer jobs: they run only when their paths change, and GitHub leaves a
+required check waiting forever on a pull request whose path filter skipped it. Nor the Full run's:
+no pull request runs it. A docs-only pull request starts none of these workflows, so merge a
+docs-only sync with the ruleset's bypass, or add a small always-on workflow that reports the same
+job names on docs-only changes. This repo's `main` requires no checks, since none run.
 
 Some test files read the docs (such as `test_send_typed_ok.py` and
 `test_send_typed_ok_clients.py`, for the wording of the typed-OK warning). A docs-only pull request
@@ -364,9 +373,15 @@ what it would bill if it were private, which is why each of these jobs sits behi
 
 | Run in the release repo | Jobs | Job minutes | If private | |
 | --- | --- | --- | --- | --- |
-| Pull request | 12 | about 52, wait 13-17 min | about 209 | estimated from each job's median, 2 Nov 2026 |
-| Push to `main` | Checks 2, and Installer 6 if its paths changed | 20-21, and 8 | 33-45, and 26 | **measured**, 2 Nov 2026 |
+| Pull request | 3, and Installer's 6 if its paths changed | about 11, wait about 4-5 min; and 8 | about 45, and 26 | estimated from the sync pull request of 3 Nov 2026 |
+| Push to `main` | the same 3 | about 11 | about 45 | estimated, the same jobs |
 | Nightly, or a tag's Full run | 15 | 86-98, wait 13-14 min | 289-348 | **measured** on the Full runs of 2 Nov 2026 |
+
+The pull request estimate takes each job from the 12 that the sync pull request of 3 Nov 2026 ran
+(**measured**): `make check` without the slow tests took 222 s on Linux 3.12, against 492 s with
+them, and the wheel smoke took 5 s on macOS. That pull request ran 12 jobs, about 46 job minutes,
+and waited 15 minutes, all of it for the Windows job. macOS bills at 10x, so its one job is most of
+the 45 a private repo would bill.
 
 The nightly comes to about 2,600-2,900 job minutes a month (estimated). The longest job sets the
 wait. Each `make check` lists its 15 slowest tests. If a job grows, look there first, and fix or

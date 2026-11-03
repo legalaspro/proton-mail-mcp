@@ -883,10 +883,12 @@ scripts/docker_smoke.sh
 ```
 
 [`.github/workflows/check.yml`](../.github/workflows/check.yml) runs these tests and
-real-host dry runs on GitHub-hosted `ubuntu-latest` and `windows-latest` on every pull request to
-the public release repo.
+real-host dry runs on GitHub-hosted `ubuntu-latest` on every pull request to the public release
+repo, and on `windows-latest` every night and on each tag there; each pull request also runs the
+wheel smoke on `macos-latest`.
 [`.github/workflows/installer.yml`](../.github/workflows/installer.yml) adds the wheel smoke and
-Fedora, AlmaLinux 9 and Arch containers. In the public release repo only, it also runs the wheel
+Fedora, AlmaLinux 9 and Arch containers, on a pull request that changes the installer's paths,
+every night and on each tag. In the public release repo only, it also runs the wheel
 smoke and dry runs on `macos-latest` (including the bash 3.2 in `/bin/bash`). Until that repo is
 public, no GitHub runner checks macOS, so test it by hand as described below.
 

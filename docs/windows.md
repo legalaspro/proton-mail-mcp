@@ -112,8 +112,8 @@ From a checkout, past the default script policy:
 **Real Windows, on GitHub's `windows-latest` runners (Windows Server 2025).** With the access-rule
 checks, the full test suite last ran there on Python 3.12: 8,409 tests passed and 438 were left out.
 Most of the 93 added to that count are the stand-in tests of those checks, which real runs replace.
-The 3.14 job of that run was cancelled. Pull requests now run only the tests not marked `slow` there,
-on 3.12: see
+The 3.14 job of that run was cancelled. Pull requests no longer run there; every night and each tag
+run every test there on 3.12, 3.13 and 3.14: see
 [ci.md](ci.md). Before these checks, the full suite ran on 3.12 and 3.14: 8,394 tests passed and 345
 were left out. `tests/windows_skips.py` gives
 the reason for 105 of those: POSIX modes, FIFOs, POSIX paths, and two tests that need `shutdown` to
