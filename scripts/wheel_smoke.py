@@ -481,7 +481,7 @@ class Smoke:
 
     def dry_runs(self, tool: list[object], label: str) -> None:
         version = self.run(*tool, "--version")
-        self.check(f"proton-mail-mcp {VERSION}" in version, f"{label}: --version says {VERSION}")
+        self.check(f"mcp-proton-mail {VERSION}" in version, f"{label}: --version says {VERSION}")
         report = json.loads(self.run(*tool, "detect", "--json"))
         self.check(
             report["env_file"].startswith(str(self.home)), f"{label}: detect uses the scratch HOME"

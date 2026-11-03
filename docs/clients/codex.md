@@ -19,10 +19,10 @@ It goes in `~/.codex/config.toml` (on Windows `%USERPROFILE%\.codex\config.toml`
 
 ## Set it up
 
-In your own terminal, in the clone:
+In your own terminal:
 
 ```sh
-uvx --from . proton-mail-mcp setup --client codex
+uvx mcp-proton-mail setup --client codex
 ```
 
 After setup, `proton-mail-mcp configure-client --client codex` adds it on its own, with your

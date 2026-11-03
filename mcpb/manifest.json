@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "proton-mail-mcp",
   "display_name": "Proton Mail (Bridge)",
-  "version": "1.30.0",
+  "version": "1.30.1",
   "description": "Search and read Proton Mail, write drafts and tidy the mailbox through Proton Mail Bridge, with a preview you approve before anything changes.",
-  "long_description": "This bundle is only the connector. It runs `uvx mcp-proton-mail@1.30.0 connect`, which passes the client's requests to the proton-mail-mcp service on 127.0.0.1 and reads the service's bearer token from the system credential store each time it starts, so the token is never in the client's settings. It needs [uv](https://docs.astral.sh/uv/), which downloads the package from PyPI, and Python 3.12 when there is none. Run `proton-mail-mcp setup` on this computer first: it installs Proton Mail Bridge, stores the credentials and starts the service. Everything runs on this computer; nothing is hosted. Unofficial: not affiliated with or endorsed by Proton AG.",
+  "long_description": "This bundle is only the connector. It runs `uvx mcp-proton-mail@1.30.1 connect`, which passes the client's requests to the proton-mail-mcp service on 127.0.0.1 and reads the service's bearer token from the system credential store each time it starts, so the token is never in the client's settings. It needs [uv](https://docs.astral.sh/uv/), which downloads the package from PyPI, and Python 3.12 when there is none. Run `proton-mail-mcp setup` on this computer first: it installs Proton Mail Bridge, stores the credentials and starts the service. Everything runs on this computer; nothing is hosted. Unofficial: not affiliated with or endorsed by Proton AG.",
   "author": {
     "name": "Dmitri Manajev",
     "email": "dmitri@manajev.com"
@@ -13,7 +13,7 @@
     "type": "git",
     "url": "https://github.com/legalaspro/proton-mail-mcp"
   },
-  "homepage": "https://github.com/legalaspro/proton-mail-mcp",
+  "homepage": "https://manajev.com/proton-mail-mcp/",
   "documentation": "https://github.com/legalaspro/proton-mail-mcp/blob/main/docs/clients/claude-desktop.md",
   "support": "https://github.com/legalaspro/proton-mail-mcp/issues",
   "server": {
@@ -21,7 +21,7 @@
     "entry_point": "server/main.py",
     "mcp_config": {
       "command": "uvx",
-      "args": ["mcp-proton-mail@1.30.0", "connect", "--env-file=${user_config.env_file}"],
+      "args": ["mcp-proton-mail@1.30.1", "connect", "--env-file=${user_config.env_file}"],
       "platform_overrides": {
         "darwin": {
           "command": "/bin/sh",
@@ -29,7 +29,7 @@
             "-c",
             "export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/share/mise/shims:$HOME/.asdf/shims:$HOME/.nix-profile/bin:/run/current-system/sw/bin:/nix/var/nix/profiles/default/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}\"; exec uvx \"$@\"",
             "proton-mail-mcp",
-            "mcp-proton-mail@1.30.0",
+            "mcp-proton-mail@1.30.1",
             "connect",
             "--env-file=${user_config.env_file}"
           ]

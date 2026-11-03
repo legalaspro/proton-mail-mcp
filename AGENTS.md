@@ -39,7 +39,7 @@ needs uv and network access and uploads nothing; `scripts/docker_smoke.sh` needs
 | `src/proton_mail_mcp/connect.py` | `proton-mail-mcp connect`, the stdio server MCP clients start; it relays to the service and reads the token itself |
 | `src/proton_mail_mcp/introspect.py`, `Dockerfile` | `proton-mail-mcp introspect`, the image registries such as Glama start: the tool list with no Bridge, and every call refused |
 | `src/proton_mail_mcp/ui/`, `mcp_apps.py`, `views.py` | MCP Apps views |
-| `mcpb/`, `plugin/`, `.claude-plugin/` | The Claude Desktop bundle `make mcpb` builds, and the Claude Code plugin and marketplace; both run `uvx mcp-proton-mail@<version> connect` |
+| `mcpb/`, `plugin/`, `.claude-plugin/` | The Claude Desktop bundle `make mcpb` builds, and the Claude Code plugin and marketplace; the bundle runs `uvx mcp-proton-mail@<version> connect`, the plugin `uvx mcp-proton-mail==<version> connect`, and `plugin/uv.lock` records what that resolves to |
 | `tests/` | The suite: fake IMAP connections and local sockets, no live services |
 | `docs/` | Documentation; [`docs/README.md`](docs/README.md) is the map |
 

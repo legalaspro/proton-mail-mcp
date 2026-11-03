@@ -174,6 +174,16 @@ token is stored anywhere.
 - **Not waited for:** the tag also starts a Full run, and publishing does not wait for it. Tag a
   commit whose Full run passed; the `pypi` environment's required reviewer holds the upload until
   it has.
+- **Before the tag:** check that the `Homepage` in `pyproject.toml` returns HTTP 200. PyPI cannot
+  change a published version's links, and the MCP Registry entry's `websiteUrl` is the same URL.
+- **The plugin's lock:** `plugin/uv.lock` records what the Claude Code plugin's
+  `uvx mcp-proton-mail==<version>` resolves to, for the Claude directory's review; uvx does not
+  read it. A new version reaches PyPI only with the upload, so lock it against the built files
+  first: `uv build` at the root, then `uv lock --find-links ../dist` in `plugin/`, which records
+  that one package as coming from `../dist`. After the upload, run
+  `uv lock --upgrade-package mcp-proton-mail` in `plugin/` and commit the lock, which then names
+  PyPI's files and hashes; a plain `uv lock` keeps `../dist`. Submit the plugin to the directory
+  only after that.
 
 ### Setting it up, once, by hand
 
@@ -188,8 +198,8 @@ On PyPI, under **Your account**, **Publishing**, add a pending GitHub publisher:
 | Environment name | `pypi` |
 
 The project name is not the repository's: PyPI refuses `proton-mail-mcp` as too close to an
-existing project's name. A pending publisher does not reserve the name: until the first upload,
-someone else could still take `mcp-proton-mail` on PyPI.
+existing project's name. The pending publisher became the project's trusted publisher when
+`publish.yml` uploaded 1.30.0, which created `mcp-proton-mail` on PyPI.
 
 In the public repo, under **Settings**, **Environments**, create `pypi`, limit its deployments to
 tags matching `v*`, and add a required reviewer. PyPI's trust names the repository, the workflow

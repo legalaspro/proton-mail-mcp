@@ -34,10 +34,10 @@ The command is an absolute path, so the short `PATH` a desktop app gets does not
 
 ## Set it up
 
-In your own terminal, in the clone:
+In your own terminal:
 
 ```sh
-uvx --from . proton-mail-mcp setup --client claude-desktop
+uvx mcp-proton-mail setup --client claude-desktop
 ```
 
 After setup, `proton-mail-mcp configure-client --client claude-desktop` adds it on its own, with

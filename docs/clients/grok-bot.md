@@ -34,7 +34,7 @@ setting itself up follows [llms-install.md](../../llms-install.md), which hands 
 a person can do, the Bridge login, to that person.
 
 ```sh
-uvx --from . proton-mail-mcp setup --client grok-bot
+uvx mcp-proton-mail setup --client grok-bot
 ```
 
 The plan ends with the entry above, with this computer's paths. With `--json` the same command and

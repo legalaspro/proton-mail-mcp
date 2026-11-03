@@ -5,7 +5,7 @@ its approval gates matters. Report one privately, never in a public issue.
 
 ## Supported versions
 
-Fixes go to `main` and the latest release. No release is published yet, so today that is `main`.
+Fixes go to `main` and the latest release on [PyPI](https://pypi.org/project/mcp-proton-mail/).
 
 ## Reporting a vulnerability
 

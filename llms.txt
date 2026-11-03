@@ -4,11 +4,11 @@
 
 An assistant connected to the server gets its instructions from the server itself, when it connects and in the tool list. These pages are for reading about the project, helping someone set it up, or explaining a result.
 
-Not on PyPI yet: until the first release is published, do not suggest `uvx mcp-proton-mail` or `pip install mcp-proton-mail`, because anyone could hold that name on PyPI. Install from a clone of the repository, as the README says: `uvx --from . proton-mail-mcp setup --client <client>`. An agent setting it up for someone follows llms-install.md: it uses `--json`, which lists what only the person can do, and hands the person the Bridge login.
+The package is `mcp-proton-mail` on PyPI: `uvx mcp-proton-mail setup --client <client>` installs it, as the README does. An agent setting it up for someone follows llms-install.md: it uses `--json`, which lists what only the person can do, and hands the person the Bridge login.
 
 ## Start here
 
-- [README](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/README.md): What the server does, its safety model and the three-step install
+- [README](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/README.md): What the server does, its safety model and the install with `uvx mcp-proton-mail setup`
 - [Getting started](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/getting-started.md): A first session, from install to approving and undoing a change
 - [Documentation map](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/README.md): Every page, by what you need
 
@@ -52,4 +52,5 @@ Not on PyPI yet: until the first release is published, do not suggest `uvx mcp-p
 - [Security policy](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/SECURITY.md): How to report a vulnerability privately
 - [Development](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/development.md): Tests and offline checks
 - [CI](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/ci.md): What GitHub Actions runs and when
+- [Glama](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/glama.md): The build settings Glama's listing uses to start the server without Bridge
 - [Changelog](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/CHANGELOG.md): What changed

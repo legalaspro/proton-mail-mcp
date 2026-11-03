@@ -45,7 +45,7 @@ INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized"}
 INIT_RESULT = {
     "protocolVersion": "2025-11-25",
     "capabilities": {"tools": {}},
-    "serverInfo": {"name": "proton-mail-mcp", "version": "1.30.0"},
+    "serverInfo": {"name": "proton-mail-mcp", "version": "1.30.1"},
 }
 TOOL = {
     "name": "read_thread",

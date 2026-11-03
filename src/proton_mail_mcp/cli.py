@@ -74,10 +74,11 @@ def main(argv: list[str] | None = None) -> int:
         print(_HELP, end="")
         return 0
     if command == "--version":
+        # Named as on PyPI, so the version reads as the package to install.
         try:
-            print(f"{_PROG} {metadata.version(_DIST)}")
+            print(f"{_DIST} {metadata.version(_DIST)}")
         except metadata.PackageNotFoundError:
-            print(f"{_PROG} (not installed; version unknown)")
+            print(f"{_DIST} (not installed; version unknown)")
         return 0
     print(_HELP, end="", file=sys.stderr)
     print(f"{_PROG}: unknown arguments: {' '.join(argv)}", file=sys.stderr)

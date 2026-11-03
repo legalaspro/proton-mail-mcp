@@ -1,0 +1,8 @@
+# Not a package: never built or published. It names what the plugin's `uvx` command runs, so that
+# uv.lock beside it records the dependencies that resolves to, for the Claude directory's review.
+# uvx reads neither file. docs/ci.md says when to run `uv lock` here.
+[project]
+name = "mcp-proton-mail-plugin"
+version = "0"
+requires-python = ">=3.12"
+dependencies = ["mcp-proton-mail==1.30.1"]

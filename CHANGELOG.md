@@ -4,6 +4,8 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
 
 ## Unreleased
 
+## 1.30.1
+
 ### Added
 
 - **Every tool says what it does, when to use it and what comes back, and has a title.** Each
@@ -24,6 +26,33 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   and each runtime package at the version the tests ran with, in `docker/constraints.txt`.
   `scripts/docker_smoke.sh` builds the image and checks those answers with no network and a
   read-only filesystem. Neither changes how the server runs anywhere else.
+- **The README lists every network connection**, under
+  [Network connections](README.md#network-connections): the relay to the service and the service
+  to Bridge on `127.0.0.1`, and approved unsubscribe links, while the server runs; PyPI, which
+  `uvx` checks each time a client starts the Claude Desktop bundle or the Claude Code plugin, but
+  not a client set up by `setup`; and PyPI, uv's Python and Bridge's sources during install and
+  setup.
+
+### Changed
+
+- **The install runs the package from PyPI by name.** `mcp-proton-mail` is on PyPI, so the README
+  now starts with `uvx mcp-proton-mail setup`. The README, `llms.txt`, `llms-install.md` and the
+  install, Windows and client pages drop the "Not on PyPI yet" warning and the clone with
+  `uvx --from .`; a checkout is now only for development, as
+  [Running from a checkout](docs/install.md#running-from-a-checkout) says. `SECURITY.md` supports
+  the latest release on PyPI beside `main`, and the CI page no longer warns that the name could
+  still be taken.
+- **The homepage is https://manajev.com/proton-mail-mcp/.** The package's Homepage link, the MCP
+  Registry entry's `websiteUrl`, and the Claude Desktop bundle's and the Claude Code plugin's
+  `homepage` point there, and the package's Documentation link points at `docs/` in the public
+  repository.
+- **The Claude Desktop bundle and the Claude Code plugin run 1.30.1**, the bundle as
+  `uvx mcp-proton-mail@1.30.1 connect` and the plugin as `uvx mcp-proton-mail==1.30.1 connect`,
+  the exact pin the Claude directory asks for. `plugin/uv.lock` records the dependencies that
+  resolves to, for the directory's review; uvx does not read it. The plugin's README starts
+  setup with `uvx mcp-proton-mail setup` instead of a clone.
+- **`--version` names the package as PyPI does**, `mcp-proton-mail 1.30.1`, under either of the
+  command's names.
 
 ## 1.30.0 - 2026-11-02
 

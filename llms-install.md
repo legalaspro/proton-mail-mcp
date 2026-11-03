@@ -15,18 +15,15 @@ The installer prints one JSON document on stdout with `--json`. Read `result`, `
   unless Bridge is already installed. On Linux, `secret-tool` (`libsecret-tools` on Debian and
   Ubuntu) with an unlocked keyring, or an initialised `pass` store.
 - [uv](https://docs.astral.sh/uv/).
-- The code. **Not on PyPI yet:** do not run `uvx mcp-proton-mail` or `pip install
-  mcp-proton-mail` by name, the package's future PyPI name; anyone could hold that name on PyPI
-  until then. Clone the repository with
-  `git clone https://github.com/legalaspro/proton-mail-mcp.git`, or use an archive or wheel of it
-  the person gives you.
 
-Run every command below in the clone, with `uvx --from . proton-mail-mcp` as the launcher.
+The package is `mcp-proton-mail` on PyPI, so there is nothing to clone: run every command below
+with `uvx mcp-proton-mail` as the launcher. For a wheel the person gives you, use
+`uvx --from <wheel> proton-mail-mcp` in its place.
 
 ## 2. Plan
 
 ```sh
-uvx --from . proton-mail-mcp setup --dry-run --json --client <client>
+uvx mcp-proton-mail setup --dry-run --json --client <client>
 ```
 
 `<client>` is one of `claude-desktop`, `claude-code`, `chatgpt`, `codex`, `gemini`, `cursor` or
@@ -66,7 +63,7 @@ never through you. Wait until they say it finished.
 ## 4. Apply and verify
 
 ```sh
-uvx --from . proton-mail-mcp setup --yes --json --client <client>
+uvx mcp-proton-mail setup --yes --json --client <client>
 ```
 
 After the person's run, this finds everything in place, and repeating it is safe. Expect
@@ -74,10 +71,9 @@ After the person's run, this finds everything in place, and repeating it is safe
 true; if `failed` or `refused`, `error` says why and what to do. A client config the installer
 cannot edit safely refuses the whole plan before any step runs, with `--dry-run` as with `--yes`.
 
-`uvx --from . proton-mail-mcp configure-client --yes --json --client <client>` adds another
-client later. Report the document's `connector` to the person: the command and arguments any MCP
-client on this computer can start, and the server's URL. It holds no token, and you never need
-one.
+`uvx mcp-proton-mail configure-client --yes --json --client <client>` adds another client later.
+Report the document's `connector` to the person: the command and arguments any MCP client on this
+computer can start, and the server's URL. It holds no token, and you never need one.
 
 Last, relay each `needs_user` entry whose `when` is `after`, such as restarting the client, and
 suggest a first read-only question: "How many unread messages are in my inbox?"
