@@ -4,6 +4,7 @@ import imaplib
 import inspect
 import re
 import socket
+import sys
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -165,7 +166,9 @@ def test_changed_since_stall_preserves_deadline_and_closes_stream(indexed_mailbo
     sim.hooks.append(stall_delta)
     started = time.monotonic()
     result = indexed_preview(client, service)
-    assert time.monotonic() - started < client.settings.call_timeout
+    # Slow Windows runners have taken 0.98s; without the deadline this call lasts the 5s stall.
+    limit = 2.0 if sys.platform == "win32" else client.settings.call_timeout
+    assert time.monotonic() - started < limit
     assert result["token"] is None and result["partial"]
     assert "deadline" in result["reason"].lower()
     assert any("CHANGEDSINCE" in command for *_, command in sim.commands)

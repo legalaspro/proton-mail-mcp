@@ -29,6 +29,7 @@ def mailbox_peer(
     simulate_tls=True,
     seed=False,
     call_timeout=0.4,
+    timeout=1,
 ):
     """Simulate TLS's protocol boundary; no network or TLS server is involved."""
     local, remote = socket.socketpair()
@@ -99,7 +100,7 @@ def mailbox_peer(
                         send(b"* CAPABILITY IMAP4rev1 STARTTLS\r\n" + ok)
                     elif word == b"STARTTLS" and stage == "TLS":
                         send(ok, 0.3)
-                        stopped.wait(3)
+                        stopped.wait(15)
                         return
                     elif word in (b"STARTTLS", b"LOGIN"):
                         send(ok)
@@ -187,7 +188,7 @@ def mailbox_peer(
     settings = Settings(
         token="local-test-token-" + "x" * 32,
         bridge_user="reader@example.test",
-        timeout=1,
+        timeout=timeout,
         call_timeout=call_timeout,
     )
     backend = MailClient(settings, lambda _: Credentials("reader@example.test", "dummy"), factory)
@@ -351,15 +352,16 @@ def test_thread_canonical_cap_interrupts_search_with_real_watchdog(monkeypatch):
 
 
 def test_deadline_interrupts_tls_handshake_after_delayed_starttls_reply(monkeypatch):
-    with mailbox_peer(monkeypatch, stage="TLS", default_factory=True, simulate_tls=False) as (
-        backend,
-        commands,
-        _,
-    ):
+    with mailbox_peer(
+        monkeypatch, stage="TLS", default_factory=True, simulate_tls=False, timeout=10
+    ) as (backend, commands, _):
         started = time.monotonic()
         result = backend.search_mail()
         assert result["timed_out"] is True and result["partial"] is True
-        assert time.monotonic() - started < BOUND
+        # Slow Windows runners have taken 2.5s. The peer stalls the handshake for 15s and the
+        # socket timeout is 10s, so without its 0.4s budget the call takes 10s, above either limit.
+        limit = 5.0 if sys.platform == "win32" else BOUND
+        assert time.monotonic() - started < limit
         assert any(command == b"STARTTLS" for command in commands)
         assert not any(command.startswith((b"LOGIN", b"LOGOUT")) for command in commands)
 
