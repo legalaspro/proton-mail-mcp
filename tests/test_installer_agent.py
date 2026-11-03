@@ -1319,7 +1319,7 @@ def test_show_token_copy_without_a_working_clipboard_says_what_else_to_do(monkey
         (["setup", "--json", "--yes", "--source", "/nowhere"], "--source must be"),
         (["setup", "--json", "--yes", "--python", "/nowhere/python"], "--python must name"),
         (["setup", "--json", "--simulate", "macos"], "--simulate only plans"),
-        (["setup", "--json", "--client", "nobody"], "invalid choice"),
+        (["setup", "--json", "--client", "nobody"], "--client is missing or was given wrongly"),
         (["configure-client", "--json", "--yes"], "--client"),
     ],
 )
@@ -1337,6 +1337,41 @@ def test_without_json_a_usage_error_prints_no_json(host, capsys):
     with pytest.raises(SystemExit):
         cli.main(["setup", "--non-interactive"])
     assert capsys.readouterr().out == ""
+
+
+TYPED = "hunter2-SECRET-xyz"
+
+
+@pytest.mark.parametrize(
+    ("argv", "option"),
+    [
+        (["setup", "--port", TYPED], "--port"),
+        (["setup", f"--credential-store={TYPED}"], "--credential-store"),
+        (["setup", f"--yes={TYPED}"], "--yes"),
+        (["setup", "--dry-run", TYPED], None),
+        (["setup", "--dry-run", f"--{TYPED}"], None),
+        ([TYPED], None),
+    ],
+)
+@pytest.mark.parametrize("json_flag", [["--json"], []], ids=["json", "plain"])
+def test_a_usage_error_never_repeats_what_was_typed(host, capsys, argv, option, json_flag):
+    # A password pasted in the wrong place lands in argparse's message: only the option that
+    # message names is shown, and only as the parser spells it.
+    with pytest.raises(SystemExit) as caught:
+        cli.main([*argv, *json_flag])
+    captured = capsys.readouterr()
+    assert caught.value.code == 2
+    output = captured.out + captured.err
+    # Not the value, nor any piece of it.
+    assert "hunter2" not in output and "SECRET" not in output
+    said = f"{option} is missing or was given wrongly" if option else "the arguments are wrong"
+    assert f"error: {said}; " in captured.err
+    if not json_flag:
+        assert captured.out == ""
+        return
+    report = json.loads(captured.out)
+    assert report["schema"] == cli.REPORT_SCHEMA and report["result"] == "refused"
+    assert report["exit_code"] == 2 and report["error"].startswith(f"{said}; ")
 
 
 def test_under_uvx_the_hand_off_starts_the_same_copy_through_uvx(host, capsys, monkeypatch):

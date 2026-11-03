@@ -725,7 +725,8 @@ class Smoke:
         finally:
             reject.unlink()
         self.check(
-            "cannot read INBOX through Bridge" in output, "a refused Bridge login fails the check"
+            "cannot read INBOX. Mailbox authentication failed" in output,
+            "a refused Bridge login fails the check",
         )
         self.check(PASSWORD not in output, "the failed check shows no password")
 

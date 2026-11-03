@@ -179,8 +179,8 @@ The document holds:
   their own terminal, with the launcher in front.
 
 A usage error, such as a missing `--yes` or an unknown `--client`, is a document too, with
-`result` `refused` and `exit_code` 2. The token never appears in the document, the plan or any
-output.
+`result` `refused` and `exit_code` 2. Its `error` names at most the option, never what was typed.
+The token never appears in the document, the plan or any output.
 
 | `id` | What the person does |
 | --- | --- |

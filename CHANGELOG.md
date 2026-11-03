@@ -77,6 +77,10 @@ Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP cli
   `mcp-proton-mail` 1.30.1 from the files `uv build` wrote to `../dist` before the upload, so the
   Claude directory's validation reported "Launcher lock invalid". It now names PyPI's sdist and
   wheel with their hashes, like every other package it locks; no other package changed.
+- **An installer usage error never repeats what was typed.** argparse's message, which can quote
+  a value such as a password given in the wrong place, is no longer printed or put in the `--json`
+  document's `error`: the error names only the option, as the installer spells it, and points to
+  `--help`. The installer's own refusals keep their text.
 
 ## 1.30.1
 

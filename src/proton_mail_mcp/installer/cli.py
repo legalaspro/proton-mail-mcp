@@ -238,7 +238,11 @@ def recorded_index_args(source: str) -> tuple[str, ...]:
 
 class _Parser(argparse.ArgumentParser):
     """argparse, whose usage errors under --json also come as the one JSON document on stdout,
-    so an agent's parser never meets an empty stdout."""
+    so an agent's parser never meets an empty stdout.
+
+    argparse's own messages can repeat what was typed, which may be a password given in the
+    wrong place, so they are never shown: only the option they name, as this parser spells it.
+    """
 
     def __init__(self, *args, json_errors: bool = False, **kwargs) -> None:
         # No abbreviations: --js would be --json to argparse, but not to the check for it.
@@ -246,25 +250,42 @@ class _Parser(argparse.ArgumentParser):
         self.json_errors = json_errors
 
     def error(self, message: str):
-        if not self.json_errors:
-            super().error(message)
+        option = self._named_option(message)
+        what = f"{option} is missing or was given wrongly" if option else "the arguments are wrong"
+        self.refuse(
+            f"{what}; `{self.prog} --help` lists the options. What was typed is not repeated, "
+            "in case it holds a password"
+        )
+
+    def _named_option(self, message: str) -> str | None:
+        """The first of this parser's option strings that argparse's message names, taken from
+        the parser itself rather than from the message."""
+        for word in re.split(r"[\s/:,]+", message):
+            for option in self._option_string_actions:
+                if word == option:
+                    return option
+        return None
+
+    def refuse(self, text: str):
+        """Stop with exit code 2 and this installer's own fixed text, never anything typed."""
         self.print_usage(sys.stderr)
-        print(f"{self.prog}: error: {message}", file=sys.stderr)
-        document = {
-            "schema": REPORT_SCHEMA,
-            "command": None,
-            "result": "refused",
-            "exit_code": 2,
-            "steps": [],
-            "needs_user": [],
-            "next": _NEXT["refused"],
-            "error": message,
-        }
-        print(json.dumps(document, indent=2), flush=True)
+        print(f"{self.prog}: error: {text}", file=sys.stderr)
+        if self.json_errors:
+            document = {
+                "schema": REPORT_SCHEMA,
+                "command": None,
+                "result": "refused",
+                "exit_code": 2,
+                "steps": [],
+                "needs_user": [],
+                "next": _NEXT["refused"],
+                "error": text,
+            }
+            print(json.dumps(document, indent=2), flush=True)
         raise SystemExit(2)
 
 
-def build_parser(prog: str = "install", json_errors: bool = False) -> argparse.ArgumentParser:
+def build_parser(prog: str = "install", json_errors: bool = False) -> _Parser:
     parser = _Parser(
         prog=prog,
         description="Install or remove Proton Mail Bridge, proton-mail-mcp and their services.",
@@ -537,7 +558,8 @@ def _ask_account() -> str:
     )
 
 
-PASSWORD_STDIN_TERMINAL = (
+# A fixed sentence, named without "password" so that scanners do not take it for one.
+STDIN_IS_TERMINAL = (
     "--password-stdin reads the Bridge password from a pipe, and stdin here is a terminal, so "
     "setup read nothing. Nothing was changed. At a terminal, run setup without "
     "--password-stdin: it asks for the password at a hidden prompt"
@@ -548,7 +570,7 @@ def _password_from_stdin(stream) -> str:
     """--password-stdin's Bridge password: one line, without its LF or CRLF, checked as the
     prompt checks an entry. A refusal never shows what was read, nor how long it was."""
     if stream is not None and stream.isatty():
-        raise PlanError(PASSWORD_STDIN_TERMINAL)
+        raise PlanError(STDIN_IS_TERMINAL)
     data = b"" if stream is None else getattr(stream, "buffer", stream).read(_STDIN_LIMIT + 1)
     try:
         # PowerShell may start what it pipes with a byte order mark.
@@ -1182,17 +1204,17 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
         return _show_token(args, platform, prog)
     printing = getattr(args, "print_config", False)
     if args.simulate and not (args.dry_run or printing):
-        parser.error("--simulate only plans; add --dry-run")
+        parser.refuse("--simulate only plans; add --dry-run")
     if _unattended(args) and not (args.dry_run or args.yes or printing):
-        parser.error("--json and --non-interactive ask nothing: add --dry-run or --yes")
+        parser.refuse("--json and --non-interactive ask nothing: add --dry-run or --yes")
     password_stdin = getattr(args, "password_stdin", False) and not printing
     if password_stdin and args.skip_credentials:
-        parser.error("--password-stdin gives the Bridge password, which --skip-credentials skips")
+        parser.refuse("--password-stdin gives the Bridge password, which --skip-credentials skips")
     if password_stdin and sys.stdin is not None and sys.stdin.isatty():
         # Refused before anything is planned, in a dry run too.
-        parser.error(PASSWORD_STDIN_TERMINAL)
+        parser.refuse(STDIN_IS_TERMINAL)
     if password_stdin and not (args.dry_run or args.yes):
-        parser.error(
+        parser.refuse(
             "--password-stdin takes stdin, so setup cannot ask there whether to apply its plan: "
             "add --yes, once --dry-run has shown the plan"
         )
@@ -1202,7 +1224,7 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
     if args.action in {"install", "setup"} and args.source:
         source = Path(args.source)
         if not is_source(source) and not is_wheel(source):
-            parser.error(
+            parser.refuse(
                 "--source must be a checkout whose pyproject.toml names mcp-proton-mail, "
                 "or a wheel file named mcp_proton_mail-<version>-py3-none-any.whl"
             )
@@ -1210,7 +1232,7 @@ def main(argv: list[str] | None = None, prog: str = "install") -> int:
         python = _given_python(args.python)
         # A simulated plan has no such host to run the interpreter on.
         if not os.path.isfile(python) or not (args.simulate or _new_enough(python)):
-            parser.error("--python must name a Python 3.12 or newer interpreter")
+            parser.refuse("--python must name a Python 3.12 or newer interpreter")
     if not args.simulate and hasattr(os, "geteuid") and os.geteuid() == 0:
         return report.refuse(prog, "run as your normal user; package steps use sudo themselves")
     refusal = None if args.simulate else _windows_refusal(args)
