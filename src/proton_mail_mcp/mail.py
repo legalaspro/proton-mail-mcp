@@ -998,6 +998,19 @@ class MailClient:
         params: dict[str, Any] | None = None,
         limit: int | None = None,
     ) -> dict[str, Any]:
+        if action == "create_folder":
+            # A folder approval binds a name and no messages: the same token, hash and form
+            # as preview_create_folder's, which this entry point replaces.
+            if query is not None or ids is not None or limit is not None:
+                raise MailValidationError(
+                    'create_folder takes only params={"folder": ...}: no query, ids or limit'
+                )
+            if not isinstance(params, dict) or set(params) != {"folder"}:
+                raise MailValidationError(
+                    'create_folder needs params={"folder": the exact new Folders/ name} and '
+                    "nothing else"
+                )
+            return self.preview_create_folder(params["folder"])
         if action == "delete_draft":
             from .delete_draft import DeleteDraftService
 

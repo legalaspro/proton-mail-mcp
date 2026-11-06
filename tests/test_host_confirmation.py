@@ -23,7 +23,7 @@ from proton_mail_mcp.folder_rules import FolderRulesService
 from proton_mail_mcp.guarded import TokenStore
 from proton_mail_mcp.mail import MailValidationError
 from proton_mail_mcp.rules_store import load_saved, store_path
-from proton_mail_mcp.server import create_app, create_mcp
+from proton_mail_mcp.server import RULES_TOOLS, create_app, create_mcp
 
 BASE = {"PROTON_MCP_TOKEN": "confirmation-test-token-" + "x" * 32, "PROTON_BRIDGE_USER": "u"}
 TOOLS = [action for action, *_ in CLEANUP] + ["apply_rules", "unsubscribe", "create_folder"]
@@ -67,6 +67,8 @@ def case(bridge, tmp_path, monkeypatch):  # noqa: F811
             )
             sim, client, _ = cleanup_case(bridge, source, labels, flags)
             changed = lambda: bool(mutations(sim))  # noqa: E731
+        # The rule and Sieve tools are registered only with PROTON_MCP_ENABLE_RULES=1.
+        settings = {"enable_rules": tool in RULES_TOOLS, **settings}
         mcp = create_mcp(replace(client.settings, **settings), client)
         if tool == "apply_rules":
             path = tmp_path / "confirmation-rules.json"
@@ -76,7 +78,7 @@ def case(bridge, tmp_path, monkeypatch):  # noqa: F811
         elif tool == "unsubscribe":
             preview = client.preview_action("unsubscribe", query={})
         elif tool == "create_folder":
-            preview = client.preview_create_folder("Folders/Confirmed")
+            preview = client.preview_action("create_folder", params={"folder": "Folders/Confirmed"})
         elif tool == "create_sieve_filter":
             preview = client.preview_sieve_filter(
                 "Invoices", "Folders/Reviewed", [{"field": "subject", "contains": "Invoice"}]

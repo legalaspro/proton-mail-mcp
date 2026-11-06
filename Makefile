@@ -9,8 +9,8 @@ PYTEST_ARGS ?=
 
 .PHONY: lint check docs wheel-smoke mcpb
 lint:
-	$(RUFF) check src tests mcpb scripts/wheel_smoke.py scripts/generate_tool_docs.py scripts/build_mcpb.py scripts/check_plugin_lock.py
-	$(RUFF) format --check src tests mcpb scripts/wheel_smoke.py scripts/generate_tool_docs.py scripts/build_mcpb.py scripts/check_plugin_lock.py
+	$(RUFF) check src tests mcpb scripts/wheel_smoke.py scripts/generate_tool_docs.py scripts/build_mcpb.py scripts/check_plugin_lock.py scripts/check_versions.py scripts/release_notes.py scripts/bump_version.py
+	$(RUFF) format --check src tests mcpb scripts/wheel_smoke.py scripts/generate_tool_docs.py scripts/build_mcpb.py scripts/check_plugin_lock.py scripts/check_versions.py scripts/release_notes.py scripts/bump_version.py
 
 check: lint
 	$(PYTHON) -m pytest -q -p no:cacheprovider -n $(JOBS) --maxprocesses=12 --dist worksteal --durations=15 $(PYTEST_ARGS)

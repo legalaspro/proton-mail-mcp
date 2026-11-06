@@ -56,12 +56,12 @@ Form means the user's confirmation in the client's form, unless the operator set
 | Move to a folder | `preview_action(action="move_to_folder", params={"folder": ...})` | `move(target=<that folder>, token)` | Yes | `undo_action`; a folder the approval created stays |
 | Mark read, unread | `preview_action(action="mark_read")`, `mark_unread` | `set_read_state(state="read", token)`, `"unread"` | Yes | `undo_action` |
 | Add, remove a label | `preview_action(action="add_label", params={"label": ...})`, `remove_label` | `label(op="add", token)`, `"remove"` | Yes | `undo_action` |
-| Folder rules | `preview_rules` | `apply_rules(token)` | Yes | `undo_action` per `log_ids` entry |
+| Folder rules (with `PROTON_MCP_ENABLE_RULES=1`) | `preview_rules` | `apply_rules(token)` | Yes | `undo_action` per `log_ids` entry, also with rules off |
 | Delete drafts | `preview_action(action="delete_draft")` | `delete_draft(token)` | Yes | None |
 | Unsubscribe | `preview_action(action="unsubscribe")` | `unsubscribe(token)` | Yes | None |
-| Create a folder | `preview_create_folder` | `create_folder(token)` | Yes | None; remove it in the Proton app |
-| Save a rule | `preview_add_rule` | `add_rule(token)` | Yes | None; edit the store by hand |
-| Sieve filter | `preview_sieve_filter` | `create_sieve_filter(token)` refuses | Never reached | None |
+| Create a folder | `preview_action(action="create_folder", params={"folder": ...})` | `create_folder(token)` | Yes | None; remove it in the Proton app |
+| Save a rule (with `PROTON_MCP_ENABLE_RULES=1`) | `preview_add_rule` | `add_rule(token)` | Yes | None; edit the store by hand |
+| Sieve filter (with `PROTON_MCP_ENABLE_RULES=1`) | `preview_sieve_filter` | `create_sieve_filter(token)` refuses | Never reached | None |
 | Rebuild the index | `reindex(op="preview")` | `reindex(op="execute", token)` | No | None |
 | Send a draft | `preview_send` | `send_draft(token, draft_id)` | See below | None |
 

@@ -181,7 +181,7 @@ def test_enabled_lifecycle_is_app_scoped_and_wraps_every_tool_call(monkeypatch):
         job.start.assert_called_once_with()
         result = rpc(http, "tools/call", {"name": "reindex_status", "arguments": {}})["result"]
         assert result["structuredContent"]["background_sync"]["last_outcome"] == "unchanged"
-        rpc(http, "tools/call", {"name": "list_rules", "arguments": {}})
+        rpc(http, "tools/call", {"name": "list_actions", "arguments": {}})
         rpc(http, "tools/call", {"name": "search_mail", "arguments": {}})
         assert len(entered) == 3
         job.stop.assert_not_called()

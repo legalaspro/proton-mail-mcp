@@ -25,7 +25,8 @@ adds the server to your MCP client.
   Nothing gets marked as read.
 - **Write drafts.** Create new drafts, replies and forwards. A draft stays unsent until you send it.
 - **Clean up.** Move, archive, trash, mark read or unread, add or remove labels, unsubscribe,
-  delete drafts and run folder rules (beta), each after a preview you approve.
+  delete drafts and create folders, each after a preview you approve. Folder rules (beta) are
+  there if you turn them on.
 - **Send, if you turn it on.** Sending is off by default, and there is no way to send without a
   saved draft and an approval.
 - **Show mail in the chat.** Clients that support MCP Apps get a thread view, a composer and a
@@ -52,13 +53,13 @@ no message bodies.
 | --- | --- | --- |
 | Search, count, read, list | Nothing | Nothing to undo |
 | Save a draft or an attachment | Nothing; never sends, always logged | Saved items stay until you remove them |
-| Move, trash, archive, mark read or unread, labels, folder rules | Preview, token, form | Yes, with `undo_action` |
+| Move, trash, archive, mark read or unread, labels, folder rules (when on) | Preview, token, form | Yes, with `undo_action` |
 | Unsubscribe | Preview, token, form | No. With sending on, a mailto target only prepares an unsent draft, which needs its own send approval; with sending off, mailto targets are not used |
 | Delete drafts | Preview, token, form | No, it is permanent |
-| Create a folder, save a rule | Preview, token, form | No, remove them by hand |
+| Create a folder, save a rule (when on) | Preview, token, form | No, remove them by hand |
 | Rebuild the local search index | Preview, token; no form, because no mail changes | No |
 | Send a draft | Off by default; then preview, token, and a form or typed OK | No |
-| Create a Sieve filter | Previews only. It always refuses, because Bridge has no way to apply one | Nothing changes |
+| Create a Sieve filter (when rules are on) | Previews only. It always refuses, because Bridge has no way to apply one | Nothing changes |
 | Reverse a logged change | `undo_action`: no token or form, once per change, always logged | Not applicable |
 
 Permanent deletion only ever reaches approved messages in Drafts; removing a label expunges only
@@ -99,6 +100,7 @@ on, never who a draft is addressed to. See
 | Protected senders | `PROTON_MCP_PROTECTED_CONFIG` |
 | New-mail watcher | `PROTON_MCP_IMAP_IDLE_ENABLED=1` |
 | Background index sync | `PROTON_MCP_BACKGROUND_SYNC_ENABLED=1` |
+| Folder rules and Sieve filters (beta) | `PROTON_MCP_ENABLE_RULES=1` |
 | Rules timer | A Linux timer you install yourself; no tool can start it |
 
 On by default: the confirmation form, the typed OK once sending is on, the MCP Apps views and

@@ -136,6 +136,8 @@ class Settings:
     confirm_timeout: float = 120.0
     # MCP Apps views (ui:// resources and their view tools); 0 restores the plain tool list.
     apps_enabled: bool = True
+    # The folder rule and Sieve filter tools (beta); off leaves them out of the tool list.
+    enable_rules: bool = False
     # IANA zone for the local times in results; None means this computer's time zone.
     time_zone: str | None = None
     enable_send: bool = False
@@ -260,6 +262,8 @@ class Settings:
             raise ConfigError("PROTON_MCP_CONFIRM_MUTATIONS must be boolean")
         if type(self.apps_enabled) is not bool:
             raise ConfigError("PROTON_MCP_APPS_ENABLED must be boolean")
+        if type(self.enable_rules) is not bool:
+            raise ConfigError("PROTON_MCP_ENABLE_RULES must be boolean")
         if self.time_zone is not None:
             try:
                 ZoneInfo(self.time_zone)
@@ -447,6 +451,7 @@ class Settings:
                 apps_enabled=_flag(
                     {"PROTON_MCP_APPS_ENABLED": "1", **values}, "PROTON_MCP_APPS_ENABLED"
                 ),
+                enable_rules=_flag(values, "PROTON_MCP_ENABLE_RULES"),
                 time_zone=values.get("PROTON_MCP_TIMEZONE") or None,
                 enable_send=_flag(values, "PROTON_MCP_ENABLE_SEND"),
                 smtp_host=values.get("PROTON_BRIDGE_SMTP_HOST", "127.0.0.1"),

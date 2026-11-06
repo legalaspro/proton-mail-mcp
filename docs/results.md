@@ -48,6 +48,9 @@ Each `unresolved` row identifies a prior undo attempt with `log_id` as well.
 
 ## What each tool returns
 
+`list_rules`, `preview_rules`, `apply_rules`, `preview_add_rule`, `add_rule`, `preview_sieve_filter`
+and `create_sieve_filter` are listed only with `PROTON_MCP_ENABLE_RULES=1`.
+
 | Tool | Returns |
 | --- | --- |
 | `search_mail` | `messages`, `next_cursor`, `total`, `partial`, `total_is_exact`; when they apply `partial_reason`, `applied_since`, `skipped_uids`, `timed_out`, `error`, `hint`, `index_note`, `index_status` |
@@ -59,9 +62,8 @@ Each `unresolved` row identifies a prior undo attempt with `log_id` as well.
 | `list_rules` | `rules`, `built_in_count`, `saved_count`, `max_saved_rules`, `apply` |
 | `reindex_status` | `state`, progress, counts, `run_id`, `swap_outcome`, `last_full_run` |
 | `list_actions` | `actions`, `truncated`; once records exist, `audit`, `audit_truncated`, `runs`, `runs_truncated` |
-| `preview_action` | `count`, `samples`, `blocked`, `reason`, `token`, `expires_at`, `action_hash`, `action`, `target` (`unsubscribe`: `targets`, with a token), `partial`, `total_is_exact`, `excluded_*`, `personal_provider_bypass_count`; mailbox cleanup adds `mark_read`, `estimated_calls`, `approval_max_messages`, `folder_creation`; moves, archive, draft deletion and unsubscribe add `log_id` |
+| `preview_action` | `count`, `samples`, `blocked`, `reason`, `token`, `expires_at`, `action_hash`, `action`, `target` (`unsubscribe`: `targets`, with a token), `partial`, `total_is_exact`, `excluded_*`, `personal_provider_bypass_count`; mailbox cleanup adds `mark_read`, `estimated_calls`, `approval_max_messages`, `folder_creation`; moves, archive, draft deletion and unsubscribe add `log_id`. `action="create_folder"` returns only `action`, `name`, `exists`, `token`, `expires_at`, `action_hash`; an existing folder returns `exists: true` and no token |
 | `preview_rules` | Per-rule counts and samples, `total_matches`, `batch_count`, `remaining`, `partial`, `total_is_exact`, `reason`, `token`, `expires_at`, `action_hash`, `next_cursor`, `excluded_*` |
-| `preview_create_folder` | `name`, `exists`, `token`, `expires_at`, `action_hash`; an existing folder returns `exists: true` and no token |
 | `preview_add_rule` | Normalized rule, `rule_sha256`, `script`, `script_sha256`, `apply`, `token`, `expires_at`, `action_hash`; `matches` on request |
 | `preview_sieve_filter` | Normalized filter, `fileinto`, `script`, `script_sha256`, `apply`, `token`, `expires_at`, `action_hash` |
 | `preview_send` | `draft_id`, `from`, `from_alias`, `to`, `cc`, `bcc`, `subject`, `attachments`, `draft_hash`, `caps`, `approval`, `token`, `expires_at`, `action_hash`; on typed OK also `summary`, `next_steps` |
@@ -98,6 +100,8 @@ cannot approve anything is a normal result with no `token`, so check for one.
 | `Error executing tool <tool>: <n> validation error(s) for <tool>Arguments` | Bad or unknown argument; the rest names the field. Every tool refuses unknown arguments, with values hidden from the error | Fix the arguments |
 | `Error executing tool <tool>: Validation error: <reason>` | The server refused | Read the reason. `request a new preview`, `request a fresh preview` or `preview again` mean a new preview and approval |
 | `Error executing tool <tool>: Validation error: User confirmation was not accepted...` | No accepted form; the token is retired | New preview |
+| `Validation error: folder rules are off; the operator sets PROTON_MCP_ENABLE_RULES=1 and restarts the service` | A rule or Sieve filter tool was called with `PROTON_MCP_ENABLE_RULES` off; nothing ran and nothing was logged | Tell the user; only the operator can turn rules on |
+| `Validation error: preview_create_folder was replaced by preview_action(action="create_folder", params={"folder": ...})` | The client still lists a tool from before 1.31.0; nothing ran | Call `preview_action` as it says, and refresh or restart the client |
 | `Error executing tool <tool>: Mailbox operation failed; check Bridge configuration and availability` | Bridge or the backend failed; details are hidden | Check Bridge. Retry reads. For writes, check `list_actions` first |
 | `Error executing tool <tool>: Proton Mail Bridge is not running: nothing answers on 127.0.0.1:1143...` | Nothing accepts a connection on Bridge's IMAP address (`PROTON_BRIDGE_HOST` and `PROTON_BRIDGE_IMAP_PORT`) | Start Bridge: its app, its service, or `bridge --noninteractive` (see [Hosts without systemd](install.md#hosts-without-systemd)), then retry. For writes, check `list_actions` first |
 | `Error executing tool <tool>: Bridge STARTTLS failed on 127.0.0.1:1143...` | Something answers on Bridge's IMAP address, but STARTTLS did not complete there | In the Bridge app's settings, under Connection mode, choose STARTTLS for IMAP, then retry |

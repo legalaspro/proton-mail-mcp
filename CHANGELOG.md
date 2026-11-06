@@ -2,6 +2,59 @@
 
 Notable changes to proton-mail-mcp. Entries describe behavior visible to MCP clients.
 
+## 1.31.0 - 2026-11-06
+
+### Changed
+
+- **Breaking: the default tool list drops from 30 tools to 22.** It is 25 with sending enabled,
+  and 20 and 22 with views off. No capability is removed; two changes make the cut:
+  - **Folder rules and Sieve filters are opt-in.** The seven beta tools, `list_rules`,
+    `preview_rules`, `apply_rules`, `preview_add_rule`, `add_rule`, `preview_sieve_filter` and
+    `create_sieve_filter`, are listed only with the new `PROTON_MCP_ENABLE_RULES=1` (exact `0` or
+    `1`, default `0`; any other value stops startup). With it they are registered exactly as
+    before, so it gives 29, 32, 27 and 29 tools. With it off, the server's instructions say rules
+    are off and name the setting, no other tool's text names a rules tool, and a call to one
+    refuses before anything runs or is logged: "folder rules are off; the operator sets
+    PROTON_MCP_ENABLE_RULES=1 and restarts the service". Saved rules, the optional rules timer
+    (which runs saved rules either way), the action log and `undo_action` on earlier rule runs are
+    unchanged. When the saved rules store holds rules and the setting is off, the server prints a
+    notice at startup, without the rules.
+  - **`preview_create_folder` is gone: preview a folder with
+    `preview_action(action="create_folder", params={"folder": "Folders/<name>"})`.** It takes no
+    `query`, `ids` or `limit` and no other `params` key, and refuses them before issuing anything.
+    The token, its action `create_folder`, its stored name, its `action_hash`, the confirmation
+    form and the audit record are the same as before, and `create_folder(token)` still redeems it.
+    A call to the old name refuses with the new call to make. `preview_action`'s description now
+    names the redeeming tools, and its `action` argument says which tool and selector redeem
+    each action.
+
+- **A release reaches its GitHub release and the MCP Registry on its own.** Once a `v*` tag's
+  upload to PyPI has succeeded, `publish.yml` makes the tag's GitHub release, with the version's
+  section of this changelog as its notes, and lists the version in the MCP Registry with
+  `mcp-publisher login github-oidc`: no one signs in and no token is stored. `mcp-publisher` is
+  pinned to a version and its sha256. Each step leaves a release or a listing that exists
+  already as it is. The build refuses a tag whose section here is missing or empty before
+  anything is uploaded.
+- **One check holds every file to one release.** `scripts/check_versions.py` refuses a tree whose
+  package, `server.json`, bundle and newest changelog heading name different versions, or whose
+  plugin files disagree or trail by more than one release, in each Checks job, in `make check` and
+  in Publish, against the tag. `scripts/bump_version.py X.Y.Z` sets a new version in all of them
+  and turns Unreleased into its heading; after the upload, `--plugin` moves the plugin and locks
+  it from PyPI. `--dry-run` shows the diff. docs/ci.md, Releasing, has the flow.
+
+### Upgrade notes
+
+- To keep the folder rule and Sieve filter tools, set `PROTON_MCP_ENABLE_RULES=1` in the service's
+  environment and restart it. The rules timer does not need it, but it reads the same settings, so
+  a value other than `0` or `1` in `rules.env` stops the timer too.
+- Replace `preview_create_folder(name=X)` with
+  `preview_action(action="create_folder", params={"folder": X})`; `create_folder(token)` is
+  unchanged. There is no alias.
+- Refresh or restart MCP clients that cache tool lists, and review host allow or deny lists that
+  name these tools. Allowing `preview_action` now also allows folder previews, which change nothing;
+  `create_folder` still asks for the form. An allow list without `preview_action` hides folder
+  previews.
+
 ## 1.30.2 - 2026-11-03
 
 ### Added

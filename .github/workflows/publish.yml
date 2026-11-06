@@ -2,8 +2,10 @@ name: Publish
 
 # Builds the package from a v* tag and publishes it to PyPI with Trusted Publishing: PyPI trusts
 # this file, in the public release repo, in the pypi environment, so no token is stored anywhere.
-# Every job runs only in that repo; in the private dev repo a tag or a release starts nothing.
-# docs/ci.md says how PyPI is set up for it, and what stays a manual step.
+# Once the upload succeeds, it makes the tag's GitHub release, with the version's CHANGELOG.md
+# section as its notes, and lists the version in the MCP Registry, which trusts GitHub's OIDC
+# token. Every job runs only in that repo; in the private dev repo a tag or a release starts
+# nothing. docs/ci.md, Releasing, says how each is set up, and what stays a manual step.
 
 on:
   push:
@@ -36,36 +38,50 @@ jobs:
       - run: python -m pip install uv==0.13.6
       # uv builds the wheel from the sdist, so a file the sdist leaves out fails here.
       - run: uv build --out-dir dist
-      - name: The tag, the files and server.json name one version
+      # Every file names the tag's version, server.json and the bundle included, and the plugin
+      # trails it by one release at most: the same check as each Checks job, with the tag.
+      - name: The tag, the files and every version name one release
         env:
           TAG: ${{ github.ref_name }}
         run: |
+          python scripts/check_versions.py --tag "$TAG"
           python - <<'EOF'
-          import json
           import os
           from pathlib import Path
 
-          tag = os.environ["TAG"]
-          assert tag.startswith("v"), tag
-          version = tag.removeprefix("v")
+          version = os.environ["TAG"].removeprefix("v")
           # uv adds a .gitignore; the upload leaves hidden files out.
           built = sorted(path.name for path in Path("dist").glob("[!.]*"))
           expected = sorted(
               [f"mcp_proton_mail-{version}.tar.gz", f"mcp_proton_mail-{version}-py3-none-any.whl"]
           )
           assert built == expected, (built, expected)
-          server = json.loads(Path("server.json").read_text(encoding="utf-8"))
-          assert server["version"] == version == server["packages"][0]["version"], server
           EOF
+      # Before the upload, which cannot be taken back: a tag whose CHANGELOG.md section is
+      # missing or empty stops here. The release and registry jobs get the notes and server.json
+      # from this artifact, so neither checks anything out.
+      - name: The release notes, from the version's CHANGELOG.md section
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir release-files
+          python scripts/release_notes.py "${TAG#v}" --output release-files/notes.md
+          cp server.json release-files/server.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
           if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: release-files/
+          if-no-files-found: error
 
   publish:
-    # The only job that can publish: it alone may ask GitHub for an OIDC token, and it checks
-    # nothing out, so it runs no code from the repository.
+    # The only job that can upload to PyPI: it alone runs in the pypi environment that PyPI
+    # trusts, and it checks nothing out, so it runs no code from the repository. The registry
+    # job asks for an OIDC token too, which only the MCP Registry accepts.
     if: github.repository == 'legalaspro/proton-mail-mcp'
     needs: build
     runs-on: ubuntu-latest
@@ -83,3 +99,93 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           skip-existing: true
+
+  github-release:
+    # Only after the upload succeeded. Its token may write releases, so it checks nothing out and
+    # runs no code from the repository: the notes come from the build. A release that exists
+    # already, made by hand or by an earlier run, is left as it is. A release this token makes
+    # starts no new run of this workflow, as GitHub starts none for its own token's events.
+    if: github.repository == 'legalaspro/proton-mail-mcp'
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-files/
+      - name: The tag's release, with the version's CHANGELOG.md section as its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if found="$(gh release view "$TAG" --json url --jq .url 2>&1)"; then
+            echo "$TAG has a release already, left as it is: $found"
+            exit 0
+          elif [ "$found" != "release not found" ]; then
+            echo "Cannot tell whether $TAG has a release: $found" >&2
+            exit 1
+          fi
+          gh release create "$TAG" --verify-tag --title "${TAG#v}" --notes-file release-files/notes.md
+
+  registry:
+    # Lists the version in the MCP Registry once PyPI serves it: the registry checks that the
+    # package exists and that its README names the entry. GitHub's OIDC token proves the
+    # io.github.legalaspro namespace, so nothing is stored and nobody logs in. It checks nothing
+    # out: server.json comes from the build, and mcp-publisher, a downloaded program rather than
+    # an action, is pinned to a version and its sha256, from that release's checksums file.
+    # A version the registry lists already is skipped.
+    if: github.repository == 'legalaspro/proton-mail-mcp'
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.7"
+      MCP_PUBLISHER_SHA256: 00b21004149a4ce66f0782508ae4a2bce67d1bea395a8da0bd8028159fb59579
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+          path: release-files/
+      # PyPI's index can lag the upload by a little; the registry would refuse until it serves it.
+      - name: Wait until PyPI serves the version
+        run: |
+          version="${TAG#v}"
+          for _ in $(seq 30); do
+            if curl -fsS -o /dev/null "https://pypi.org/pypi/mcp-proton-mail/$version/json"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "PyPI does not serve mcp-proton-mail $version after 5 minutes" >&2
+          exit 1
+      - name: Skip a version the registry lists already
+        id: listed
+        run: |
+          name="$(jq -r '.name | @uri' release-files/server.json)"
+          url="https://registry.modelcontextprotocol.io/v0/servers/$name/versions/${TAG#v}"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "$url")"
+          case "$code" in
+            200) echo "The registry lists ${TAG#v} already; nothing to publish."
+                 echo "listed=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "listed=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "The registry answered HTTP $code for $url; refusing to guess" >&2; exit 1 ;;
+          esac
+      - name: Install mcp-publisher, checked against its pinned sha256
+        if: steps.listed.outputs.listed == 'false'
+        run: |
+          base="https://github.com/modelcontextprotocol/registry/releases/download"
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "$base/v$MCP_PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz"
+          echo "$MCP_PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+      - if: steps.listed.outputs.listed == 'false'
+        run: ./mcp-publisher login github-oidc
+      - if: steps.listed.outputs.listed == 'false'
+        run: ./mcp-publisher publish release-files/server.json

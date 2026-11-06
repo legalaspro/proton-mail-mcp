@@ -118,7 +118,7 @@ def test_cancelled_tool_late_completion_keeps_session_serving(worker_fails):
                 await send({"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
                 listed = await receive()
                 assert listed["id"] == 4
-                assert len(listed["result"]["tools"]) == 33
+                assert len(listed["result"]["tools"]) == 25
             finally:
                 release.set()
                 group.cancel_scope.cancel()

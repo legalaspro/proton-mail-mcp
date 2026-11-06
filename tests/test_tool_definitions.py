@@ -6,8 +6,10 @@ readOnlyHint also decides which calls the audit records, so the table pins it ex
 import asyncio
 import re
 
+import pytest
+
 from proton_mail_mcp.config import Settings
-from proton_mail_mcp.server import create_mcp
+from proton_mail_mcp.server import RULES_TOOLS, create_mcp
 
 # readOnlyHint, destructiveHint, idempotentHint, openWorldHint
 READ = (True, False, True, False)
@@ -30,7 +32,6 @@ HINTS = {
     "review_send": READ,
     "preview_action": PREVIEW,
     "preview_rules": PREVIEW,
-    "preview_create_folder": PREVIEW,
     "preview_add_rule": PREVIEW,
     "preview_sieve_filter": PREVIEW,
     "preview_send": PREVIEW,
@@ -54,11 +55,12 @@ HINTS = {
 }
 
 
-def every_tool(tmp_path, enable_send=True) -> dict:
+def every_tool(tmp_path, enable_send=True, enable_rules=True) -> dict:
     settings = Settings(
         token="t" * 32,
         bridge_user="user@example.test",
         enable_send=enable_send,
+        enable_rules=enable_rules,
         send_from_allowlist=("user@example.test",),
         action_log_path=tmp_path / "actions.jsonl",
     )
@@ -110,3 +112,45 @@ def test_with_sending_off_no_description_names_a_send_tool(tmp_path):
             if not text.startswith("With sending on")
         ]
         assert tool.description == "\n\n".join(kept), name
+
+
+def test_with_rules_off_no_text_names_a_rules_tool(tmp_path):
+    rules = every_tool(tmp_path)
+    tools = every_tool(tmp_path, enable_rules=False)
+    assert set(rules) - set(tools) == RULES_TOOLS
+    for name, tool in tools.items():
+        arguments = [
+            field.get("description", "") for field in tool.inputSchema["properties"].values()
+        ]
+        for text in (tool.description, *arguments):
+            assert not set(re.findall(r"[a-z_]+", text)) & RULES_TOOLS, name
+        # The flag only decides which tools are listed: the rest are the same, word for word.
+        assert tool.description == rules[name].description, name
+        assert tool.inputSchema == rules[name].inputSchema, name
+        assert tool.annotations == rules[name].annotations, name
+
+
+@pytest.mark.parametrize("enable_send", [True, False])
+def test_the_instructions_say_rules_are_off_and_name_no_rules_tool(tmp_path, enable_send):
+    def instructions(enable_rules):
+        settings = Settings(
+            token="t" * 32,
+            bridge_user="user@example.test",
+            enable_send=enable_send,
+            enable_rules=enable_rules,
+            send_from_allowlist=("user@example.test",),
+            action_log_path=tmp_path / "actions.jsonl",
+        )
+        return create_mcp(settings, object()).instructions
+
+    off, on = instructions(False), instructions(True)
+    assert not set(re.findall(r"[a-z_]+", off)) & RULES_TOOLS
+    assert "Folder rules and Sieve filters are off unless the operator sets " in off
+    assert "PROTON_MCP_ENABLE_RULES=1" in off and "PROTON_MCP_ENABLE_RULES" not in on
+    assert {"preview_rules", "apply_rules", "preview_add_rule", "add_rule"} <= set(
+        re.findall(r"[a-z_]+", on)
+    )
+    assert "Tools cannot enable or start the optional rules timer." in on
+    # Both name the one entry point for folder previews, and the retired name nowhere.
+    for text in (off, on):
+        assert "unsubscribe or create_folder" in text and "preview_create_folder" not in text

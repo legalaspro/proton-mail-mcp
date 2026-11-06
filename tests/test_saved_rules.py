@@ -56,7 +56,7 @@ def case(tmp_path, monkeypatch):
         simulations.append(sim)
         directory = tmp_path / f"case-{len(simulations)}"
         directory.mkdir()
-        client = make_client(sim, directory)
+        client = make_client(sim, directory, enable_rules=True)
         cleanup = client.cleanup
         return SimpleNamespace(
             sim=sim,
@@ -713,7 +713,7 @@ def test_rules_previewed_before_a_fresh_state_directory_exists_all_save(case):
     # The default store beside a journal whose directory is missing: the first
     # add's own audit record makes that directory, after both previews.
     journal = case.directory / "fresh" / "state" / "actions.jsonl"
-    client = make_client(case.sim, case.directory, action_log=journal)
+    client = make_client(case.sim, case.directory, action_log=journal, enable_rules=True)
     mcp = create_mcp(client.settings, client)
     tokens = [
         call(mcp, "preview_add_rule", ARGUMENTS | {"name": name})["token"]

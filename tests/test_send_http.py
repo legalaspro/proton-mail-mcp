@@ -123,7 +123,7 @@ def test_http_send_requires_initialized_host_elicitation(rig):
             http = _HTTP(app, rig.settings.token)
             await http.initialize({"elicitation": {"form": {}}})
             listed = await http.rpc("tools/list")
-            assert len(listed["result"]["tools"]) == 33
+            assert len(listed["result"]["tools"]) == (32 if rig.settings.enable_rules else 25)
             by_name = {tool["name"]: tool for tool in listed["result"]["tools"]}
             assert set(by_name["send_draft"]["inputSchema"]["properties"]) == {
                 "token",

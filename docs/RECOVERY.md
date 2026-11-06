@@ -421,7 +421,10 @@ record remains as evidence.
 call's `audit_id`, start `timestamp`, `tool`, final `outcome`, `client`,
 `action_hash` and `counts`. It never shows token IDs, reasons or Message-IDs.
 `action` filters by write tool (rules chunks match `apply_rules` through their run),
-`client_name` by MCP client name; `token`, `since` and `before` apply as well.
+`client_name` by MCP client name; `token`, `since` and `before` apply as well. With
+`PROTON_MCP_ENABLE_RULES` off, `list_actions` still finds earlier `apply_rules`, `add_rule` and
+`create_sieve_filter` records, and `undo_action` still reverses an `apply_rules` chunk by its
+`log_id`.
 
 ## Location and rotation
 

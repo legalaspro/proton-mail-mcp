@@ -4,6 +4,18 @@
 and check the results. This applies to `preview_add_rule`, `add_rule`, `list_rules`,
 `preview_rules` and `apply_rules`.
 
+## Turn rules on
+
+The rule and Sieve filter tools are off by default. Set `PROTON_MCP_ENABLE_RULES=1` in the
+service's environment (the env file `setup` wrote), restart the service, then restart or refresh
+the client so it lists the seven tools: `list_rules`, `preview_rules`, `apply_rules`,
+`preview_add_rule`, `add_rule`, `preview_sieve_filter` and `create_sieve_filter`. With the
+setting off, the server's instructions tell the model that rules are off, and a client that still
+calls one of these tools gets a refusal naming the setting. Nothing else changes with it: saved
+rules, the [optional timer](#manual-connector-folder-rules), which runs saved rules either way,
+and `undo_action` and `list_actions` on earlier rule runs all work with it off. When saved rules
+exist and the setting is off, the server prints a notice at startup.
+
 Each tool's arguments are in the [tool reference](tools.md).
 
 | Tool | Behavior |
@@ -13,7 +25,7 @@ Each tool's arguments are in the [tool reference](tools.md).
 | [`preview_add_rule`](tools.md#preview_add_rule) | Read-only: validates one custom folder rule with the Sieve filter model and returns the normalized rule, `rule_sha256`, the informational Sieve `script`, the `apply` status, optional `matches` (a bounded, read-only INBOX count with samples) and a single-use token. See [Saved custom rules](#saved-custom-rules). |
 | [`add_rule`](tools.md#add_rule) | Appends exactly the previewed rule to the saved rules store after the user's confirmation in the client's form; never replaces, edits, reorders or removes rules. Mail moves only when rules run. |
 | [`list_rules`](tools.md#list_rules) | Read-only: every folder rule in the order rules run, `built_in` (the packaged file) then `saved`, with its target. No mailbox access. |
-| [`preview_create_folder`](tools.md#preview_create_folder) / [`create_folder`](tools.md#create_folder) | Preview an exact `Folders/` name, then create it after approval and the user's confirmation in the client's form. An existing folder is a successful no-op without issuing or consuming a token. |
+| [`preview_action`](tools.md#preview_action) with `action="create_folder"` / [`create_folder`](tools.md#create_folder) | Preview an exact `Folders/` name, then create it after approval and the user's confirmation in the client's form. An existing folder is a successful no-op without issuing or consuming a token. These two are always listed. |
 | [`preview_sieve_filter`](tools.md#preview_sieve_filter) | Read-only: validates one Proton Sieve filter for new mail (1 to 10 `from`/`to`/`subject` conditions, an existing real `Folders/` target, optional mark read) and returns the exact script, `script_sha256`, the `apply` backend status and a single-use token bound to that script. See [Sieve filters](#sieve-filters). |
 | [`create_sieve_filter`](tools.md#create_sieve_filter) | Adds exactly the previewed script as one new filter through the apply backend, after the user's confirmation in the client's form; never replaces, edits or removes filters. **It always refuses before any form, without changes**: Proton Mail Bridge offers no supported apply path. |
 
@@ -204,8 +216,10 @@ above; this path does not repeat a full All Mail audit or `UID SEARCH ALL`.
 Missing or unusable evidence requires new discovery, which can refuse cleanly
 if it cannot fit the budget.
 
-To create a destination, call `preview_create_folder("Folders/GitHub")`, show the
-exact name, and obtain approval before `create_folder(token)`. Names must stay
+To create a destination, call
+`preview_action(action="create_folder", params={"folder": "Folders/GitHub"})`, show the
+exact name, and obtain approval before `create_folder(token)`. It takes no `query`, `ids` or
+`limit`, and no other `params` key. Names must stay
 under `Folders/`; system folders, labels, empty/relative segments, controls,
 wildcards and names over 500 characters are refused. Names are preserved exactly.
 The short-lived token binds that name. Both steps check LIST: an existing folder

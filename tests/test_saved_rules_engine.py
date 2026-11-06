@@ -34,7 +34,7 @@ def engine(tmp_path, monkeypatch):
         simulations.append(sim)
         directory = tmp_path / f"case-{len(simulations)}"
         directory.mkdir()
-        client = make_client(sim, directory, call_timeout=300)
+        client = make_client(sim, directory, call_timeout=300, enable_rules=True)
         rules = directory / "packaged-rules.json"
         rules.write_text(json.dumps({"version": 1, "rules": list(packaged)}))
         return SimpleNamespace(

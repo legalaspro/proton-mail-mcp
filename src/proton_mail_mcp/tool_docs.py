@@ -24,12 +24,17 @@ arrived during a call.
 Apart from saving a draft or an attachment and undo_action, every change takes two calls. A \
 preview returns a single-use token and changes nothing. Show it to the user, wait for explicit \
 approval, then redeem the token with the matching tool:
-- preview_action, then move, set_read_state, label, delete_draft or unsubscribe, as its \
-description maps them
+- preview_action, then move, set_read_state, label, delete_draft, unsubscribe or create_folder, \
+as its action argument maps them
+"""
+
+_RULES_STEPS = """\
 - preview_rules, then apply_rules (beta: check the results)
-- preview_create_folder, then create_folder
 - preview_add_rule, then add_rule (beta); preview_sieve_filter only shows a script: \
 create_sieve_filter refuses on Bridge
+"""
+
+_INSTRUCTIONS_END = """\
 - reindex(op="preview"), then reindex(op="execute"); poll reindex_status for its progress
 
 Unless the operator disabled it, redeeming a mailbox or saved-rule token asks the user to confirm \
@@ -38,7 +43,13 @@ Confirmation cannot be passed as an argument.
 
 A refusal that asks for a new preview needs a new preview and a new approval. Never blindly \
 repeat a write whose outcome is uncertain: check list_actions and the mailbox first. Call \
-undo_action only at the user's request. Tools cannot enable or start the optional rules timer."""
+undo_action only at the user's request."""
+
+_RULES_INSTRUCTIONS = " Tools cannot enable or start the optional rules timer."
+
+_NO_RULES_INSTRUCTIONS = """
+
+Folder rules and Sieve filters are off unless the operator sets PROTON_MCP_ENABLE_RULES=1."""
 
 _SEND_INSTRUCTIONS = """
 
@@ -59,8 +70,12 @@ compose_reply, not create_draft."""
 
 def server_instructions(settings: Settings) -> str:
     """The server's instructions, naming only tools this configuration registers."""
+    rules = settings.enable_rules
     return (
         _INSTRUCTIONS
+        + (_RULES_STEPS if rules else "")
+        + _INSTRUCTIONS_END
+        + (_RULES_INSTRUCTIONS if rules else _NO_RULES_INSTRUCTIONS)
         + (_SEND_INSTRUCTIONS if settings.enable_send else _NO_SEND_INSTRUCTIONS)
         + (_VIEW_INSTRUCTIONS if settings.apps_enabled else "")
     )
@@ -254,29 +269,36 @@ ActionName = Annotated[
     str,
     Field(
         description="One of move_to_trash, archive, move_to_folder, mark_read, mark_unread, "
-        "add_label, remove_label, delete_draft or unsubscribe."
+        "add_label, remove_label, delete_draft, unsubscribe or create_folder. Its token redeems "
+        "only with: move(target=the preview's target) for move_to_trash, archive and "
+        'move_to_folder; set_read_state(state="read" or "unread") for mark_read or mark_unread; '
+        'label(op="add" or "remove") for add_label or remove_label; delete_draft, unsubscribe '
+        "and create_folder under their own names."
     ),
 ]
 CleanupQuery = Annotated[
     dict[str, Any] | None,
     Field(
         description="Filters selecting the complete matching set: folder, from_ (or from), to, "
-        "subject, since and before. text refuses. Pass exactly one of query and ids."
+        "subject, since and before. text refuses. Pass exactly one of query and ids; "
+        "create_folder takes neither."
     ),
 ]
 CleanupIds = Annotated[
     list[str] | None,
     Field(
         description="RFC Message-IDs from search_mail, including bare identifiers without a "
-        "domain. Not IMAP UIDs. Pass exactly one of query and ids."
+        "domain. Not IMAP UIDs. Pass exactly one of query and ids; create_folder takes neither."
     ),
 ]
 ActionParams = Annotated[
     dict[str, Any] | None,
     Field(
         description="move_to_folder needs folder, with optional mark_read=false and "
-        "create_folder_if_missing=false. add_label and remove_label need label. The others take "
-        "none."
+        "create_folder_if_missing=false. add_label and remove_label need label. create_folder "
+        "needs only folder: the exact new full path, such as Folders/Receipts or "
+        'Folders/Work/Clients, with no empty, "." or ".." part, quotes, backslashes, * or %, '
+        "and at most 500 characters. The others take none."
     ),
 ]
 ApprovalLimit = Annotated[
@@ -284,12 +306,11 @@ ApprovalLimit = Annotated[
     Field(
         description="Approve only the first clean messages, by folder and numeric UID: 1 to 200, "
         "or up to approval_max_messages for one bounded approval. Without it a batch above 200 "
-        "gets no token. delete_draft and unsubscribe refuse it."
+        "gets no token. delete_draft, unsubscribe and create_folder refuse it."
     ),
 ]
 
-# Folders, Sieve filters and saved rules
-FolderName = Annotated[str, Field(description="The exact new folder name, under Folders/.")]
+# Sieve filters and saved rules
 FilterName = Annotated[str, Field(description="A name for the filter, at most 100 characters.")]
 RuleName = Annotated[
     str,

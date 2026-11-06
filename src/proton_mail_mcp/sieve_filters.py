@@ -35,7 +35,7 @@ def _require_target(connection: Any, folder: str) -> None:
     if folder not in real_folders(attributes) or attributes[folder] & _SPECIAL_USE:
         raise MailValidationError(
             "Sieve filter folder must be an existing real folder; "
-            "create it with preview_create_folder first"
+            'create it with preview_action(action="create_folder") first'
         )
     # fileinto names a folder or a label by its bare path. Refuse a label, or
     # another folder differing only in case, that the same path could reach.

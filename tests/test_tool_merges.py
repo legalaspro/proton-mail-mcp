@@ -61,6 +61,7 @@ def full_surface():
         bridge_user="bridge@example.test",
         confirm_mutations=False,
         enable_send=True,
+        enable_rules=True,
         send_from_allowlist=("bridge@example.test",),
     )
     mcp = create_mcp(settings, SimpleNamespace())
@@ -69,7 +70,7 @@ def full_surface():
 
 def test_merged_tools_replace_their_twins_and_the_rest_stay_separate():
     mcp, tools = full_surface()
-    assert len(tools) == 33
+    assert len(tools) == 32
     assert not REMOVED & set(tools)
     assert set(MERGED) <= set(tools)
     # A required selector: a merged write never has a default operation.
@@ -86,9 +87,11 @@ def test_merged_tools_replace_their_twins_and_the_rest_stay_separate():
     assert "resourceUri" not in tools["preview_send"].meta["ui"]
     assert set(tools["preview_send"].inputSchema["properties"]) == {"draft_id"}
     # Models are told how to redeem and never pointed at a removed reindex tool.
-    preview = tools["preview_action"].description
+    preview = tools["preview_action"].inputSchema["properties"]["action"]["description"]
     assert "move(target=" in preview and "set_read_state(state=" in preview
-    assert "label(op=" in preview
+    assert "label(op=" in preview and "create_folder under their own names" in preview
+    redeemers = "move, set_read_state, label, delete_draft, unsubscribe or create_folder"
+    assert redeemers in " ".join(tools["preview_action"].description.split())
     for text in (mcp.instructions, *(tool.description for tool in tools.values())):
         assert not any(name in text for name in MERGED["reindex"])
 
@@ -149,14 +152,32 @@ def test_a_selector_the_token_does_not_pin_refuses_and_keeps_the_token(
         ("apply_rules", "move", {"target": "Folders/Reviewed"}),
         ("archive", "delete_draft", {}),
         ("move_to_folder", "apply_rules", {}),
+        # A folder token redeems only with create_folder, and create_folder only a folder token.
+        ("create_folder", "move", {"target": "Folders/Confirmed"}),
+        ("create_folder", "set_read_state", {"state": "read"}),
+        ("create_folder", "label", {"op": "add"}),
+        ("create_folder", "delete_draft", {}),
+        ("create_folder", "unsubscribe", {}),
+        ("create_folder", "apply_rules", {}),
+        ("create_folder", "add_rule", {}),
+        ("archive", "create_folder", {}),
+        ("move_to_folder", "create_folder", {}),
+        ("mark_read", "create_folder", {}),
+        ("add_label", "create_folder", {}),
+        ("unsubscribe", "create_folder", {}),
+        ("apply_rules", "create_folder", {}),
+        ("add_rule", "create_folder", {}),
+        ("create_sieve_filter", "create_folder", {}),
     ],
 )
 def test_no_token_crosses_to_another_merged_tool(case, action, tool, arguments):  # noqa: F811
-    built = case(action)
+    built = case(action, enable_rules=True)
     host = Host()
     with pytest.raises(ToolError, match="does not match"):
         call(built.mcp, tool, {**arguments, "token": built.preview["token"]}, host)
     assert host.prompts == [] and not built.changed()
+    # Refused before the form, so the token is still live for its own tool.
+    assert built.client.cleanup.tokens.describe(built.preview["token"], action).action == action
 
 
 def test_a_draft_deletion_token_never_moves_mail(case):  # noqa: F811

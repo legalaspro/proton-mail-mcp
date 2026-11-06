@@ -36,7 +36,7 @@ from proton_mail_mcp.action_log import (
 from proton_mail_mcp.config import Settings
 from proton_mail_mcp.guarded import TokenStore
 from proton_mail_mcp.mail import MailError, MailValidationError, draft_audit
-from proton_mail_mcp.server import _audit_result, create_mcp
+from proton_mail_mcp.server import RULES_TOOLS, _audit_result, create_mcp
 
 rig = _send_rig
 CLIENT = {"name": "offline-audit", "version": "9", "transport": "http"}
@@ -132,15 +132,18 @@ def test_draft_audit_describes_recipients_without_content(monkeypatch):
     assert draft_audit(**DRAFT).items() >= unknown.items()
 
 
-def test_every_write_tool_is_audited_and_filterable(rig):
-    settings = replace(rig.settings, action_log_path=str(rig.log.path))
+@pytest.mark.parametrize("enable_rules", [True, False])
+def test_every_write_tool_is_audited_and_filterable(rig, enable_rules):
+    settings = replace(rig.settings, action_log_path=str(rig.log.path), enable_rules=enable_rules)
     mcp = create_mcp(settings, mail_client=SimpleNamespace())
     write = {
         tool.name
         for tool in mcp._tool_manager.list_tools()
         if tool.annotations is not None and tool.annotations.readOnlyHint is False
     }
-    assert write == WRITE_TOOLS
+    # With rules off the log still names their writes, so earlier records stay filterable.
+    rules = {"apply_rules", "add_rule", "create_sieve_filter"} <= WRITE_TOOLS
+    assert rules and write == (WRITE_TOOLS if enable_rules else WRITE_TOOLS - RULES_TOOLS)
 
 
 @pytest.mark.parametrize(
