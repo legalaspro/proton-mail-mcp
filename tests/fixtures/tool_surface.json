@@ -1,0 +1,4706 @@
+{
+ "default": {
+  "compose_reply": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Open a reply or draft composer"
+   },
+   "arguments": [
+    "attachments",
+    "body",
+    "cc",
+    "draft_id",
+    "from_address",
+    "message_id",
+    "reply_all",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/reply.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/reply.html"
+   },
+   "required": []
+  },
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "show_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Show a thread in a view"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/thread.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/thread.html"
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "no-views": {
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "action"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "rules": {
+  "add_rule": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an approved folder rule (beta)"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "apply_rules": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Apply approved folder rules (beta)"
+   },
+   "arguments": [
+    "limit",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "compose_reply": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Open a reply or draft composer"
+   },
+   "arguments": [
+    "attachments",
+    "body",
+    "cc",
+    "draft_id",
+    "from_address",
+    "message_id",
+    "reply_all",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/reply.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/reply.html"
+   },
+   "required": []
+  },
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "create_sieve_filter": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved Sieve filter"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "list_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List folder rules (beta)"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ]
+  },
+  "preview_add_rule": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a folder rule (beta)"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "include_matches",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "preview_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview applying folder rules (beta)"
+   },
+   "arguments": [
+    "cursor",
+    "folder",
+    "limit",
+    "mark_read",
+    "order"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "preview_sieve_filter": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a Proton Sieve filter"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "show_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Show a thread in a view"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/thread.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/thread.html"
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "rules-no-views": {
+  "add_rule": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an approved folder rule (beta)"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "apply_rules": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Apply approved folder rules (beta)"
+   },
+   "arguments": [
+    "limit",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "create_sieve_filter": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved Sieve filter"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "list_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List folder rules (beta)"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "action"
+   ]
+  },
+  "preview_add_rule": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a folder rule (beta)"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "include_matches",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "preview_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview applying folder rules (beta)"
+   },
+   "arguments": [
+    "cursor",
+    "folder",
+    "limit",
+    "mark_read",
+    "order"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "preview_sieve_filter": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a Proton Sieve filter"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "send": {
+  "compose_reply": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Open a reply or draft composer"
+   },
+   "arguments": [
+    "attachments",
+    "body",
+    "cc",
+    "draft_id",
+    "from_address",
+    "message_id",
+    "reply_all",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/reply.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/reply.html"
+   },
+   "required": []
+  },
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ]
+  },
+  "preview_send": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview sending a draft"
+   },
+   "arguments": [
+    "draft_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "draft_id"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "review_send": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Review a draft before sending"
+   },
+   "arguments": [
+    "draft_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/review-send.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/review-send.html"
+   },
+   "required": [
+    "draft_id"
+   ]
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "send_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Send an approved draft"
+   },
+   "arguments": [
+    "draft_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "show_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Show a thread in a view"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/thread.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/thread.html"
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "send-no-views": {
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "action"
+   ]
+  },
+  "preview_send": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview sending a draft"
+   },
+   "arguments": [
+    "draft_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "draft_id"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "send_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Send an approved draft"
+   },
+   "arguments": [
+    "draft_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "send-rules": {
+  "add_rule": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an approved folder rule (beta)"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "apply_rules": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Apply approved folder rules (beta)"
+   },
+   "arguments": [
+    "limit",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "compose_reply": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Open a reply or draft composer"
+   },
+   "arguments": [
+    "attachments",
+    "body",
+    "cc",
+    "draft_id",
+    "from_address",
+    "message_id",
+    "reply_all",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/reply.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/reply.html"
+   },
+   "required": []
+  },
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "create_sieve_filter": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved Sieve filter"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "list_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List folder rules (beta)"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "action"
+   ]
+  },
+  "preview_add_rule": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a folder rule (beta)"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "include_matches",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "preview_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview applying folder rules (beta)"
+   },
+   "arguments": [
+    "cursor",
+    "folder",
+    "limit",
+    "mark_read",
+    "order"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "preview_send": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview sending a draft"
+   },
+   "arguments": [
+    "draft_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "draft_id"
+   ]
+  },
+  "preview_sieve_filter": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a Proton Sieve filter"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "review_send": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Review a draft before sending"
+   },
+   "arguments": [
+    "draft_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/review-send.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/review-send.html"
+   },
+   "required": [
+    "draft_id"
+   ]
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": []
+  },
+  "send_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Send an approved draft"
+   },
+   "arguments": [
+    "draft_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "show_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Show a thread in a view"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "resourceUri": "ui://proton-mail/thread.html",
+     "visibility": [
+      "model",
+      "app"
+     ]
+    },
+    "ui/resourceUri": "ui://proton-mail/thread.html"
+   },
+   "required": [
+    "message_id"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": {
+    "ui": {
+     "visibility": [
+      "model"
+     ]
+    }
+   },
+   "required": [
+    "token"
+   ]
+  }
+ },
+ "send-rules-no-views": {
+  "add_rule": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an approved folder rule (beta)"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "apply_rules": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Apply approved folder rules (beta)"
+   },
+   "arguments": [
+    "limit",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "count_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Count matching mail"
+   },
+   "arguments": [
+    "before",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "create_draft": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a new draft"
+   },
+   "arguments": [
+    "attachment_indexes",
+    "attachments",
+    "attachments_from",
+    "body",
+    "cc",
+    "from_address",
+    "in_reply_to",
+    "subject",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "body",
+    "subject",
+    "to"
+   ]
+  },
+  "create_folder": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved folder"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "create_sieve_filter": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Create an approved Sieve filter"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "delete_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Delete approved drafts"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "forward_message": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save a forwarding draft"
+   },
+   "arguments": [
+    "attachments",
+    "cc",
+    "from_address",
+    "message_id",
+    "note",
+    "to"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachments",
+    "message_id",
+    "to"
+   ]
+  },
+  "label": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Add or remove an approved label"
+   },
+   "arguments": [
+    "limit",
+    "op",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op",
+    "token"
+   ]
+  },
+  "list_actions": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List logged changes and write calls"
+   },
+   "arguments": [
+    "action",
+    "before",
+    "client_name",
+    "limit",
+    "since",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "list_attachments": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List a message's attachments"
+   },
+   "arguments": [
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "list_from_addresses": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List allowed From addresses"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "list_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "List folder rules (beta)"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "move": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Move approved mail"
+   },
+   "arguments": [
+    "limit",
+    "target",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "target",
+    "token"
+   ]
+  },
+  "preview_action": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a mailbox change"
+   },
+   "arguments": [
+    "action",
+    "ids",
+    "limit",
+    "params",
+    "query"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "action"
+   ]
+  },
+  "preview_add_rule": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a folder rule (beta)"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "include_matches",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "preview_rules": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview applying folder rules (beta)"
+   },
+   "arguments": [
+    "cursor",
+    "folder",
+    "limit",
+    "mark_read",
+    "order"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "preview_send": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview sending a draft"
+   },
+   "arguments": [
+    "draft_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "draft_id"
+   ]
+  },
+  "preview_sieve_filter": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Preview a Proton Sieve filter"
+   },
+   "arguments": [
+    "conditions",
+    "folder",
+    "mark_read",
+    "match",
+    "name"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "conditions",
+    "folder",
+    "name"
+   ]
+  },
+  "read_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read an attachment's content"
+   },
+   "arguments": [
+    "attachment",
+    "message_id",
+    "offset"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "read_thread": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Read a thread as text"
+   },
+   "arguments": [
+    "include_thread",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "message_id"
+   ]
+  },
+  "reindex": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Preview, run or cancel a search-index rebuild"
+   },
+   "arguments": [
+    "op",
+    "run_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "op"
+   ]
+  },
+  "reindex_status": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Check search-index rebuild progress"
+   },
+   "arguments": [],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "save_attachment": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Save an attachment to a file"
+   },
+   "arguments": [
+    "attachment",
+    "filename",
+    "message_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "attachment",
+    "message_id"
+   ]
+  },
+  "search_mail": {
+   "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true,
+    "title": "Search a mail folder"
+   },
+   "arguments": [
+    "before",
+    "cursor",
+    "exclude_subject",
+    "exclude_text",
+    "folder",
+    "from_",
+    "include_snippets",
+    "limit",
+    "query",
+    "since",
+    "subject",
+    "text",
+    "to",
+    "unread_only"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": []
+  },
+  "send_draft": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Send an approved draft"
+   },
+   "arguments": [
+    "draft_id",
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  },
+  "set_read_state": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Mark approved mail read or unread"
+   },
+   "arguments": [
+    "limit",
+    "state",
+    "token",
+    "verbose"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "state",
+    "token"
+   ]
+  },
+  "undo_action": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false,
+    "title": "Undo a logged mailbox change"
+   },
+   "arguments": [
+    "log_id"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "log_id"
+   ]
+  },
+  "unsubscribe": {
+   "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false,
+    "title": "Unsubscribe as approved"
+   },
+   "arguments": [
+    "token"
+   ],
+   "extra_arguments": false,
+   "meta": null,
+   "required": [
+    "token"
+   ]
+  }
+ }
+}

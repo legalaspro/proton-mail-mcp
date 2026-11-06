@@ -87,7 +87,7 @@ def test_imap_timeout_keeps_initialized_mcp_session_serving(inject_timeout):
                 assert connections[0].calls == first_calls
                 assert connections[1].calls[-1] == ("LOGOUT",)
                 tools = (await session.list_tools()).tools
-                assert len(tools) == 33
+                assert len(tools) == 25
                 assert all(
                     tool.annotations.readOnlyHint is True
                     for tool in tools

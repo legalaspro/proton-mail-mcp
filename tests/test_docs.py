@@ -32,6 +32,9 @@ CONFIGS = {
     "send": {"PROTON_MCP_ENABLE_SEND": "1"},
     "no-views": {"PROTON_MCP_APPS_ENABLED": "0"},
     "send-no-views": {"PROTON_MCP_ENABLE_SEND": "1", "PROTON_MCP_APPS_ENABLED": "0"},
+    "rules": {"PROTON_MCP_ENABLE_RULES": "1"},
+    # Every tool there is: sending and folder rules on, with views.
+    "all": {"PROTON_MCP_ENABLE_SEND": "1", "PROTON_MCP_ENABLE_RULES": "1"},
 }
 # Older Claude Code versions cut descriptions and instructions here, keeping what comes first.
 CLIENT_CUT = 2048
@@ -142,7 +145,7 @@ def test_every_argument_says_what_it_means(tmp_path, env):
 
 @pytest.mark.parametrize("env", CONFIGS.values(), ids=CONFIGS)
 def test_the_instructions_name_only_registered_tools(tmp_path, env):
-    every = set(tools(server(tmp_path, CONFIGS["send"])))
+    every = set(tools(server(tmp_path, CONFIGS["all"])))
     mcp = server(tmp_path, env)
     registered = set(tools(mcp))
     named = {word for word in re.findall(r"[a-z_]+", mcp.instructions) if word in every}
@@ -151,16 +154,17 @@ def test_the_instructions_name_only_registered_tools(tmp_path, env):
 
 
 def test_descriptions_call_only_tools_that_exist(tmp_path):
-    registered = tools(server(tmp_path, CONFIGS["send"]))
+    registered = tools(server(tmp_path, CONFIGS["all"]))
     for tool in registered.values():
         for called in re.findall(r"\b([a-z]+_[a-z_]+)\(", tool.description):
             assert called in registered, f"{tool.name} names {called}"
 
 
 def test_the_reference_says_which_settings_register_each_tool(tmp_path):
-    every = tools(server(tmp_path, CONFIGS["send"]))
+    every = tools(server(tmp_path, CONFIGS["all"]))
     default = tools(server(tmp_path, CONFIGS["default"]))
     no_views = tools(server(tmp_path, CONFIGS["send-no-views"]))
+    rules = set(tools(server(tmp_path, CONFIGS["rules"]))) - set(default)
     page = read(DOCS / "tools.md")
     for name in every:
         expected = (
@@ -168,6 +172,8 @@ def test_the_reference_says_which_settings_register_each_tool(tmp_path):
             if name in default and name in no_views
             else "Unless `PROTON_MCP_APPS_ENABLED=0`"
             if name in default
+            else "With `PROTON_MCP_ENABLE_RULES=1`"
+            if name in rules
             else "With `PROTON_MCP_ENABLE_SEND=1`"
             if name in no_views
             else "With `PROTON_MCP_ENABLE_SEND=1`, unless `PROTON_MCP_APPS_ENABLED=0`"
@@ -178,7 +184,7 @@ def test_the_reference_says_which_settings_register_each_tool(tmp_path):
 def test_every_tool_has_a_row_where_results_are_explained(tmp_path):
     results = read(DOCS / "results.md")
     rows = results[results.index("## What each tool returns") : results.index("## Refused")]
-    for name in tools(server(tmp_path, CONFIGS["send"])):
+    for name in tools(server(tmp_path, CONFIGS["all"])):
         assert f"`{name}`" in rows, name
 
 

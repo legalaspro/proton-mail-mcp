@@ -75,8 +75,8 @@ refused. The preview fingerprint binds exactly the selected rows and
 `estimated_calls` describes that set. Omitting the limit retains the existing
 200-row refusal. Unsubscribe retains its separate cap
 and does not accept this option. Draft deletion accepts no limit and has a strict
-200-message cap. Cleanup execution and `apply_rules` also accept
-`limit` to bound the number of approved rows attempted in one call, preserving
+200-message cap. Cleanup execution and `apply_rules` (listed with
+`PROTON_MCP_ENABLE_RULES=1`) also accept `limit` to bound the number of approved rows attempted in one call, preserving
 an exact continuation for the rest. An execute limit cannot exceed the originally
 approved total or include any unapproved row. `preview_rules` has its own limit and
 ordering semantics; see [Manual connector folder rules](rules.md#manual-connector-folder-rules).

@@ -17,5 +17,10 @@ _CALLS = {
 
 def tool_call(action, arguments):
     """The tool and arguments for one action; any other tool name passes through."""
+    if action == "preview_create_folder":
+        # The retired folder preview: its name argument is preview_action's params.folder.
+        rest = {key: value for key, value in arguments.items() if key != "name"}
+        params = {"folder": arguments["name"]} if "name" in arguments else {}
+        return "preview_action", {"action": "create_folder", "params": params, **rest}
     tool, selector = _CALLS.get(action, (action, {}))
     return tool, {**selector, **arguments}

@@ -26,8 +26,8 @@ HASH = re.compile(r"sha256:[0-9a-f]{64}")
 # The distribution the plugin's launcher runs.
 DIST = "mcp-proton-mail"
 FIX = (
-    "Lock only a release that is on PyPI: in plugin/, run `uv lock --upgrade-package "
-    "mcp-proton-mail` and commit the lock (docs/ci.md, The plugin's lock)."
+    "Lock only a release that is on PyPI: run `python scripts/bump_version.py X.Y.Z --plugin` "
+    "with that release and commit what it changes (docs/ci.md, The plugin, after the upload)."
 )
 
 

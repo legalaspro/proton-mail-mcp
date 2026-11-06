@@ -225,8 +225,8 @@ which names the PyPI package and its `connect` command, and the README's `mcp-na
 the package's ownership. `make mcpb` builds a Claude Desktop bundle locally
 ([Claude Desktop](clients/claude-desktop.md#the-mcpb-bundle)), and the repository is a Claude Code
 plugin marketplace ([Claude Code](clients/claude-code.md#as-a-plugin)). The public repository's
-`publish.yml` publishes a `v*` tag to PyPI, and the registry listing is a step by hand
-([CI](ci.md#publishing-to-pypi)). Nothing else here publishes or registers anything.
+`publish.yml` publishes a `v*` tag to PyPI, then makes its GitHub release and lists it in the
+registry ([CI](ci.md#releasing)). Nothing else here publishes or registers anything.
 
 ## Running from a checkout
 

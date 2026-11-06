@@ -837,7 +837,15 @@ class BridgeSim:
 
 
 def make_client(
-    sim, tmp, *, call_timeout=20, timeout=5, protected=None, action_log=None, token_ttl=600.0
+    sim,
+    tmp,
+    *,
+    call_timeout=20,
+    timeout=5,
+    protected=None,
+    action_log=None,
+    token_ttl=600.0,
+    enable_rules=False,
 ):
     from proton_mail_mcp.config import Settings
     from proton_mail_mcp.mail import MailClient
@@ -853,6 +861,7 @@ def make_client(
         call_timeout=call_timeout,
         execute_timeout=call_timeout,
         cleanup_token_ttl=token_ttl,
+        enable_rules=enable_rules,
     )
     return MailClient(
         settings, lambda _: Credentials("reader@example.test", BRIDGE_PASSWORD), sim.factory()

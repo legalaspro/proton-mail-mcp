@@ -39,7 +39,7 @@ The package is `mcp-proton-mail` on PyPI: `uvx mcp-proton-mail setup --client <c
 - [Drafts and attachments](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/drafts.md): Drafts, replies, forwards and the allowed folder
 - [Sending mail](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/sending.md): The guarded send path, aliases and the typed OK
 - [Cleaning up mail](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/cleanup.md): Moves, read state, labels, draft deletion and unsubscribe
-- [Folder rules, Sieve filters and saved rules](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/rules.md): Beta rules, previewed filters and the saved rules store
+- [Folder rules, Sieve filters and saved rules](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/rules.md): Opt-in beta rules, previewed filters and the saved rules store
 - [Recovery](https://raw.githubusercontent.com/legalaspro/proton-mail-mcp/main/docs/RECOVERY.md): Recover from a lost response, the action log, undo and the audit trail
 
 ## Optional

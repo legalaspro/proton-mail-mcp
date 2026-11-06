@@ -508,8 +508,8 @@ cannot make progress.
 | Header rows per day | 5000. A tick runs only if a full catch-up still fits, so at the default cap of 2000 ticks stop after 3000 rows, and a cap above 5000 reports `budget` on every wake. A tick whose `ALL` read fails partway counts only its net new headers |
 | Backoff | Doubles from twice the interval on a failure or a change tick over 5 seconds, up to 6 hours; a fast change tick resets it |
 
-While the job is active, the All Mail raw identity audit of `preview_rules` stays in
-memory for 24 hours after its last write, instead of 10 minutes, and each wake frees
+While the job is active, the All Mail raw identity audit of `preview_rules` (listed with
+`PROTON_MCP_ENABLE_RULES=1`) stays in memory for 24 hours after its last write, instead of 10 minutes, and each wake frees
 expired audits. Audit rows hold message identities only, and are never written to
 disk. A later preview still revalidates the audit against its current SELECT and
 fetches matches afresh. A full All Mail audit can hold tens of MiB for that time.

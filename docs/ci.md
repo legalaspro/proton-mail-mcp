@@ -1,10 +1,10 @@
 # CI
 
-What GitHub Actions runs, where and at what cost, and how a release reaches PyPI. The same
-workflow files run in a private dev repo, where every minute is billed, and in the public release
-repo, where hosted runners are free. The dev repo runs nothing on its own, and `make check` is its
-gate. The release repo runs everything: three quick jobs on each sync pull request, and the full
-matrix every night and on each tag. Only the release repo publishes.
+What GitHub Actions runs, where and at what cost, and how a release reaches PyPI, GitHub and the
+MCP Registry. The same workflow files run in a private dev repo, where every minute is billed, and
+in the public release repo, where hosted runners are free. The dev repo runs nothing on its own,
+and `make check` is its gate. The release repo runs everything: three quick jobs on each sync pull
+request, and the full matrix every night and on each tag. Only the release repo publishes.
 
 ## Two repos, one set of workflows
 
@@ -16,8 +16,8 @@ matrix every night and on each tag. Only the release repo publishes.
 | Docs-only pull request | nothing | none of these workflows |
 | Push to `main` | nothing | the same three Checks jobs |
 | Every night, 03:17 UTC | nothing | Full run: Linux, Windows and macOS, Python 3.12, 3.13 and 3.14, all tests, with Installer |
-| `v*` tag | nothing | the same Full run, and [Publish](#publishing-to-pypi) |
-| Published GitHub release | nothing | [Publish](#publishing-to-pypi) |
+| `v*` tag | nothing | the same Full run, and [Publish](#releasing): PyPI, then the GitHub release and the MCP Registry |
+| Published GitHub release | nothing | [Publish](#releasing) |
 | By hand | Checks, Installer or a Full run, on Linux and Windows | the same, plus macOS (in Checks only with `full`), and Python 3.13 in a Full run |
 | Windows | by hand only | every night, on each tag and by hand; no pull request |
 | macOS | **never** | the one macOS job of each pull request and push to `main`, every Full run and every Installer run |
@@ -119,21 +119,23 @@ The release sync opens a pull request in the release repo, from a sync branch to
 ruleset requires one. Before it pushes the sync branch, it runs
 `python scripts/check_plugin_lock.py` on the release tree and stops if that fails: the Claude
 directory refuses a plugin lock that names anything but PyPI (see
-[the plugin's lock](#publishing-to-pypi)). Each Checks job runs it again before the tests, so such
-a lock also fails a required check by name.
+[the plugin's lock](#the-plugin-after-the-upload)). Each Checks job runs it again before the
+tests, so such a lock also fails a required check by name, and then
+`python scripts/check_versions.py`, which fails one whose files name different releases
+([Releasing](#releasing)).
 
 A `pull_request` run uses the workflow files of the pull request's merge ref, so a sync that
 changes these files runs the new ones. A sync that is not docs-only runs three **Checks** jobs,
 the [required checks](#required-checks), all with `-m "not slow"`:
 
-- `ubuntu-latest, Python 3.12`: the plugin's lock, `ruff check .` and `ruff format --check .` on
-  the whole tree, `make check`, and the installer's quick dry runs.
+- `ubuntu-latest, Python 3.12`: the plugin's lock and the versions, `ruff check .` and
+  `ruff format --check .` on the whole tree, `make check`, and the installer's quick dry runs.
 - `ubuntu-latest, Python 3.14`: the same, on the newest Python.
-- `macos-latest, Python 3.12`: the plugin's lock and `make check`, then the wheel smoke's macOS
-  part: the wheel built, its files, metadata and entry points, its dry runs through `uvx`, and its
-  server starting and refusing a request without a token. The applied quick start (`setup`
-  against stand-ins, `connect`, the token, pipx and the installs by name) needs Linux, so only
-  Installer's Linux wheel job runs it.
+- `macos-latest, Python 3.12`: the plugin's lock, the versions and `make check`, then the wheel
+  smoke's macOS part: the wheel built, its files, metadata and entry points, its dry runs through
+  `uvx`, and its server starting and refusing a request without a token. The applied quick start
+  (`setup` against stand-ins, `connect`, the token, pipx and the installs by name) needs Linux, so
+  only Installer's Linux wheel job runs it.
 
 pytest stops after 5 failures in each job, and no job cancels another, so that one fix-forward pull
 request can fix every runner's failures. GitHub's CodeQL default setup also analyzes each pull
@@ -153,7 +155,7 @@ OS, and Installer. A failure there shows only after the merge, so check the nigh
 sync. GitHub turns off a public repo's schedule after 60 days without activity.
 
 A `v*` tag runs the same Full run, and Publish, which does not wait for it: tag a commit whose
-nightly or Full run passed (see [Publishing to PyPI](#publishing-to-pypi)).
+nightly or Full run passed (see [Releasing](#releasing)).
 
 Each Checks job also runs the installer's quick dry runs: `shellcheck` and `install.sh` under the
 service preflight on Linux, and `install.ps1` on Windows, which runs in a Full run or by hand. They
@@ -237,7 +239,42 @@ make check JOBS=2                       # as many workers as a private runner ha
 make check JOBS=0                       # one process, for debugging
 ```
 
-## Publishing to PyPI
+## Releasing
+
+A release goes from a version bump here to PyPI, a GitHub release and the MCP Registry, and the
+Claude Code plugin follows it after the upload:
+
+1. **Bump.** On a branch here, `python scripts/bump_version.py X.Y.Z` sets the version in
+   `src/proton_mail_mcp/__init__.py`, in both places in `server.json` and in
+   `mcpb/manifest.json`'s version and uvx command. In `CHANGELOG.md` it turns `## Unreleased` into
+   `## X.Y.Z - <date>`, or adds that heading with no entries when there is no such section: write
+   them, since they become the release's notes. `--dry-run` shows the diff and writes nothing.
+   Merge it and sync it to the release repo.
+2. **Tag.** In the release repo, push the tag `vX.Y.Z` on a commit whose nightly or Full run
+   passed. Publish starts; it does not wait for the tag's own Full run.
+3. **PyPI.** Publish builds and checks the tag, then the `pypi` environment's required reviewer
+   approves the upload ([Publishing to PyPI](#publishing-to-pypi)).
+4. **GitHub release** and **MCP Registry**, side by side, once the upload has succeeded
+   ([The GitHub release](#the-github-release), [The MCP Registry](#the-mcp-registry)).
+5. **Plugin.** Once PyPI has the version, `python scripts/bump_version.py X.Y.Z --plugin` here,
+   then a pull request and a sync ([The plugin, after the upload](#the-plugin-after-the-upload)).
+
+`scripts/check_versions.py` holds the files to one release throughout: the package's version,
+both in `server.json`, the bundle's version and the release its uvx command runs, and the newest
+release heading in `CHANGELOG.md` must all be the same. The plugin's five files must name one
+release, that one or the release before it in `CHANGELOG.md`. Each Checks job runs it before the
+tests, Publish runs it with `--tag` before the upload, and `tests/test_versions.py` runs it in
+`make check`. Every refusal names the file and what to run.
+
+If Publish refuses a tag before the upload, PyPI has nothing of that version, so release the same
+version again. Fix the cause here, merge it and sync it, then in the release repo delete the tag,
+with `git tag -d vX.Y.Z` and `git push origin :refs/tags/vX.Y.Z`, and push `vX.Y.Z` again on the
+fixed commit. Don't bump past it: `CHANGELOG.md` would then hold a release that never reached PyPI,
+the plugin would trail the next by two, and `scripts/check_versions.py` refuses that. To drop the
+version anyway, turn its `## X.Y.Z - <date>` heading back into `## Unreleased` first, then bump to
+the new one. Once PyPI has a version, it is final, and a fix is a new release.
+
+### Publishing to PyPI
 
 `publish.yml` publishes a release to PyPI with
 [Trusted Publishing](https://docs.pypi.org/trusted-publishers/): PyPI trusts this workflow, in the
@@ -246,8 +283,8 @@ token is stored anywhere.
 
 - **When:** a pushed `v*` tag, or a published GitHub release on a `v*` tag; a release on any other
   tag skips. A release made with a new tag can start both; the second run waits for the first,
-  finds the files on PyPI and skips them. So a green run for a version already on PyPI uploaded
-  nothing; its log says so.
+  finds the files on PyPI and skips them, and so do the release and registry jobs. So a green run
+  for a version already on PyPI uploaded nothing; its log says so.
 - **Where:** each job runs only if `github.repository == 'legalaspro/proton-mail-mcp'`, so a tag
   or a release in this repo or in a fork starts nothing. It leaves out the macOS gate's
   `visibility` check, which is about billing; PyPI trusts only that repository anyway.
@@ -256,29 +293,79 @@ token is stored anywhere.
   could change it there, so the `pypi` environment's tag rule below is what holds publishing to
   tags.
 - **Build:** `uv build` makes the sdist and builds the wheel from it. The job stops unless the tag
-  is `v` followed by the version that both file names and both versions in `server.json` carry,
-  then hands the two files on as an artifact.
-- **Publish:** only this job may ask for an OIDC token (`id-token: write`). It checks nothing out
+  is `v` followed by the version that every file names (`scripts/check_versions.py --tag`) and
+  that both file names carry, and unless `CHANGELOG.md` has a section for it with entries
+  (`scripts/release_notes.py`). So a tag without notes stops before anything is uploaded. It hands
+  on the two files as one artifact, and the notes with `server.json` as another.
+- **Publish:** it alone asks for an OIDC token for PyPI (`id-token: write`). It checks nothing out
   and runs no code from the repository: `pypa/gh-action-pypi-publish` uploads the files, with
   attestations.
 - **Not waited for:** the tag also starts a Full run, and publishing does not wait for it. Tag a
   commit whose Full run passed; the `pypi` environment's required reviewer holds the upload until
-  it has.
+  it has. The release and registry jobs need the upload, so they wait for the reviewer too.
 - **Before the tag:** check that the `Homepage` in `pyproject.toml` returns HTTP 200. PyPI cannot
   change a published version's links, and the MCP Registry entry's `websiteUrl` is the same URL.
-- **The plugin's lock:** `plugin/uv.lock` records what the Claude Code plugin's
-  `uvx mcp-proton-mail==<version>` resolves to, for the Claude directory's review; uvx does not
-  read it. The directory reports a lock that names any source but PyPI, such as the `../dist`
-  that `uv lock --find-links ../dist` records, as "Launcher lock invalid". So the lock names only
-  PyPI's files and hashes, and `scripts/check_plugin_lock.py` refuses anything else: in
-  `make check`, in each Checks job before the tests, and in the
-  [release sync](#how-a-change-reaches-the-release-repo) before it pushes.
-  A new version reaches PyPI only with the upload, so the release leaves the plugin on the
-  version before it; `tests/test_packaging.py` lets the plugin trail by one release, no more.
-  After the upload, set the new version in `plugin/.claude-plugin/plugin.json`,
-  `plugin/.mcp.json`, `plugin/pyproject.toml` and `plugin/README.md`, run
-  `uv lock --upgrade-package mcp-proton-mail` in `plugin/`, and sync that change. Submit the
-  plugin to the directory only after that.
+
+### The GitHub release
+
+Once the upload has succeeded, the `github-release` job makes the tag's release:
+`gh release create vX.Y.Z --verify-tag --title X.Y.Z`, with the version's `CHANGELOG.md` section,
+without its heading, as the notes. The build took the notes from the tagged tree, before the
+upload.
+
+- **Idempotent:** a tag that has a release already, made by hand or by an earlier run, keeps it
+  unchanged and the job passes. Any other answer from `gh release view` fails the job rather than
+  guess.
+- **Token:** the job's own `GITHUB_TOKEN`, with `contents: write` and nothing else. It checks
+  nothing out and runs no code from the repository; the notes come from the build's artifact. A
+  release that token makes starts no new Publish run, since GitHub starts no workflow for its own
+  token's events.
+- **By hand:** a release published by hand on a `v*` tag still starts Publish, as before; the job
+  then finds it and leaves it as it is.
+
+### The MCP Registry
+
+Once the upload has succeeded, the `registry` job lists the version in the
+[MCP Registry](https://registry.modelcontextprotocol.io/) with `mcp-publisher`, from the tag's
+`server.json`. The registry checks that PyPI has the package and that its README carries the
+`mcp-name` line, so the job first waits until PyPI's JSON API serves the version, for up to five
+minutes.
+
+- **No login, no stored token:** `mcp-publisher login github-oidc` uses the job's GitHub OIDC
+  token (`id-token: write`), which the registry trades for a short-lived token for
+  `io.github.legalaspro/*`, the namespace of the repository's owner. Nobody signs in and no secret
+  is stored.
+- **What it trusts:** the registry trusts any workflow of a repository that `legalaspro` owns, not
+  this file or an environment. What holds this job to an uploaded tag is its `needs: publish`
+  here, behind the `pypi` environment, and the repository gate; a version the registry lists must
+  be on PyPI anyway.
+- **Idempotent:** it asks the registry for
+  `/v0/servers/io.github.legalaspro%2Fproton-mail-mcp/versions/X.Y.Z` first, and skips the publish
+  when the answer is 200. Any answer but 200 or 404 fails the job rather than guess.
+- **Pinned:** `mcp-publisher` is a downloaded program, not an action, so the job pins its version
+  and the sha256 of `mcp-publisher_linux_amd64.tar.gz`, as that release's
+  `registry_<version>_checksums.txt` gives it, and `sha256sum --check` refuses other bytes before
+  the archive is opened. See [Pinned tools](#pinned-tools) to move it.
+- **If it fails:** rerun the failed job. By hand, from a checkout of the tag in the public repo,
+  `mcp-publisher login github` signs in as `legalaspro` and `mcp-publisher publish` reads
+  `server.json`.
+
+### The plugin, after the upload
+
+`plugin/uv.lock` records what the Claude Code plugin's `uvx mcp-proton-mail==<version>` resolves
+to, for the Claude directory's review; uvx does not read it. The directory reports a lock that
+names any source but PyPI, such as the `../dist` that `uv lock --find-links ../dist` records, as
+"Launcher lock invalid". So the lock names only PyPI's files and hashes, and
+`scripts/check_plugin_lock.py` refuses anything else: in `make check`, in each Checks job before
+the tests, and in the [release sync](#how-a-change-reaches-the-release-repo) before it pushes.
+
+A new version reaches PyPI only with the upload, so the release leaves the plugin on the version
+before it; `scripts/check_versions.py` lets the plugin trail by one release, no more. Once PyPI has
+the version, run `python scripts/bump_version.py X.Y.Z --plugin` here. It sets the version in
+`plugin/.claude-plugin/plugin.json`, `plugin/.mcp.json`, `plugin/pyproject.toml` and
+`plugin/README.md`, runs `uv lock --upgrade-package mcp-proton-mail` in `plugin/`, and puts every
+file back if a write or uv fails, the new lock fails either check, or Ctrl-C stops it. Open a pull
+request with it and sync it. Submit the plugin to the directory only after that.
 
 ### Setting it up, once, by hand
 
@@ -303,19 +390,8 @@ file and the environment, not the branch or tag, so without the tag rule a run o
 run has passed: a version on PyPI cannot be replaced. Recommended as well: a tag ruleset that lets
 only maintainers create `v*` tags.
 
-### The MCP Registry, by hand
-
-Nothing here lists the server in the [MCP Registry](https://registry.modelcontextprotocol.io/).
-The registry checks that the PyPI package exists and that its README carries the `mcp-name` line,
-so list it once PyPI shows the version, from a checkout of the tag in the public repo:
-
-```sh
-mcp-publisher login github   # signs in as legalaspro, which owns io.github.legalaspro/*
-mcp-publisher publish        # reads server.json
-```
-
-It stays by hand because `mcp-publisher` is a downloaded program, not an action pinned to a commit,
-and has to wait for PyPI.
+The GitHub release and the MCP Registry need no setup: the release job uses the workflow's own
+token, and the registry trusts GitHub's OIDC token for the namespace of the repository's owner.
 
 ## Pinned tools
 
@@ -325,6 +401,14 @@ repo runs these on pull requests from forks. Dependabot proposes new pins weekly
 repo. uv is pinned to one version, in `check.yml`, in both places in `installer.yml` and in
 `publish.yml`, which Dependabot does not update. Change them together;
 `tests/test_ci_workflows.py` holds all four to one version.
+
+`mcp-publisher` is pinned in `publish.yml`'s `registry` job, by `MCP_PUBLISHER_VERSION` and
+`MCP_PUBLISHER_SHA256`, and Dependabot does not update it either. To move it, take the new
+version from the [registry's releases](https://github.com/modelcontextprotocol/registry/releases),
+and the sha256 of `mcp-publisher_linux_amd64.tar.gz` from that release's
+`registry_<version>_checksums.txt`; check that GitHub shows the same digest for the asset, and
+change both lines together. `tests/test_ci_workflows.py` holds the job to a version and a hash,
+checked before the archive is opened.
 
 `actions/setup-python` no longer sets `check-latest: true`. Jobs use the patch release already on
 the runner rather than look for a newer one, which skips a lookup and sometimes a download. A new

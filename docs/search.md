@@ -376,8 +376,8 @@ UIDVALIDITY changes, search again and request a fresh preview.
   govern retries; resolved rows on either side are retained and excluded from later
   pages.
   Thread and preview rows can still retain `null` canonical fields and their view alias.
-- Previews (`preview_action`, including unsubscribe, and `preview_rules`)
-  report the canonical handle in `samples` and `blocked`.
+- Previews (`preview_action`, including unsubscribe, and `preview_rules` with
+  `PROTON_MCP_ENABLE_RULES=1`) report the canonical handle in `samples` and `blocked`.
   A label or All Mail source handle appears as `alias`. After the approval checks,
   previews resolve it with the same lookup as `search_mail`, never from the
   discovered memberships, which share only a Message-ID with the source and may

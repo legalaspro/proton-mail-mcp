@@ -1,0 +1,436 @@
+{
+ "folders": {
+  "Folders/Café & News": {
+   "action_hash": "68d9737f9cbaf6275159d162364f4a600948bed53860b23fb3b0bd98830fea20",
+   "form": "Approve exactly this mailbox change? Create the folder \"Folders/Caf\\u00e9 & News\". Approval hash prefix: 68d9737f9cbaf627\n{\"action\": \"create_folder\", \"action_hash\": \"68d9737f9cbaf6275159d162364f4a600948bed53860b23fb3b0bd98830fea20\", \"approved_total\": 0, \"count\": 0, \"expires_at\": \"2026-11-06T12:00:00+00:00\", \"name\": \"Folders/Caf\\u00e9 & News\", \"samples\": []}"
+  },
+  "Folders/New": {
+   "action_hash": "a23956b9b0440ad5715dae38b8ab721f9bc1079bbc91a0a09e9d23cad3ff6df6",
+   "form": "Approve exactly this mailbox change? Create the folder \"Folders/New\". Approval hash prefix: a23956b9b0440ad5\n{\"action\": \"create_folder\", \"action_hash\": \"a23956b9b0440ad5715dae38b8ab721f9bc1079bbc91a0a09e9d23cad3ff6df6\", \"approved_total\": 0, \"count\": 0, \"expires_at\": \"2026-11-06T12:00:00+00:00\", \"name\": \"Folders/New\", \"samples\": []}"
+  },
+  "Folders/Work/Clients": {
+   "action_hash": "8425d62c0651c18c030c13f7728ed278a409d8b871606dbcc8d53892f9585302",
+   "form": "Approve exactly this mailbox change? Create the folder \"Folders/Work/Clients\". Approval hash prefix: 8425d62c0651c18c\n{\"action\": \"create_folder\", \"action_hash\": \"8425d62c0651c18c030c13f7728ed278a409d8b871606dbcc8d53892f9585302\", \"approved_total\": 0, \"count\": 0, \"expires_at\": \"2026-11-06T12:00:00+00:00\", \"name\": \"Folders/Work/Clients\", \"samples\": []}"
+  }
+ },
+ "messages": {
+  "add_label {\"label\": \"Review\"}": {
+   "form": "Approve exactly this mailbox change? Add the label \"Labels/Review\" to 2 message(s). Approval hash prefix: efd86886379efc34\n{\"action\": \"add_label\", \"action_hash\": \"efd86886379efc3403a52e898252f5e92befe782ad6e1d2cdf642272345a8c9f\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}], \"target\": \"Labels/Review\"}",
+   "preview": {
+    "action": "add_label",
+    "action_hash": "efd86886379efc3403a52e898252f5e92befe782ad6e1d2cdf642272345a8c9f",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "Labels/Review",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "archive null": {
+   "form": "Approve exactly this mailbox change? Move 2 message(s) to \"Archive\". Approval hash prefix: 968fd22c179ec668\n{\"action\": \"archive\", \"action_hash\": \"968fd22c179ec6688c82c51df32da496eda13c0825d253e8dc2dcf083259e88b\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"mark_read\": false, \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}], \"target\": \"Archive\"}",
+   "preview": {
+    "action": "archive",
+    "action_hash": "968fd22c179ec6688c82c51df32da496eda13c0825d253e8dc2dcf083259e88b",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "log_id": "<masked>",
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "Archive",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "delete_draft null": {
+   "form": "Approve exactly this mailbox change? Permanently delete 2 message(s) from Drafts (\"Drafts\"); cannot be undone. Approval hash prefix: d6accff37c10d635\n{\"action\": \"delete_draft\", \"action_hash\": \"d6accff37c10d6358cf8736f7ed4c7c012ae03b3d745cfac7c473701b2a1cbe4\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"folder\": \"Drafts\", \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"Drafts\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"Drafts\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}]}",
+   "preview": {
+    "action": "delete_draft",
+    "action_hash": "d6accff37c10d6358cf8736f7ed4c7c012ae03b3d745cfac7c473701b2a1cbe4",
+    "blocked": [],
+    "count": 2,
+    "excluded_count": 0,
+    "expires_at": "<masked>",
+    "log_id": "<masked>",
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "Drafts",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1001"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "Drafts",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1001"
+     }
+    ],
+    "target": "Drafts",
+    "token": "<masked>",
+    "total_is_exact": true,
+    "undo_supported": false
+   }
+  },
+  "mark_read null": {
+   "form": "Approve exactly this mailbox change? Mark 2 message(s) as read. Approval hash prefix: 1bdbfcf1aecbab11\n{\"action\": \"mark_read\", \"action_hash\": \"1bdbfcf1aecbab112d45314dd11cbc1f86747bf25ba518f7099c0983da61b73b\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"folders\": [\"INBOX\"], \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}]}",
+   "preview": {
+    "action": "mark_read",
+    "action_hash": "1bdbfcf1aecbab112d45314dd11cbc1f86747bf25ba518f7099c0983da61b73b",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "mark_read": true,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "mark_unread null": {
+   "form": "Approve exactly this mailbox change? Mark 2 message(s) as unread. Approval hash prefix: edca162e34422fcb\n{\"action\": \"mark_unread\", \"action_hash\": \"edca162e34422fcbb0fb5cd4d6240d00b0c0b4a10ac614916f483ca5a9d069ef\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"folders\": [\"INBOX\"], \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}]}",
+   "preview": {
+    "action": "mark_unread",
+    "action_hash": "edca162e34422fcbb0fb5cd4d6240d00b0c0b4a10ac614916f483ca5a9d069ef",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "move_to_folder {\"create_folder_if_missing\": true, \"folder\": \"Folders/Fresh\"}": {
+   "form": "Approve exactly this mailbox change? Create the folder \"Folders/Fresh\" if it is missing, then move 2 message(s) to it. Approval hash prefix: 51001493edfe1028\n{\"action\": \"move_to_folder\", \"action_hash\": \"51001493edfe102806970ed53291f753d1f430380fbeadfaa991984229a1adb5\", \"approved_total\": 2, \"count\": 2, \"create_folder\": \"Folders/Fresh\", \"expires_at\": \"fixed\", \"mark_read\": false, \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}], \"target\": \"Folders/Fresh\"}",
+   "preview": {
+    "action": "move_to_folder",
+    "action_hash": "51001493edfe102806970ed53291f753d1f430380fbeadfaa991984229a1adb5",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": {
+     "create": true,
+     "exists": false,
+     "name": "Folders/Fresh"
+    },
+    "log_id": "<masked>",
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "Folders/Fresh",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "move_to_folder {\"folder\": \"Folders/Reviewed\"}": {
+   "form": "Approve exactly this mailbox change? Move 2 message(s) to \"Folders/Reviewed\". Approval hash prefix: 5d2d297898230bc2\n{\"action\": \"move_to_folder\", \"action_hash\": \"5d2d297898230bc2bec56678f42830aadc8c7026f5dcaea4094bcd4ce67890d5\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"mark_read\": false, \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}], \"target\": \"Folders/Reviewed\"}",
+   "preview": {
+    "action": "move_to_folder",
+    "action_hash": "5d2d297898230bc2bec56678f42830aadc8c7026f5dcaea4094bcd4ce67890d5",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "log_id": "<masked>",
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "Folders/Reviewed",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "move_to_trash null": {
+   "form": "Approve exactly this mailbox change? Move 2 message(s) to \"Trash\". Approval hash prefix: c678ff98871c393d\n{\"action\": \"move_to_trash\", \"action_hash\": \"c678ff98871c393ddcfae1f6b3e08142d1dd5fddbf69e06a6deb115729d09511\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"mark_read\": false, \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"INBOX\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}], \"target\": \"Trash\"}",
+   "preview": {
+    "action": "move_to_trash",
+    "action_hash": "c678ff98871c393ddcfae1f6b3e08142d1dd5fddbf69e06a6deb115729d09511",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "log_id": "<masked>",
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "Trash",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  },
+  "remove_label {\"label\": \"Review\"}": {
+   "form": "Approve exactly this mailbox change? Remove the label \"Labels/Review\" from 2 message(s). Approval hash prefix: 6b4f298112daabcb\n{\"action\": \"remove_label\", \"action_hash\": \"6b4f298112daabcb1a05d52082fcd63915e3d390812b06fb048745fc7e872a54\", \"approved_total\": 2, \"count\": 2, \"expires_at\": \"fixed\", \"samples\": [{\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"Labels/Review\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 0\"}, {\"date\": \"Fri, 16 Oct 2026 09:00:00 +0000\", \"folder\": \"Labels/Review\", \"from\": \"Sender <sender@example.com>\", \"subject\": \"Invoice 1\"}], \"target\": \"Labels/Review\"}",
+   "preview": {
+    "action": "remove_label",
+    "action_hash": "6b4f298112daabcb1a05d52082fcd63915e3d390812b06fb048745fc7e872a54",
+    "approval_max_messages": 500,
+    "blocked": [],
+    "count": 2,
+    "estimated_calls": 1,
+    "excluded_count": 0,
+    "excluded_ids": [],
+    "excluded_reasons": {},
+    "excluded_truncated": false,
+    "expires_at": "<masked>",
+    "folder_creation": null,
+    "mark_read": false,
+    "partial": false,
+    "personal_provider_bypass_count": 0,
+    "samples": [
+     {
+      "alias": {
+       "folder": "Labels/Review",
+       "uid": "1",
+       "uidvalidity": "1010"
+      },
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-0@example.test>",
+      "message_id": "<binding-0@example.test>",
+      "subject": "Invoice 0",
+      "uid": "1",
+      "uidvalidity": "1000"
+     },
+     {
+      "alias": {
+       "folder": "Labels/Review",
+       "uid": "2",
+       "uidvalidity": "1010"
+      },
+      "date": "Fri, 16 Oct 2026 09:00:00 +0000",
+      "folder": "INBOX",
+      "from": "Sender <sender@example.com>",
+      "id": "<binding-1@example.test>",
+      "message_id": "<binding-1@example.test>",
+      "subject": "Invoice 1",
+      "uid": "2",
+      "uidvalidity": "1000"
+     }
+    ],
+    "target": "Labels/Review",
+    "token": "<masked>",
+    "total_is_exact": true
+   }
+  }
+ }
+}

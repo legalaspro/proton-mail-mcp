@@ -2,9 +2,8 @@
 
 import pytest
 from merged_tools import tool_call
-from test_server import client as client
 from test_server import mail as mail
-from test_server import rpc
+from test_server import rpc, serve
 
 ACTIONS = (
     "move_to_folder",
@@ -16,6 +15,12 @@ ACTIONS = (
     "remove_label",
     "apply_rules",
 )
+
+
+@pytest.fixture
+def client(mail):
+    # apply_rules, preview_rules and preview_sieve_filter need PROTON_MCP_ENABLE_RULES=1.
+    yield from serve(mail, enable_rules=True)
 
 
 @pytest.mark.parametrize("action", ACTIONS)

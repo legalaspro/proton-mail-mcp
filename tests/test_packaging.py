@@ -25,7 +25,7 @@ MARKETPLACE = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_tex
 # What the bundle runs: this release from PyPI, by name with uvx. The plugin runs a release from
 # PyPI too, pinned with ==, the form the Claude directory's checklist gives for an exact uvx pin.
 # Its lock may name only PyPI's files, so until this release is uploaded the plugin stays on the
-# one before it (docs/ci.md, The plugin's lock).
+# one before it (docs/ci.md, The plugin, after the upload).
 RELEASE = f"mcp-proton-mail@{__version__}"
 PLUGIN_RELEASE = f"mcp-proton-mail=={PLUGIN['version']}"
 RELEASES = re.findall(
@@ -384,7 +384,7 @@ def test_the_lock_guard_refuses_mcp_proton_mail_from_anywhere_but_pypi(tmp_path,
     assert guard.main([str(plugin)]) == 1
     err = capsys.readouterr().err
     assert '"Launcher lock invalid"' in err and found in err
-    assert "uv lock --upgrade-package mcp-proton-mail" in err
+    assert "scripts/bump_version.py X.Y.Z --plugin" in err
 
 
 @pytest.mark.parametrize(

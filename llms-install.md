@@ -87,6 +87,10 @@ computer can start, and the server's URL. It holds no token, and you never need 
 Last, relay each `needs_user` entry whose `when` is `after`, such as restarting the client, and
 suggest a first read-only question: "How many unread messages are in my inbox?"
 
+Sending and the beta folder rule and Sieve filter tools stay off; leave them off unless the person
+asks. `PROTON_MCP_ENABLE_SEND=1` and `PROTON_MCP_ENABLE_RULES=1` in the service's environment turn
+them on ([Configuration](docs/configuration.md)).
+
 ## Mailbox authentication failed
 
 A tool error that says `Mailbox authentication failed` means the server has no Bridge password it

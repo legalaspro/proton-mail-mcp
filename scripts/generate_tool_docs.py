@@ -40,7 +40,6 @@ GROUPS = (
         (
             "preview_action",
             "preview_rules",
-            "preview_create_folder",
             "preview_add_rule",
             "preview_sieve_filter",
             "preview_send",
@@ -81,6 +80,7 @@ GROUPS = (
 )
 BASE = {"PROTON_MCP_TOKEN": "t" * 32, "PROTON_BRIDGE_USER": "user@example.test"}
 SEND = {"PROTON_MCP_ENABLE_SEND": "1"}
+RULES = {"PROTON_MCP_ENABLE_RULES": "1"}
 NO_VIEWS = {"PROTON_MCP_APPS_ENABLED": "0"}
 HEADER = """\
 # Tool reference
@@ -93,21 +93,25 @@ full is in the [documentation map](README.md).
 
 The server exposes {base} tools by default, or {send} with sending enabled. With
 `PROTON_MCP_APPS_ENABLED=0` it exposes {no_views}, or {send_no_views} with sending enabled, without
-the [MCP Apps view](mcp-apps.md) tools.
+the [MCP Apps view](mcp-apps.md) tools. `PROTON_MCP_ENABLE_RULES=1` adds the {rules} folder rule and
+Sieve filter tools to any of these.
 
 New mail arriving during a tool call is out of scope for that call and is picked
 up on the next request. Request mail again when you need newer mail.
 
-**Beta: folder rules.** The rules engine is not fully reliable yet; preview first
-and check the results. This applies to `preview_add_rule`, `add_rule`, `list_rules`,
-`preview_rules` and `apply_rules`.
+**Beta: folder rules, off by default.** The folder rule and Sieve filter tools are listed only
+with `PROTON_MCP_ENABLE_RULES=1` ([configuration](configuration.md)). The rules engine is not fully
+reliable yet; preview first and check the results. This applies to `preview_add_rule`, `add_rule`,
+`list_rules`, `preview_rules` and `apply_rules`.
 
 ## Server instructions
 
 Sent to every client when it connects. A client decides how to use them; many add them to the
 model's system prompt. The sending paragraph appears only with sending enabled, in place of one
-sentence that says sending is off, and the views paragraph only with views on. Likewise, a tool
-description's paragraphs that start "With sending on" are sent only with sending enabled.
+sentence that says sending is off, and the views paragraph only with views on. The two rule steps
+and the sentence about the rules timer appear only with folder rules enabled, in place of one
+sentence that says they are off. Likewise, a tool description's paragraphs that start "With
+sending on" are sent only with sending enabled.
 
 {instructions}
 
@@ -168,9 +172,11 @@ def _hints(tool) -> str:
     return ", ".join(f"`{key}={json.dumps(value)}`" for key, value in sorted(fields.items()))
 
 
-def _available(name: str, base: dict, send_no_views: dict) -> str:
+def _available(name: str, base: dict, send_no_views: dict, rules: set) -> str:
     if name in base:
         return "Always" if name in send_no_views else "Unless `PROTON_MCP_APPS_ENABLED=0`"
+    if name in rules:
+        return "With `PROTON_MCP_ENABLE_RULES=1`"
     if name in send_no_views:
         return "With `PROTON_MCP_ENABLE_SEND=1`"
     return "With `PROTON_MCP_ENABLE_SEND=1`, unless `PROTON_MCP_APPS_ENABLED=0`"
@@ -186,16 +192,20 @@ def render() -> str:
     send = _tools(SEND)
     no_views = _tools(NO_VIEWS)
     send_no_views = _tools({**SEND, **NO_VIEWS})
+    # Every tool, as the model reads it with sending and folder rules on.
+    every = _tools({**SEND, **RULES})
+    rules = set(_tools(RULES)) - set(base)
     named = [name for _, _, names in GROUPS for name in names]
-    if sorted(named) != sorted(send):
-        raise SystemExit(f"GROUPS does not match the tools: {sorted(set(named) ^ set(send))}")
+    if sorted(named) != sorted(every):
+        raise SystemExit(f"GROUPS does not match the tools: {sorted(set(named) ^ set(every))}")
     lines = [
         HEADER.format(
             base=len(base),
             send=len(send),
             no_views=len(no_views),
             send_no_views=len(send_no_views),
-            instructions=_mcp(SEND).instructions,
+            rules=len(rules),
+            instructions=_mcp({**SEND, **RULES}).instructions,
         ).rstrip(),
         "",
         "| Tool | What it does | Available |",
@@ -204,16 +214,16 @@ def render() -> str:
     for _, _, names in GROUPS:
         for name in names:
             lines.append(
-                f"| [`{name}`](#{name}) | {_cell(_summary(send[name]))} "
-                f"| {_available(name, base, send_no_views)} |"
+                f"| [`{name}`](#{name}) | {_cell(_summary(every[name]))} "
+                f"| {_available(name, base, send_no_views, rules)} |"
             )
     for title, intro, names in GROUPS:
         lines += ["", f"## {title}", "", intro]
         for name in names:
-            tool = send[name]
+            tool = every[name]
             lines += ["", f"### `{name}`", "", tool.description.strip(), ""]
             lines += _arguments(tool)
-            lines += ["", f"Available: {_available(name, base, send_no_views)}."]
+            lines += ["", f"Available: {_available(name, base, send_no_views, rules)}."]
             hints = _hints(tool)
             if hints:
                 lines[-1] += f" Hints: {hints}."

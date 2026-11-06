@@ -18,12 +18,48 @@ from proton_mail_mcp.mail import (
     MailAuthenticationError,
     MailClient,
 )
-from proton_mail_mcp.server import BearerAuth, create_app, create_mcp, main
+from proton_mail_mcp.server import RULES_TOOLS, BearerAuth, create_app, create_mcp, main
 
 TOKEN = "server-token-secret-" + "x" * 32
 PASSWORD = "backend-password-secret-never-print"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 MCP_HEADERS = {**AUTH, "Accept": "application/json, text/event-stream"}
+# The default tool list: views on, sending and folder rules off.
+DEFAULT_TOOLS = {
+    "show_thread",
+    "compose_reply",
+    "search_mail",
+    "count_mail",
+    "reindex",
+    "reindex_status",
+    "read_thread",
+    "list_attachments",
+    "read_attachment",
+    "save_attachment",
+    "forward_message",
+    "list_from_addresses",
+    "create_draft",
+    "preview_action",
+    "list_actions",
+    "move",
+    "delete_draft",
+    "set_read_state",
+    "label",
+    "undo_action",
+    "unsubscribe",
+    "create_folder",
+}
+# Tools per profile: (views, sending, folder rules) -> count.
+PROFILE_COUNTS = {
+    (True, False, False): 22,
+    (True, True, False): 25,
+    (False, False, False): 20,
+    (False, True, False): 22,
+    (True, False, True): 29,
+    (True, True, True): 32,
+    (False, False, True): 27,
+    (False, True, True): 29,
+}
 
 
 class FakeMail:
@@ -118,10 +154,6 @@ class FakeMail:
         self._record("preview_rules", kwargs)
         return {"rules": [], "token": None}
 
-    def preview_create_folder(self, **kwargs):
-        self._record("preview_create_folder", kwargs)
-        return {"exists": False, "token": "synthetic-preview"}
-
     def create_draft(self, **kwargs):
         self._record("create_draft", kwargs)
         return "<draft@example.test>"
@@ -184,13 +216,25 @@ def mail():
     return FakeMail()
 
 
-@pytest.fixture
-def client(mail):
+def serve(mail, **options):
     # Stateless JSON routing tests; host confirmation has its own tests.
-    settings = Settings(token=TOKEN, bridge_user="bridge@example.test", confirm_mutations=False)
+    settings = Settings(
+        token=TOKEN, bridge_user="bridge@example.test", confirm_mutations=False, **options
+    )
     app = create_app(settings, mail_client=mail)
     with TestClient(app, base_url="http://127.0.0.1") as http:
         yield http
+
+
+@pytest.fixture
+def client(mail):
+    yield from serve(mail)
+
+
+@pytest.fixture
+def rules_client(mail):
+    # The same server with the beta rule and Sieve tools (PROTON_MCP_ENABLE_RULES=1).
+    yield from serve(mail, enable_rules=True)
 
 
 def flat(tool: dict) -> str:
@@ -299,39 +343,8 @@ def test_initialize_and_exact_tool_surface(client):
     assert "result" in initialized
     listed = rpc(client, "tools/list", request_id=2)
     tools = listed["result"]["tools"]
-    assert len(tools) == 30
-    assert {tool["name"] for tool in tools} == {
-        "show_thread",
-        "compose_reply",
-        "search_mail",
-        "count_mail",
-        "reindex",
-        "reindex_status",
-        "read_thread",
-        "list_attachments",
-        "read_attachment",
-        "save_attachment",
-        "forward_message",
-        "list_from_addresses",
-        "create_draft",
-        "preview_action",
-        "list_actions",
-        "move",
-        "delete_draft",
-        "set_read_state",
-        "label",
-        "undo_action",
-        "unsubscribe",
-        "preview_rules",
-        "apply_rules",
-        "preview_create_folder",
-        "create_folder",
-        "preview_sieve_filter",
-        "create_sieve_filter",
-        "preview_add_rule",
-        "add_rule",
-        "list_rules",
-    }
+    assert len(tools) == 22
+    assert {tool["name"] for tool in tools} == DEFAULT_TOOLS
     search = next(tool for tool in tools if tool["name"] == "search_mail")
     assert set(search["inputSchema"]["properties"]) == {
         "from_",
@@ -368,15 +381,10 @@ def test_initialize_and_exact_tool_surface(client):
         "read_thread",
         "preview_action",
         "list_actions",
-        "preview_rules",
-        "preview_create_folder",
-        "preview_sieve_filter",
-        "preview_add_rule",
-        "list_rules",
     ):
         assert by_name[name]["annotations"]["readOnlyHint"] is True
     selectors = {"move": {"target"}, "set_read_state": {"state"}, "label": {"op"}}
-    for name in ("move", "delete_draft", "set_read_state", "label", "unsubscribe", "apply_rules"):
+    for name in ("move", "delete_draft", "set_read_state", "label", "unsubscribe"):
         tool = by_name[name]
         expected = (
             {"token"} if name in {"unsubscribe", "delete_draft"} else {"token", "limit", "verbose"}
@@ -388,9 +396,15 @@ def test_initialize_and_exact_tool_surface(client):
         assert tool["annotations"]["destructiveHint"] is True
         assert "only call after the user explicitly approved the preview" in flat(tool)
     assert by_name["undo_action"]["annotations"]["destructiveHint"] is True
-    preview = by_name["preview_create_folder"]
-    assert set(preview["inputSchema"]["properties"]) == {"name"}
-    assert preview["inputSchema"]["required"] == ["name"]
+    preview = by_name["preview_action"]
+    assert set(preview["inputSchema"]["properties"]) == {
+        "action",
+        "query",
+        "ids",
+        "params",
+        "limit",
+    }
+    assert preview["inputSchema"]["required"] == ["action"]
     create = by_name["create_folder"]
     assert set(create["inputSchema"]["properties"]) == {"token"}
     assert create["inputSchema"]["required"] == ["token"]
@@ -400,6 +414,59 @@ def test_initialize_and_exact_tool_surface(client):
     assert create["annotations"]["idempotentHint"] is True
     assert create["annotations"]["openWorldHint"] is False
     assert "only call after explicit approval of its preview" in flat(create)
+    assert by_name["reindex_status"]["inputSchema"]["properties"] == {}
+    assert by_name["reindex_status"]["annotations"]["destructiveHint"] is False
+    status_description = flat(by_name["reindex_status"])
+    assert "last_full_run.all_mail_count is the count at that full rebuild" in status_description
+    assert "all_mail_count is the live count" in status_description
+    thread_description = flat(by_name["read_thread"])
+    assert "every message's canonical fields" in thread_description
+    assert "including direct real-folder reads" in thread_description
+    assert 'partial_reason="thread expansion limited"' in thread_description
+    tool = by_name["reindex"]
+    assert set(tool["inputSchema"]["properties"]) == {"op", "token", "run_id"}
+    assert tool["inputSchema"]["required"] == ["op"]
+    assert tool["inputSchema"]["additionalProperties"] is False
+    assert tool["annotations"]["readOnlyHint"] is False
+    assert tool["annotations"]["destructiveHint"] is False
+    assert tool["annotations"]["openWorldHint"] is False
+    assert "only call after the user explicitly approved the preview" in flat(tool)
+    for (apps_enabled, enable_send, enable_rules), count in PROFILE_COUNTS.items():
+        settings = Settings(
+            token=TOKEN,
+            bridge_user="bridge@example.test",
+            confirm_mutations=False,
+            apps_enabled=apps_enabled,
+            enable_send=enable_send,
+            enable_rules=enable_rules,
+            send_from_allowlist=("bridge@example.test",),
+        )
+        configured = asyncio.run(create_mcp(settings, FakeMail()).list_tools())
+        expected = set(by_name)
+        if not apps_enabled:
+            expected -= {"show_thread", "compose_reply"}
+        if enable_send:
+            expected |= {"preview_send", "send_draft"}
+            if apps_enabled:
+                expected.add("review_send")
+        if enable_rules:
+            expected |= RULES_TOOLS
+        assert len(configured) == count
+        assert {tool.name for tool in configured} == expected
+
+
+def test_rule_tools_register_unchanged_with_rules_on(rules_client):
+    listed = rpc(rules_client, "tools/list")["result"]["tools"]
+    by_name = {tool["name"]: tool for tool in listed}
+    assert len(listed) == 29 and set(by_name) == DEFAULT_TOOLS | RULES_TOOLS
+    for name in ("preview_rules", "preview_sieve_filter", "preview_add_rule", "list_rules"):
+        assert by_name[name]["annotations"]["readOnlyHint"] is True
+    tool = by_name["apply_rules"]
+    assert set(tool["inputSchema"]["properties"]) == {"token", "limit", "verbose"}
+    assert tool["inputSchema"]["required"] == ["token"]
+    assert tool["annotations"]["readOnlyHint"] is False
+    assert tool["annotations"]["destructiveHint"] is True
+    assert "only call after the user explicitly approved the preview" in flat(tool)
     sieve = by_name["create_sieve_filter"]
     assert set(sieve["inputSchema"]["properties"]) == {"token"}
     assert sieve["inputSchema"]["required"] == ["token"]
@@ -425,46 +492,13 @@ def test_initialize_and_exact_tool_surface(client):
         "include_matches",
     }
     assert by_name["list_rules"]["inputSchema"]["properties"] == {}
-    assert by_name["reindex_status"]["inputSchema"]["properties"] == {}
-    assert by_name["reindex_status"]["annotations"]["destructiveHint"] is False
-    status_description = flat(by_name["reindex_status"])
-    assert "last_full_run.all_mail_count is the count at that full rebuild" in status_description
-    assert "all_mail_count is the live count" in status_description
-    thread_description = flat(by_name["read_thread"])
-    assert "every message's canonical fields" in thread_description
-    assert "including direct real-folder reads" in thread_description
-    assert 'partial_reason="thread expansion limited"' in thread_description
-    tool = by_name["reindex"]
-    assert set(tool["inputSchema"]["properties"]) == {"op", "token", "run_id"}
-    assert tool["inputSchema"]["required"] == ["op"]
-    assert tool["inputSchema"]["additionalProperties"] is False
-    assert tool["annotations"]["readOnlyHint"] is False
-    assert tool["annotations"]["destructiveHint"] is False
-    assert tool["annotations"]["openWorldHint"] is False
-    assert "only call after the user explicitly approved the preview" in flat(tool)
-    for apps_enabled, enable_send, count in (
-        (True, True, 33),
-        (False, False, 28),
-        (False, True, 30),
-    ):
-        settings = Settings(
-            token=TOKEN,
-            bridge_user="bridge@example.test",
-            confirm_mutations=False,
-            apps_enabled=apps_enabled,
-            enable_send=enable_send,
-            send_from_allowlist=("bridge@example.test",),
-        )
-        configured = asyncio.run(create_mcp(settings, FakeMail()).list_tools())
-        expected = set(by_name)
-        if not apps_enabled:
-            expected -= {"show_thread", "compose_reply"}
-        if enable_send:
-            expected |= {"preview_send", "send_draft"}
-            if apps_enabled:
-                expected.add("review_send")
-        assert len(configured) == count
-        assert {tool.name for tool in configured} == expected
+    assert set(by_name["preview_rules"]["inputSchema"]["properties"]) == {
+        "folder",
+        "mark_read",
+        "limit",
+        "order",
+        "cursor",
+    }
 
 
 @pytest.mark.parametrize("accepted", [True, False])
@@ -586,7 +620,7 @@ def test_main_refuses_missing_or_short_token_before_starting(monkeypatch, capsys
         ("read_thread", {"message_id": "<one@example.test>"}),
         ("preview_rules", {"folder": "INBOX"}),
         ("apply_rules", {"token": "synthetic-preview"}),
-        ("preview_create_folder", {"name": "Folders/Reviewed"}),
+        ("preview_action", {"action": "create_folder", "params": {"folder": "Folders/Reviewed"}}),
         ("create_folder", {"token": "synthetic-preview"}),
         (
             "preview_sieve_filter",
@@ -640,7 +674,8 @@ def test_main_refuses_missing_or_short_token_before_starting(monkeypatch, capsys
         ),
     ],
 )
-def test_tools_call_injected_backend_without_network(client, mail, name, arguments):
+def test_tools_call_injected_backend_without_network(request, mail, name, arguments):
+    client = request.getfixturevalue("rules_client" if name in RULES_TOOLS else "client")
     tool, merged = tool_call(name, arguments)
     result = rpc(client, "tools/call", {"name": tool, "arguments": merged})["result"]
     assert not result.get("isError", False), result
@@ -819,7 +854,7 @@ def test_rules_timer_is_not_available_as_a_tool(client, mail, name):
         ("move", {"target": "Archive", "token": "synthetic-preview"}),
         ("undo_action", {"log_id": "synthetic-log"}),
         ("list_actions", {"token": "synthetic-preview"}),
-        ("preview_create_folder", {"name": "Folders/Reviewed"}),
+        ("preview_action", {"action": "create_folder", "params": {"folder": "Folders/Reviewed"}}),
         ("create_folder", {"token": "synthetic-preview"}),
         (
             "preview_sieve_filter",
@@ -834,7 +869,8 @@ def test_rules_timer_is_not_available_as_a_tool(client, mail, name):
         ("list_rules", {}),
     ],
 )
-def test_mail_backend_error_does_not_leak_secrets(client, mail, caplog, failure, name, arguments):
+def test_mail_backend_error_does_not_leak_secrets(request, mail, caplog, failure, name, arguments):
+    client = request.getfixturevalue("rules_client" if name in RULES_TOOLS else "client")
     mail.failure = failure(f"Failure with {TOKEN} and {PASSWORD}")
     result = rpc(
         client,

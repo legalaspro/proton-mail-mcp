@@ -9,6 +9,7 @@ from pathlib import Path
 WORKFLOWS = Path(__file__).parents[1] / ".github" / "workflows"
 GITHUB = WORKFLOWS.parent
 DEPENDABOT = GITHUB.parent / "release" / "dependabot.yml"
+PUBLISH = WORKFLOWS / "publish.yml"
 RELEASE_GATE = (
     "github.repository == 'legalaspro/proton-mail-mcp'"
     " && (github.event.repository.visibility == 'public' || vars.FREE_MINUTES == 'true')"
@@ -177,6 +178,15 @@ def test_every_checks_job_first_refuses_a_plugin_lock_that_names_anything_but_py
     assert (GITHUB.parent / "scripts" / "check_plugin_lock.py").is_file()
 
 
+def test_every_checks_job_checks_that_the_versions_agree_before_the_tests():
+    # The same check Publish runs with the tag: a sync pull request whose files name different
+    # releases, or whose plugin trails by more than one, fails a required check by name.
+    (job,) = jobs((WORKFLOWS / "check.yml").read_text(encoding="utf-8"))
+    step = "      - name: The versions agree\n        run: python scripts/check_versions.py\n"
+    assert job.count(step) == 1
+    assert job.index("actions/setup-python@") < job.index(step) < job.index("uv pip install")
+
+
 def test_a_full_run_starts_on_its_own_only_in_the_release_repo():
     # The tag and schedule triggers fire everywhere, so these lines keep them from billing here.
     checks, installer = jobs((WORKFLOWS / "full.yml").read_text(encoding="utf-8"))
@@ -224,14 +234,19 @@ def test_only_the_release_repo_publishes_and_only_a_tag():
     assert (
         "\nconcurrency:\n  group: publish-${{ github.ref }}\n  cancel-in-progress: false\n" in text
     )
-    build, publish = jobs(text)
+    build, publish, release, registry = jobs(text)
     # Each job, the build too: in the dev repo a tag starts nothing, as docs/ci.md says. A
-    # release on any other tag skips the build, and with it publish, which needs it.
+    # release on any other tag skips the build, and with it every job, as each needs it.
     assert f"    if: {PUBLISH_GATE} && startsWith(github.ref, 'refs/tags/v')\n" in build
-    assert f"    if: {PUBLISH_GATE}\n" in publish
+    for job in (publish, release, registry):
+        assert f"    if: {PUBLISH_GATE}\n" in job
     assert "id-token" not in build and "pypi-publish" not in build
-    # The build runs the build backend from the tagged tree: it keeps the read-only token.
+    # The build runs the build backend from the tagged tree: it keeps the read-only token. It
+    # checks every version against the tag, and the notes, before anything is uploaded.
     assert "permissions:" not in build
+    assert 'python scripts/check_versions.py --tag "$TAG"\n' in build
+    assert "python scripts/release_notes.py " in build
+    assert build.index("scripts/release_notes.py") < build.index("upload-artifact@")
     assert "    needs: build\n" in publish
     assert "    environment:\n      name: pypi\n" in publish
     assert "    permissions:\n      id-token: write\n    steps:\n" in publish
@@ -239,10 +254,46 @@ def test_only_the_release_repo_publishes_and_only_a_tag():
     assert "actions/checkout" not in publish and "run:" not in publish
     assert "secrets." not in text
     assert publish.count("uses: pypa/gh-action-pypi-publish@") == 1
+    # Only the pypi environment holds an upload for its reviewer; nothing else names one.
+    assert text.count("environment:") == 1
+    for job in (release, registry):
+        # Both wait for the upload, so neither runs before the reviewer approves it, and each
+        # checks nothing out: what they need comes from the build.
+        assert "    needs: [build, publish]\n" in job
+        assert "actions/checkout" not in job and "pypi-publish" not in job
+        assert "environment:" not in job
+    # The release may write releases and nothing else, and leaves one that exists alone.
+    assert "    permissions:\n      contents: write\n    steps:\n" in release
+    assert "id-token" not in release
+    assert "GH_TOKEN: ${{ github.token }}\n" in release
+    assert 'gh release view "$TAG"' in release and "gh release create" in release
+    assert "--notes-file release-files/notes.md" in release
+    # The registry gets only the OIDC token, and no repository content, and logs in with it.
+    assert "    permissions:\n      id-token: write\n    env:\n" in registry
+    assert "./mcp-publisher login github-oidc\n" in registry
+    assert "./mcp-publisher publish release-files/server.json\n" in registry
+    assert re.search(r"(?m)login github$", registry) is None
+    for job in (build, publish, release):
+        assert "mcp-publisher" not in job
     for path in WORKFLOWS.glob("*.yml"):
         if path.name != "publish.yml":
             other = path.read_text(encoding="utf-8")
             assert "id-token" not in other and "pypi-publish" not in other, path.name
+            assert "mcp-publisher" not in other and "contents: write" not in other, path.name
+
+
+def test_mcp_publisher_is_pinned_to_a_version_and_its_hash():
+    # A downloaded program, not an action pinned to a commit: the job refuses any other bytes.
+    (registry,) = [job for job in jobs(PUBLISH.read_text(encoding="utf-8")) if "registry:" in job]
+    (version,) = re.findall(r'(?m)^      MCP_PUBLISHER_VERSION: "(\d+\.\d+\.\d+)"$', registry)
+    (digest,) = re.findall(r"(?m)^      MCP_PUBLISHER_SHA256: ([0-9a-f]{64})$", registry)
+    assert version and digest
+    assert "/v$MCP_PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz" in registry
+    check = 'echo "$MCP_PUBLISHER_SHA256  mcp-publisher.tar.gz" | sha256sum --check --strict\n'
+    assert check in registry
+    # The check comes before the archive is opened, and nothing runs it before then.
+    assert registry.index(check) < registry.index("tar -xzf") < registry.index("./mcp-publisher")
+    assert "releases/latest" not in registry
 
 
 def test_dependabot_opens_pull_requests_only_in_the_release_repo():

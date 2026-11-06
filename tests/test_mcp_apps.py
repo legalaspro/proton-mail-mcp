@@ -22,7 +22,6 @@ APPS = {mcp_apps.EXTENSION_ID: {"mimeTypes": [mcp_apps.MIME_TYPE]}}
 MODEL_ONLY = {
     "reindex",
     "preview_action",
-    "preview_create_folder",
     "create_folder",
     "preview_sieve_filter",
     "create_sieve_filter",
@@ -154,8 +153,11 @@ def test_initialized_http_session_reads_thread_view_with_and_without_extension(c
     ]
 
 
-def test_views_may_call_only_create_draft_and_the_read_only_view_tools():
-    send = settings(enable_send=True, send_from_allowlist=("bridge@example.test",))
+@pytest.mark.parametrize("enable_rules", [True, False])
+def test_views_may_call_only_create_draft_and_the_read_only_view_tools(enable_rules):
+    send = settings(
+        enable_send=True, enable_rules=enable_rules, send_from_allowlist=("bridge@example.test",)
+    )
     by_name = {tool.name: tool for tool in asyncio.run(create_mcp(send, NoMail()).list_tools())}
     restricted = {
         name
@@ -171,7 +173,10 @@ def test_views_may_call_only_create_draft_and_the_read_only_view_tools():
     assert mcp_apps.VIEW_CALLABLE == {"create_draft", *linked}
     assert restricted == set(by_name) - mcp_apps.VIEW_CALLABLE
     # Every tool that issues or redeems a token, or changes mail, is model-only.
-    assert MODEL_ONLY | {"preview_send", "send_draft"} <= restricted
+    rules = {"preview_rules", "apply_rules", "preview_add_rule", "add_rule"}
+    rules |= {"preview_sieve_filter", "create_sieve_filter"}
+    expected = MODEL_ONLY if enable_rules else MODEL_ONLY - rules
+    assert expected | {"preview_send", "send_draft"} <= restricted
     # So is every other tool that reads mail: a view reads only through its own view tool.
     assert {"read_thread", "search_mail", "count_mail", "list_actions"} <= restricted
     for name in restricted:

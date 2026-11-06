@@ -38,7 +38,7 @@ def case(tmp_path, monkeypatch):
     def build(**options):
         sim = BridgeSim(**({"folders": FOLDERS, "labels": ("Labels/News",)} | options))
         simulations.append(sim)
-        client = make_client(sim, tmp_path)
+        client = make_client(sim, tmp_path, enable_rules=True)
         backend = FakeSieveBackend()
         client.sieve_backend = backend
         cleanup = client.cleanup

@@ -176,13 +176,15 @@ class SMTPRecorder:
         self.calls.append(("close",))
 
 
-@pytest.fixture
-def rig(tmp_path, monkeypatch, local_certificate):
+# Sending must behave the same whether the folder rule tools are listed or not.
+@pytest.fixture(params=[False, True], ids=["rules-off", "rules-on"])
+def rig(request, tmp_path, monkeypatch, local_certificate):
     cert, der = local_certificate
     settings = Settings(
         token=TOKEN,
         bridge_user=SENDER,
         enable_send=True,
+        enable_rules=request.param,
         imap_cert_path=str(cert),
         send_from_allowlist=(SENDER,),
         action_log_path=str(tmp_path / "actions.jsonl"),

@@ -76,10 +76,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      # Before the tests, so a sync pull request whose plugin lock names anything but PyPI fails
-      # by name: the Claude directory refuses such a lock (docs/ci.md, The plugin's lock).
+      # Before the tests, so a sync pull request whose plugin lock names anything but PyPI fails by
+      # name: the Claude directory refuses such a lock (docs/ci.md, The plugin, after the upload).
       - name: The plugin's lock names only PyPI
         run: python scripts/check_plugin_lock.py
+      # The package, server.json, the bundle and the changelog name one release, and the plugin
+      # trails it by one at most (docs/ci.md, Releasing). Standard library only, so it runs here.
+      - name: The versions agree
+        run: python scripts/check_versions.py
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.6"

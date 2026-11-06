@@ -45,6 +45,7 @@ from .mail import (
     check_from_address,
     draft_audit,
 )
+from .rules_store import load_saved, store_path
 from .send import SendService
 
 # First in a result that holds mail content, so the model reads it before that content.
@@ -68,6 +69,26 @@ _SELECTORS = {
     "set_read_state": ("state", _READ_STATES),
     "label": ("op", _LABEL_OPS),
     "reindex": ("op", _REINDEX_OPS),
+}
+# The beta folder rule and Sieve filter tools, registered only with PROTON_MCP_ENABLE_RULES=1.
+RULES_TOOLS = frozenset(
+    {
+        "list_rules",
+        "preview_rules",
+        "apply_rules",
+        "preview_add_rule",
+        "add_rule",
+        "preview_sieve_filter",
+        "create_sieve_filter",
+    }
+)
+_RULES_OFF = (
+    "folder rules are off; the operator sets PROTON_MCP_ENABLE_RULES=1 and restarts the service"
+)
+# Names an older tool list still holds, with what replaced them.
+_RETIRED = {
+    "preview_create_folder": "preview_create_folder was replaced by "
+    'preview_action(action="create_folder", params={"folder": ...})',
 }
 
 
@@ -981,16 +1002,16 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
         params: tool_docs.ActionParams = None,
         limit: tool_docs.ApprovalLimit = None,
     ) -> dict[str, Any]:
-        """Preview one change to existing mail and return a single-use approval token; changes
-        no mail.
+        """Preview one change to existing mail, or a new folder, and return a single-use approval
+        token; changes no mail or folder.
 
         Use it first for any move to Trash, Archive or a folder, read-state or label change,
-        unsubscribe or draft deletion; use preview_rules for folder rules. Show the result, wait
-        for the user's explicit approval, then redeem the token only with its action's tool and
-        selector: move(target=the preview's target) for move_to_trash, archive and
-        move_to_folder; set_read_state(state="read" or "unread") for mark_read or mark_unread;
-        label(op="add" or "remove") for add_label or remove_label; delete_draft and unsubscribe
-        under their own names.
+        unsubscribe, draft deletion or new folder. Show the result, wait for the user's explicit
+        approval, then redeem the token only with the tool and selector the action argument
+        names: move, set_read_state, label, delete_draft, unsubscribe or create_folder.
+
+        action="create_folder" takes only params={"folder": the new Folders/ name} and returns
+        name, exists, token, expires_at and action_hash, with no token when the folder exists.
 
         A token is issued only for a complete, unprotected clean batch of at most 200 messages,
         or of at most approval_max_messages when limit asks for more (a bounded approval, run in
@@ -1020,34 +1041,15 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
             **({"limit": limit} if limit is not None else {}),
         )
 
-    @mcp.tool(annotations=_reads("Preview creating a folder", idempotent=False))
-    async def preview_create_folder(name: tool_docs.FolderName) -> dict[str, Any]:
-        """Preview creating one new mail folder under Folders/ and return a single-use approval
-        token; creates nothing.
-
-        Use it when the user asks for a new folder: show the name, wait for explicit approval,
-        then call create_folder with the token. To move mail into a folder that may not exist
-        yet, use preview_action(action="move_to_folder") with create_folder_if_missing=true in
-        params instead, which binds creating it to the move.
-
-        name is the exact full path, such as Folders/Receipts or Folders/Work/Clients. An
-        existing folder needs no token: the result says exists=true and there is nothing to
-        approve. The token works once, until expires_at.
-
-        Returns name, exists, token, expires_at and action_hash. Refuses a name outside
-        Folders/, an empty, "." or ".." part, quotes, backslashes, * or %, or over 500
-        characters.
-        """
-        return await invoke("preview_create_folder", name=name)
-
     @mcp.tool(annotations=_writes("Create an approved folder", destructive=False, idempotent=True))
     async def create_folder(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
         """Create the folder an approved preview names; only call after explicit approval of its
         preview.
 
-        Use it only with a token from preview_create_folder that the user approved: the token,
-        not an argument, names the folder. Unless the operator turned it off, the user then
-        confirms the exact change in the client's form; a declined form retires the token.
+        Use it only with a token from preview_action(action="create_folder") that the user
+        approved: the token, not an argument, names the folder. Unless the operator turned it
+        off, the user then confirms the exact change in the client's form; a declined form
+        retires the token.
 
         Creates one folder and never deletes or renames one; removing a created folder is
         manual in the Proton app. If the folder now exists, it succeeds without consuming the
@@ -1060,152 +1062,6 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
         """
         await approve(ctx, "create_folder", token)
         return await invoke("create_folder", token=token)
-
-    @mcp.tool(annotations=_reads("Preview a Proton Sieve filter", idempotent=False))
-    async def preview_sieve_filter(
-        name: tool_docs.FilterName,
-        folder: tool_docs.TargetFolder,
-        conditions: tool_docs.Conditions,
-        match: tool_docs.MatchMode = "all",
-        mark_read: tool_docs.MarkRead = False,
-    ) -> dict[str, Any]:
-        """Preview one Proton Sieve filter for new incoming mail and return its exact script;
-        changes nothing.
-
-        Use it when the user wants Proton itself to file mail as it arrives. With Proton Mail
-        Bridge, apply.available is false and create_sieve_filter refuses: show the script for
-        the user to add in Proton's own filter settings (Add sieve filter), and do not call
-        create_sieve_filter. For a rule this server applies to INBOX, use preview_add_rule; to
-        move mail already received, preview_action.
-
-        conditions are 1 to 10 objects such as {"field": "from", "contains": "example.test"};
-        from and to match the address, subject the header, case-insensitively, and match="any"
-        needs only one. Filters only file into folder and mark read only with mark_read=true;
-        they never delete, discard, forward or reply, and never run on spam.
-
-        Returns the normalized filter, fileinto, the exact script, script_sha256, apply, a
-        single-use token for create_sieve_filter (unusable on Bridge), expires_at and
-        action_hash. A folder that is not an existing Folders/ name refuses.
-        """
-        return await invoke(
-            "preview_sieve_filter",
-            name=name,
-            folder=folder,
-            conditions=conditions,
-            match=match,
-            mark_read=mark_read,
-        )
-
-    @mcp.tool(annotations=_writes("Create an approved Sieve filter", destructive=True))
-    async def create_sieve_filter(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
-        """Create the previewed Proton Sieve filter; only call after explicit approval of its
-        preview. With Proton Mail Bridge, the backend this server uses, it always refuses and
-        changes nothing, so do not call it there.
-
-        Instead show the script from preview_sieve_filter for the user to add in Proton's own
-        filter settings (Add sieve filter), or use preview_add_rule and add_rule for a rule this
-        server applies. Proton Mail Bridge has no Sieve or filter interface and this server has
-        no other apply path; the refusal comes before any form and leaves the token unused.
-
-        It takes only preview_sieve_filter's token. Where a backend could apply it, the user
-        would confirm the exact script in the client's form, and it would add one filter that
-        files later matching mail, never replacing or removing one, and return log_id.
-        """
-        with suppress(Exception):  # Audit only: name the approval even if refused here.
-            _note(action_hash=await anyio.to_thread.run_sync(lambda: client.approval_hash(token)))
-        # Never ask a person to confirm a change that no backend can apply.
-        await invoke("sieve_filter_ready")
-        await approve(ctx, "create_sieve_filter", token)
-        return await invoke("create_sieve_filter", token=token)
-
-    @mcp.tool(annotations=_reads("Preview a folder rule (beta)", idempotent=False))
-    async def preview_add_rule(
-        name: tool_docs.RuleName,
-        folder: tool_docs.TargetFolder,
-        conditions: tool_docs.Conditions,
-        match: tool_docs.MatchMode = "all",
-        mark_read: tool_docs.MarkRead = False,
-        include_matches: tool_docs.IncludeMatches = False,
-    ) -> dict[str, Any]:
-        """Beta: Preview saving one custom folder rule that this server applies to INBOX;
-        returns the rule and a single-use token, and changes nothing.
-
-        The rules engine is not fully reliable yet; preview first and check the results.
-
-        Use it for a rule this server applies to INBOX whenever preview_rules and apply_rules
-        run, or the operator's optional timer; use preview_sieve_filter when the user wants
-        Proton itself to file mail as it arrives, and preview_action for a one-off move. Show
-        the rule and obtain explicit user approval before add_rule. Saving moves no mail;
-        list_rules shows the existing rules.
-
-        The rule model is preview_sieve_filter's: conditions are 1 to 10 objects such as
-        {"field": "subject", "contains": "invoice"}; from and to match each address, subject
-        the decoded header, case-insensitively. A saved rule runs after every existing rule
-        (the first match wins). mark_read applies when apply_rules runs it; the timer never
-        marks mail read.
-        include_matches=true adds a read-only count and samples from one search over at most
-        200 newest INBOX candidates.
-
-        Returns the normalized rule, rule_sha256, the same rule as a Proton Sieve script
-        (informational, for Proton's own filter settings) with script_sha256, apply, token,
-        expires_at and action_hash. A name an existing rule uses, in any letter case, refuses.
-        With 20 saved rules the store is full: apply.available is false and add_rule refuses.
-        """
-        return await invoke(
-            "preview_add_rule",
-            name=name,
-            folder=folder,
-            conditions=conditions,
-            match=match,
-            mark_read=mark_read,
-            include_matches=include_matches,
-        )
-
-    @mcp.tool(annotations=_writes("Save an approved folder rule (beta)", destructive=True))
-    async def add_rule(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
-        """Beta: Save the previewed folder rule; only call after explicit approval of its
-        preview.
-
-        The rules engine is not fully reliable yet; preview first and check the results.
-
-        Use it only with a token from preview_add_rule that the user approved: the token, not an
-        argument, holds the rule. Unless the operator turned it off, the user then confirms the
-        exact rule in the client's form; a declined form retires the token.
-
-        Appends one rule to the saved rules store; never replaces, edits, reorders or removes a
-        rule, and moves no mail now: later rule runs (preview_rules then apply_rules, or the
-        optional timer) move the mail it matches. For Proton's own filtering on arrival use
-        preview_sieve_filter. Removing a saved rule is a manual edit of the store; undo_action
-        does not apply.
-
-        Returns log_id for the logged rule-saving attempt, with name, folder, rule_sha256,
-        backend, added, attempted, partial and token_consumed. An expired, used or unknown token
-        refuses, and so does a full store: preview again.
-        """
-        with suppress(Exception):  # Audit only: name the approval even if refused here.
-            _note(action_hash=await anyio.to_thread.run_sync(lambda: client.approval_hash(token)))
-        # Never ask a person to confirm a rule that no backend can save.
-        await invoke("add_rule_ready")
-        await approve(ctx, "add_rule", token)
-        return await invoke("add_rule", token=token)
-
-    @mcp.tool(annotations=_reads("List folder rules (beta)"))
-    async def list_rules() -> dict[str, Any]:
-        """Beta: List the folder rules this server applies, in the order they run; reads no mail
-        and changes nothing.
-
-        The rules engine is not fully reliable yet; preview first and check the results.
-
-        Use it to say which rules exist, or before preview_add_rule to pick an unused name; use
-        preview_rules to see which mail they would move now. Proton's own filters are not
-        listed.
-
-        Returns rules, built_in_count, saved_count, max_saved_rules and apply. kind is built_in
-        (the packaged folder_rules.json) or saved (add_rule). Built-in rules show field and
-        contains, saved rules name, conditions, match, mark_read and rule_sha256; each has its
-        target folder.
-        """
-        return await invoke("list_rules")
 
     @mcp.tool(annotations=_writes("Unsubscribe as approved", destructive=True, open_world=True))
     async def unsubscribe(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
@@ -1252,82 +1108,234 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
                 )
         return result
 
-    @mcp.tool(annotations=_reads("Preview applying folder rules (beta)", idempotent=False))
-    async def preview_rules(
-        folder: tool_docs.RulesFolder = "INBOX",
-        mark_read: tool_docs.RulesMarkRead = False,
-        limit: tool_docs.RulesLimit = 200,
-        order: tool_docs.RulesOrder = "oldest",
-        cursor: tool_docs.RulesCursor = None,
-    ) -> dict[str, Any]:
-        """Beta: Preview which INBOX mail the folder rules would move now, skipping protected
-        senders, and return a single-use token for one batch; changes no mail.
+    if settings.enable_rules:
+        # The beta folder rule and Sieve filter tools; PROTON_MCP_ENABLE_RULES=1 adds them.
+        @mcp.tool(annotations=_reads("Preview a Proton Sieve filter", idempotent=False))
+        async def preview_sieve_filter(
+            name: tool_docs.FilterName,
+            folder: tool_docs.TargetFolder,
+            conditions: tool_docs.Conditions,
+            match: tool_docs.MatchMode = "all",
+            mark_read: tool_docs.MarkRead = False,
+        ) -> dict[str, Any]:
+            """Preview one Proton Sieve filter for new incoming mail and return its exact script;
+            changes nothing.
 
-        The rules engine is not fully reliable yet; preview first and check the results.
+            Use it when the user wants Proton itself to file mail as it arrives. With Proton Mail
+            Bridge, apply.available is false and create_sieve_filter refuses: show the script for
+            the user to add in Proton's own filter settings (Add sieve filter), and do not call
+            create_sieve_filter. For a rule this server applies to INBOX, use preview_add_rule; to
+            move mail already received, preview_action.
 
-        Use it when the user asks to apply the folder rules, which list_rules shows; it is for
-        manual use only. Show per-rule counts, samples and skipped senders, wait for the user's
-        explicit approval, then call apply_rules with the token. Use preview_action for a
-        one-off change. It does not edit Proton's own filters.
+            conditions are 1 to 10 objects such as {"field": "from", "contains": "example.test"};
+            from and to match the address, subject the header, case-insensitively, and match="any"
+            needs only one. Filters only file into folder and mark read only with mark_read=true;
+            they never delete, discard, forward or reply, and never run on spam.
 
-        A token covers one batch of up to limit reviewed matches; remaining counts what is left,
-        and further batches need separate approval. Saved rules (add_rule) follow the packaged
-        ones and report their name, conditions, match and mark_read; a saved rule with
-        mark_read=true marks its own matches read. A message with inconsistent sender copies or
-        ambiguous label memberships is left out of the batch and token and reported in
-        excluded_count, excluded_ids, excluded_truncated and excluded_reasons; total_matches
-        counts it, remaining does not. All excluded means no token.
+            Returns the normalized filter, fileinto, the exact script, script_sha256, apply, a
+            single-use token for create_sieve_filter (unusable on Bridge), expires_at and
+            action_hash. A folder that is not an existing Folders/ name refuses.
+            """
+            return await invoke(
+                "preview_sieve_filter",
+                name=name,
+                folder=folder,
+                conditions=conditions,
+                match=match,
+                mark_read=mark_read,
+            )
 
-        The call budget is 20 seconds (or the shorter configured budget). When reviews are slow,
-        a call may review one whole batch of a single rule, so each rule needs its own approval
-        and order holds only within a rule; a deadline without a complete batch returns
-        partial=true and no token. Pass next_cursor as cursor with the same options to continue.
-        A call that fails keeps the cursor it was given, so retry with it; a reply spends it.
-        Cursors expire after ten minutes or restart and never authorize changes.
+        @mcp.tool(annotations=_writes("Create an approved Sieve filter", destructive=True))
+        async def create_sieve_filter(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
+            """Create the previewed Proton Sieve filter; only call after explicit approval of its
+            preview. With Proton Mail Bridge, the backend this server uses, it always refuses and
+            changes nothing, so do not call it there.
 
-        Returns per-rule counts and samples, total_matches, batch_count, remaining, partial,
-        total_is_exact, reason, token, expires_at, action_hash, next_cursor and excluded_*.
-        Other refusals end the call.
-        """
-        return await invoke(
-            "preview_rules",
-            folder=folder,
-            **({"mark_read": True} if mark_read else {}),
-            **({"limit": limit} if limit != 200 else {}),
-            **({"order": order} if order != "oldest" else {}),
-            **({"cursor": cursor} if cursor is not None else {}),
-        )
+            Instead show the script from preview_sieve_filter for the user to add in Proton's own
+            filter settings (Add sieve filter), or use preview_add_rule and add_rule for a rule this
+            server applies. Proton Mail Bridge has no Sieve or filter interface and this server has
+            no other apply path; the refusal comes before any form and leaves the token unused.
 
-    @mcp.tool(annotations=_writes("Apply approved folder rules (beta)", destructive=True))
-    async def apply_rules(
-        token: tool_docs.BatchToken,
-        ctx: Context,
-        verbose: tool_docs.Verbose = False,
-        limit: tool_docs.BatchLimit = None,
-    ) -> dict[str, Any]:
-        """Beta: Move the batch an approved preview_rules token covers to its rules' folders;
-        only call after the user explicitly approved the preview.
+            It takes only preview_sieve_filter's token. Where a backend could apply it, the user
+            would confirm the exact script in the client's form, and it would add one filter that
+            files later matching mail, never replacing or removing one, and return log_id.
+            """
+            with suppress(Exception):  # Audit only: name the approval even if refused here.
+                _note(
+                    action_hash=await anyio.to_thread.run_sync(lambda: client.approval_hash(token))
+                )
+            # Never ask a person to confirm a change that no backend can apply.
+            await invoke("sieve_filter_ready")
+            await approve(ctx, "create_sieve_filter", token)
+            return await invoke("create_sieve_filter", token=token)
 
-        The rules engine is not fully reliable yet; preview first and check the results.
+        @mcp.tool(annotations=_reads("Preview a folder rule (beta)", idempotent=False))
+        async def preview_add_rule(
+            name: tool_docs.RuleName,
+            folder: tool_docs.TargetFolder,
+            conditions: tool_docs.Conditions,
+            match: tool_docs.MatchMode = "all",
+            mark_read: tool_docs.MarkRead = False,
+            include_matches: tool_docs.IncludeMatches = False,
+        ) -> dict[str, Any]:
+            """Beta: Preview saving one custom folder rule that this server applies to INBOX;
+            returns the rule and a single-use token, and changes nothing.
 
-        Use it only with a token from preview_rules that the user approved, or the
-        continuation_token of an earlier partial run of that approval; preview_action tokens go
-        to move, set_read_state or label instead. Unless the operator
-        turned it off, the user then confirms the exact change in the client's form; a
-        continuation of an approval already confirmed needs no new form. Read-state changes use the
-        preview's setting. A continuation refuses if a row or the rules changed, and keeps its
-        token: preview again. limit caps the messages this call processes.
+            The rules engine is not fully reliable yet; preview first and check the results.
 
-        Returns log_ids (a list even for zero or one chunk), counts, run/continuation state and
-        message IDs; verbose=true adds full rows. Pass each log_id to undo_action to move that
-        chunk back. Any untouched remainder gets resume=true and a continuation_token, redeemed
-        here. An expired, used or unknown token refuses: preview again.
-        """
-        await approve(ctx, "apply_rules", token)
-        result = await invoke(
-            "apply_rules", token=token, **({"limit": limit} if limit is not None else {})
-        )
-        return cleanup_response(result, verbose=verbose)
+            Use it for a rule this server applies to INBOX whenever preview_rules and apply_rules
+            run, or the operator's optional timer; use preview_sieve_filter when the user wants
+            Proton itself to file mail as it arrives, and preview_action for a one-off move. Show
+            the rule and obtain explicit user approval before add_rule. Saving moves no mail;
+            list_rules shows the existing rules.
+
+            The rule model is preview_sieve_filter's: conditions are 1 to 10 objects such as
+            {"field": "subject", "contains": "invoice"}; from and to match each address, subject
+            the decoded header, case-insensitively. A saved rule runs after every existing rule
+            (the first match wins). mark_read applies when apply_rules runs it; the timer never
+            marks mail read.
+            include_matches=true adds a read-only count and samples from one search over at most
+            200 newest INBOX candidates.
+
+            Returns the normalized rule, rule_sha256, the same rule as a Proton Sieve script
+            (informational, for Proton's own filter settings) with script_sha256, apply, token,
+            expires_at and action_hash. A name an existing rule uses, in any letter case, refuses.
+            With 20 saved rules the store is full: apply.available is false and add_rule refuses.
+            """
+            return await invoke(
+                "preview_add_rule",
+                name=name,
+                folder=folder,
+                conditions=conditions,
+                match=match,
+                mark_read=mark_read,
+                include_matches=include_matches,
+            )
+
+        @mcp.tool(annotations=_writes("Save an approved folder rule (beta)", destructive=True))
+        async def add_rule(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
+            """Beta: Save the previewed folder rule; only call after explicit approval of its
+            preview.
+
+            The rules engine is not fully reliable yet; preview first and check the results.
+
+            Use it only with a token from preview_add_rule that the user approved: the token, not an
+            argument, holds the rule. Unless the operator turned it off, the user then confirms the
+            exact rule in the client's form; a declined form retires the token.
+
+            Appends one rule to the saved rules store; never replaces, edits, reorders or removes a
+            rule, and moves no mail now: later rule runs (preview_rules then apply_rules, or the
+            optional timer) move the mail it matches. For Proton's own filtering on arrival use
+            preview_sieve_filter. Removing a saved rule is a manual edit of the store; undo_action
+            does not apply.
+
+            Returns log_id for the logged rule-saving attempt, with name, folder, rule_sha256,
+            backend, added, attempted, partial and token_consumed. An expired, used or unknown token
+            refuses, and so does a full store: preview again.
+            """
+            with suppress(Exception):  # Audit only: name the approval even if refused here.
+                _note(
+                    action_hash=await anyio.to_thread.run_sync(lambda: client.approval_hash(token))
+                )
+            # Never ask a person to confirm a rule that no backend can save.
+            await invoke("add_rule_ready")
+            await approve(ctx, "add_rule", token)
+            return await invoke("add_rule", token=token)
+
+        @mcp.tool(annotations=_reads("List folder rules (beta)"))
+        async def list_rules() -> dict[str, Any]:
+            """Beta: List the folder rules this server applies, in the order they run; reads no mail
+            and changes nothing.
+
+            The rules engine is not fully reliable yet; preview first and check the results.
+
+            Use it to say which rules exist, or before preview_add_rule to pick an unused name; use
+            preview_rules to see which mail they would move now. Proton's own filters are not
+            listed.
+
+            Returns rules, built_in_count, saved_count, max_saved_rules and apply. kind is built_in
+            (the packaged folder_rules.json) or saved (add_rule). Built-in rules show field and
+            contains, saved rules name, conditions, match, mark_read and rule_sha256; each has its
+            target folder.
+            """
+            return await invoke("list_rules")
+
+        @mcp.tool(annotations=_reads("Preview applying folder rules (beta)", idempotent=False))
+        async def preview_rules(
+            folder: tool_docs.RulesFolder = "INBOX",
+            mark_read: tool_docs.RulesMarkRead = False,
+            limit: tool_docs.RulesLimit = 200,
+            order: tool_docs.RulesOrder = "oldest",
+            cursor: tool_docs.RulesCursor = None,
+        ) -> dict[str, Any]:
+            """Beta: Preview which INBOX mail the folder rules would move now, skipping protected
+            senders, and return a single-use token for one batch; changes no mail.
+
+            The rules engine is not fully reliable yet; preview first and check the results.
+
+            Use it when the user asks to apply the folder rules, which list_rules shows; it is for
+            manual use only. Show per-rule counts, samples and skipped senders, wait for the user's
+            explicit approval, then call apply_rules with the token. Use preview_action for a
+            one-off change. It does not edit Proton's own filters.
+
+            A token covers one batch of up to limit reviewed matches; remaining counts what is left,
+            and further batches need separate approval. Saved rules (add_rule) follow the packaged
+            ones and report their name, conditions, match and mark_read; a saved rule with
+            mark_read=true marks its own matches read. A message with inconsistent sender copies or
+            ambiguous label memberships is left out of the batch and token and reported in
+            excluded_count, excluded_ids, excluded_truncated and excluded_reasons; total_matches
+            counts it, remaining does not. All excluded means no token.
+
+            The call budget is 20 seconds (or the shorter configured budget). When reviews are slow,
+            a call may review one whole batch of a single rule, so each rule needs its own approval
+            and order holds only within a rule; a deadline without a complete batch returns
+            partial=true and no token. Pass next_cursor as cursor with the same options to continue.
+            A call that fails keeps the cursor it was given, so retry with it; a reply spends it.
+            Cursors expire after ten minutes or restart and never authorize changes.
+
+            Returns per-rule counts and samples, total_matches, batch_count, remaining, partial,
+            total_is_exact, reason, token, expires_at, action_hash, next_cursor and excluded_*.
+            Other refusals end the call.
+            """
+            return await invoke(
+                "preview_rules",
+                folder=folder,
+                **({"mark_read": True} if mark_read else {}),
+                **({"limit": limit} if limit != 200 else {}),
+                **({"order": order} if order != "oldest" else {}),
+                **({"cursor": cursor} if cursor is not None else {}),
+            )
+
+        @mcp.tool(annotations=_writes("Apply approved folder rules (beta)", destructive=True))
+        async def apply_rules(
+            token: tool_docs.BatchToken,
+            ctx: Context,
+            verbose: tool_docs.Verbose = False,
+            limit: tool_docs.BatchLimit = None,
+        ) -> dict[str, Any]:
+            """Beta: Move the batch an approved preview_rules token covers to its rules' folders;
+            only call after the user explicitly approved the preview.
+
+            The rules engine is not fully reliable yet; preview first and check the results.
+
+            Use it only with a token from preview_rules that the user approved, or the
+            continuation_token of an earlier partial run of that approval; preview_action tokens go
+            to move, set_read_state or label instead. Unless the operator
+            turned it off, the user then confirms the exact change in the client's form; a
+            continuation of an approval already confirmed needs no new form. Read-state changes use
+            the preview's setting. A continuation refuses if a row or the rules changed, and keeps
+            its token: preview again. limit caps the messages this call processes.
+
+            Returns log_ids (a list even for zero or one chunk), counts, run/continuation state and
+            message IDs; verbose=true adds full rows. Pass each log_id to undo_action to move that
+            chunk back. Any untouched remainder gets resume=true and a continuation_token, redeemed
+            here. An expired, used or unknown token refuses: preview again.
+            """
+            await approve(ctx, "apply_rules", token)
+            result = await invoke(
+                "apply_rules", token=token, **({"limit": limit} if limit is not None else {})
+            )
+            return cleanup_response(result, verbose=verbose)
 
     @mcp.tool(annotations=_writes("Delete approved drafts", destructive=True))
     async def delete_draft(token: tool_docs.Token, ctx: Context) -> dict[str, Any]:
@@ -1454,7 +1462,7 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
         can no longer restore.
 
         Use it only when the user asks to undo. It reverses a move to Trash, Archive or a
-        folder, a read-state or label change, or an apply_rules chunk, by the log_id that
+        folder, a read-state or label change, or a chunk of a folder rules run, by the log_id that
         call returned (one per log_ids entry) or list_actions finds. It takes no preview or
         token, and is audited. Draft deletion, unsubscribe, sending, folder creation, saved
         rules, reindex and preview records cannot be undone.
@@ -1735,6 +1743,11 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
         for tool in mcp._tool_manager.list_tools():
             if tool.name not in mcp_apps.VIEW_CALLABLE:
                 tool.meta = mcp_apps.model_only(tool.meta)
+    # A host that cached an older tool list may still call these names: say what to call instead.
+    unavailable = {
+        **_RETIRED,
+        **({} if settings.enable_rules else dict.fromkeys(RULES_TOOLS, _RULES_OFF)),
+    }
     log = ActionLog(settings.action_log_path)
     dispatch = mcp._tool_manager.call_tool
     draft_metadata = mcp._tool_manager.get_tool("create_draft").fn_metadata
@@ -1821,6 +1834,9 @@ def create_mcp(settings: Settings, mail_client: Any = None) -> FastMCP:
 
     async def guarded_dispatch(name, arguments, context=None, convert_result=False):
         log_session_client(context)
+        if name in unavailable:
+            # Before dispatch and the audit: nothing runs, so there is nothing to record.
+            raise ToolError(f"Validation error: {unavailable[name]}")
         # Records written during this call name its MCP client.
         with (
             client_context(_client_identity(context)),
@@ -1867,6 +1883,14 @@ def create_app(settings: Settings | None = None, mail_client: Any = None) -> ASG
     return BearerAuth(app, config.token)
 
 
+def _saved_rules_exist(settings: Settings) -> bool:
+    """Whether the saved rules store holds a rule; a store that cannot be read counts as none."""
+    try:
+        return bool(load_saved(store_path(settings))[0])
+    except Exception:
+        return False
+
+
 def main(env: Mapping[str, str] | None = None) -> None:
     """Serve HTTP; the service launcher passes its token-bearing env without exporting it."""
     try:
@@ -1885,6 +1909,12 @@ def main(env: Mapping[str, str] | None = None) -> None:
             "Warning: with PROTON_MCP_SEND_SELF_NO_FORM=1, every address on "
             "PROTON_MCP_SEND_FROM can receive mail with no form. List only addresses that are "
             "yours alone.",
+            file=sys.stderr,
+        )
+    if not settings.enable_rules and _saved_rules_exist(settings):
+        print(
+            "Notice: saved folder rules exist, but the folder rule tools are off. Set "
+            "PROTON_MCP_ENABLE_RULES=1 to use them; an installed rules timer runs them either way.",
             file=sys.stderr,
         )
     uvicorn.run(
